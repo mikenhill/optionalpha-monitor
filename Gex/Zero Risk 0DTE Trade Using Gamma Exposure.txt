@@ -1,0 +1,61 @@
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)
+
+Hi, I'm Jack Slocum with Option Alpha. Today we're going to be going over a trade I made just a few moments ago where I got into this Sinairn butterfly position with zero risk. It actually has a nickel a profit associated with it. 
+
+In this video I'm going to be going over the logic I used in order to find and make this trade, which is this gamma exposure chart right here. The theory behind gamma exposure, how it works, and how I've been using it in my own personal trading. First thing I just want to say is I've been waiting for a day like today in order to make this video. 
+
+If you look here at this chart I'm looking at, this chart is giving us a visual of the gamma exposure call verse put side. If you look, most of the gamma exposure right now is at this one strike, the 6500 strike, and it's pretty evenly balanced. That is exactly what I'm looking for. 
+
+If we look at the default chart here, the net gamma, you can see it looks like there's this flip point here where this is the important level. What I've been discovering in my own trading is the most important part of this gamma exposure trading is finding these points where the gamma exposure is on one particular strike. The other thing that we can look at here is the absolute gamma chart. 
+
+If you look, it's pretty obvious most of the gamma is associated with this 6500 strike right now. That might seem like it makes a lot of sense considering the price is near 6500, but the truth is usually this is not the case. It's also very common that it's not balanced in the way that it is. 
+
+As soon as I find a day like today where the absolute gamma is all associated with one strike and the call and put gamma is highest at that one particular strike as well, this is a day where there's a good chance that the price is going to pin somewhere around this 6500 strike. It doesn't mean it's going to pin at that price all the way until the end of the market close. There's just a good chance that it's going to pin somewhere around that price during the day today. 
+
+That may change towards the end of the day as the market makers start repositioning themselves for wherever the gamma exposure is for tomorrow. If you're not familiar with gamma and gamma exposure, here's a quick little overview. Basically, these various different levels that we're looking at are giving us insights into where market makers are going to have to make hedges. 
+
+Gamma is a derivative of the delta value, so market makers in general are trying to keep their portfolios delta neutral. Whenever the price of the stock hits a certain level to where there's enough gamma exposure that the delta value is going to start changing rapidly, we can predict that at those levels market makers are going to have to adjust their hedges and that will dictate certain price action. In this particular case, when we see this one pillar with a lot of positive and negative gamma there, there's a good chance that there's going to be a balanced action of selling short and buying long, and this is going to create a point where the price is going to get pinned at this one particular level. 
+
+If we look at tomorrow's chart though, you can see there is a bit of action here at the 6500 strike, but there's also a lot of action at other strikes. It's not quite so defined, so there's a good chance though because the biggest action is at the 6500 strike. Again, we could pin at 65 all the way until the end of the day today.
+
+Some days though it doesn't work that way, so some days it'll have this big price for today and then tomorrow there'll be another price at a different level where most of the gamma exposure is. If that's the case, this pin price won't hold all the way until the end of the day because towards the end of the day, the price will naturally start gravitating towards wherever the pin price is for the following day. If we take a quick look at exactly how I ended up getting into these two trades, you can see here what happened is the price fell to $64.95 this morning and when the price fell down to $64.95, and again I'm looking for it to pin up there around $6500, I went ahead and opened an in-the-money, completely in-the-money short put spread for a credit of $2.60. Then when the price ultimately bounced back up around $6500, you can see here it was actually at $64.96, so it wasn't quite there yet. 
+
+I went ahead and opened up this short call spread at the $6500 strike as well, creating an iron butterfly in which it had a $5 width, but I got a $5 and a nickel credit, making it impossible for me to lose money on this particular trade. So I'm going to be holding this trade until later on the day, looking to take down a sizable portion of these two credits that I received that tally up to around $1000. Actually, it looks like right now I can potentially close these two positions and take down $130 of profit already, and I've only been in them for probably about 30 minutes, but I'm going to let them go throughout the day, assuming it's going to stay somewhere around this $6500 strike, and I'll be able to take in a larger percentage of that $1000 credit later on in the day. 
+
+I'm going to be targeting somewhere around $500. So if you look at this particular position, the worst I can do is make about $10, and the best that I can do is take down a sizable portion of that $1000 credit, which is what I'm going to be going after since I don't have any risk. So real quick, once again, let me just show you what it is that I'm looking for every day.
+
+I'm looking for one of the days where there's a tremendous amount of gamut exposure at one particular strike, and the gamut exposure is well-balanced, meaning there's a lot of action on the put side and on the call side. So if we look here, there's 6,500 contracts of open interest on the call side, 4,100 contracts of open interest on the put side, also a lot of action. This chart right here in the background, the blue that you're seeing, this is today's volume. 
+
+There's a lot of volume currently at that strike as well on the call side. The put side also has a decent amount of volume. It looks like 19, almost 20,000 contracts have been traded as well on the put side. 
+
+So there's a lot of action at this 6,500 strike, and I'm hoping that indicates that it's going to pin there. So let me go ahead and jump on over here and show you some of my bots. If you've been following along in this video series, I started with $10,000. 
+
+I do want to share with you guys, I did get flagged as a pattern day trader. I closed an iron condor position or actually was an iron butterfly, one of the Y flies right here and got instantly flagged as a day trader. So I did have to bring my account balance up to $25,000. 
+
+That has enabled me to make a few day trades, which has been good and bad. I'll share with you today, this morning, I actually closed the Y fly trade and took $110 loss on it. I did that because I was making this exposure trade instead. 
+
+And I saw that 6,500 bar. And if you look the end at the max loss for this iron butterfly was the 6,500. So I decided to close it when I could for only $110 loss instead of risking the $865. 
+
+So I did make a couple other ones here. If you look, these were closed on the day they were opened. And I took down a small little profit instead of risking. 
+
+I think one of these turned out to be a max loss and the other one would have turned out to be a pretty decent profit. But either way, I closed them in advance. You can see there was this rocky period we had last week, early in the week for sure, where it took a couple losses as well. 
+
+After what was a nice run for a while. So this spot is still doing good though. If you look, it's up $9,093, 363% and a little over a year since I started it. 
+
+It had a little run up in the beginning. It did go sideways or down for a long period of time. I'm showing you here. 
+
+And then it's been on an uptick ever since then. So this bot is available in the Option Alpha community. If you want to give it a try, you can also paper trade it. 
+
+I'll show you where in just a moment. The other bot that's been on a tear lately is this opening range breakout. And I'll include a link to another video where I shared this particular strategy and the back testing I was doing behind it as well.
+
+But if you look, it's been doing pretty well. It's been doing really well for people in the Option Alpha community. Thank you God for blessing us with this bot. 
+
+If you look here, these are all the bots in the Option Alpha community that members have shared with each other. It's a beautiful thing that we have going on here. Everyone contributing their work back and able to use the work of others. 
+
+This opening range breakout bot is currently doing really well for people. You can see here the yFly bot that I just was looking at as well. This one was doing better last week. 
+
+It had a bit of a rocky period so it's fallen down. But overall, I've had success with it and I know that there's a lot of other people who are having success. Feel really blessed to have this community and everyone who's a part of it. 
+
+Thank you everyone who's contributing your work. So that's it for today's video. Thanks for watching and I'll see you again next time.
+
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)

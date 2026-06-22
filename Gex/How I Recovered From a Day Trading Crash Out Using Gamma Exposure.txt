@@ -1,0 +1,75 @@
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)
+
+Hi, I'm Jack Slocum with Option Alpha. Today I will be covering the trades that I've been making in this bot here called the Gamma Exposure Trades bot and if you look over here in my list of bots this bot is by far the most profitable of all of the things that I've been doing over the course of this video series. I started trading it about six months ago and have been on this learning experience ever since. 
+
+I did have one day at the end of last year where I learned that when the open interest numbers are out of control and on this particular day there were several strikes with 20,000 open interest on the put and the call side at each of the different strike areas like 6950, 7000, 6900 and because of that the price on this final day was moving all over the place. I started making trades against it and before I knew it I had lost a certain amount where my mental game started to be compromised and at that point the losses added up to a very high amount. As you can see here on some of these positions I risked $8,228 on this position that I opened at $256 right before the market was actually closed. 
+
+So if we look here on the 31st when I had that huge losing day you can see the open interest numbers here in the middle of that pop up. Call open interest was around $20k, put open interest was around $15k. On normal days these strikes are around two to five thousand open interest tops. 
+
+So those are really large numbers and we come down here there's $19,000, $17,000, over here $7,000 and $23,000. Even down here there's huge open interest. Up here we have $19,700. 
+
+So there's so much open interest on this particular last day of the year on SPX and I can only imagine how each of the other tickers that the SPX are also comprised of have enormous open interest numbers and because of that the price action on this day was completely unpredictable. But because the open interest numbers were so high I had this belief that there's no way you could go past one of these prices and I was completely wrong. So that was the learning experience I got out of the huge losses to realise that on those days specifically end of month, end of quarter, end of year triple witching where there's these large open interest numbers potentially that the gamma exposure profiles on those days are not as reliable.
+
+So to proceed with caution. So this one crash out day was a huge learning experience but since then I have been recovering and I was using a strategy I was using before that day that has been very successful. And as part of that strategy there's several different gamma exposure profiles that I'm looking for on a daily basis. 
+
+I'll go over those in just a few minutes. There's the GEX wall, the GEX pillar, the GEX slide. I have a whole bunch of names that I've made up for them but they're particular profiles I'm looking for that allow me to get into a trade where I am betting against what the herd is doing. 
+
+So here's what I mean by the herd. So let's say for example the current SPX price is $69.80 and it's moving upward towards $69.00. There's a whole bunch of people who are buying and trying to get in at the $69.00 strike. And so at that strike there's a whole bunch of calls that have been purchased or long call spreads. 
+
+Either way there's a lot of action at that $69.00 strike. And when the price actually gets above $69.00, so let's say it goes to $69.05, market makers and other major players who are in the market then start hedging which provides some resistance which sends the price back down some. So if we jump over here real quick into this monthly view and we'll go over some of this here in a minute. 
+
+And we look for a particular day and I'll just use Friday because Friday had a trade that was just like this. And in the Gamma profile what I'm looking for is somewhere where there's a lot of Gamma exposure. So you can see here there's a big block of call Gamma exposure at this $69.00 strike. 
+
+The second thing that you can see is in the background there's this blue point. See it there. That blue point means there's a tremendous amount of call volume at that strike as well. 
+
+So what we can see here is that this strike is going to act as a position of resistance. And as soon as the price goes above there or even somewhat near there, what I'm going to do is get in a long put spread assuming it's going to bounce off there and come back down some. Now it doesn't mean I have to hold that all day. 
+
+In this case I opened this position at 10 10 a.m and I closed it fairly quickly at 11 29 a.m. So that's an example of a Gex wall. If you look here by the way, these are my Gamma exposure trades over the last four months. In full transparency I did make other Gamma related trades that are not included in this report that were part of my learning experience. 
+
+And what I intend to share here is not that this is like I'm some super profitable trader who's always profitable. As you can see I have bad days just like every other trader. Ultimately what I've done though using this Gamma exposure has become more consistent than I've ever been as a trader, specifically since the beginning of the year.
+
+And what I'm going to share with you is a checklist that I go through every single day as I'm making these Gamma exposure trades that has helped me to be a more consistent trader as well. So we just learned about the herd. Let me just follow through here and show you exactly what I'm trying to do. 
+
+Ultimately my goal here is to make $500 per day. Now I'd like to get that up to $1,000 and for the month of January I did actually have it up to $1,194. For the month of February I'm a little bit below but ultimately over the entire course of 2026 my goal is to average $1,000 per day and turn $50,000 into $250,000. 
+
+We'll see how that goes. It's going to be a great experience and I'll be sharing my trades and what I'm doing on here and everything that I learned with you guys. I hope you will want to follow along. 
+
+So each day is a brand new day and so if we come back here and we look at some of these trades that I'm making here this has been one of the most important things that I've had to remember. This day in which I lost $25,550 there were some several really big trades here that I lost. This was very disheartening. 
+
+Basically my account had already been flagged for pattern day trading so I had to take a little break here which was probably a good thing. Get my mind right, come back, regroup and in January I came back with a vengeance with a lot more discipline determined not to repeat the same mistakes. So one of the things I just want to share here by coach John Wooden make each day your masterpiece. 
+
+So each day when I come in here trading I have to forget about any mistakes or any trades that didn't go well the previous day and approach each day with complete and total discipline and making good decisions. And as part of that what I have here is this checklist for each trade that I'm making the question I ask myself is why am I making this trade? So I have to continue to make good decisions about every trade that I'm making. The second part is once I get into a trade don't doubt the decision making I've already made. 
+
+I have to trust that I made a good decision when I got into it. It doesn't mean that to trade I have to continue to believe that the trade is going to win but I have to continue to believe in myself that I made a good trade because as soon as I start doubting whether or not I made a good decision then it's about me and as soon as I get into that state that's what led to those big losing days. Because once I believe it's about me then I have to make up for the losses in order for me to be okay. 
+
+But if it's about just making good trades and good decisions and I get into a trade and I ask myself why am I making this trade is it because of this gamma profile and the gamma profile is there but then that gamma profile switches that's not about me making a mistake it's just sometimes the gamma profile switches. And so what that allows me to do is stay disciplined and keep making good decisions even when things are going wrong. It also allows me to be patient and to pick my spots so sometimes the market is going up I see it I want to get in but I'm unsure whether or not it's going to continue to go in that direction in which case the gamma profile could switch to a different strike. 
+
+So I wait and I allow that to develop and see what happens instead of believing that I'm going to miss an opportunity if I don't jump in now. And then the last one is of course is always to realise that in every situation that's happening there's a another opportunity that's available that can potentially turn a bad situation into a good situation which is what I do on many of the days that I've been trading. So the other part that I have to remember is that there are days that are abnormal days. 
+
+So the monthly expirations wow there's a lot of open interest on all the individual tickers and the zero DTE action which is typically a major driver of the SPX price becomes less relevant. So on a normal weekday say Tuesday the only tickers that are really expiring are SPX and zero DTE tickers. So the gamma exposure profile for those will be more likely to dictate the price action for the day.
+
+But on a monthly expiration when there's lots of symbols expiring driving market prices based on their own gamma exposure levels it's less likely that the SPX gamma exposure levels will be able to control the price range as well as it does on one of those days when it's the only one with an expiration. Then on the last trading day of the month the quarter of the year a triple witching day or FOMC or binary event days or any time there's news that comes out the gamma exposure profile doesn't hold as strong. So I always try to remember that and ensure on those days I'm either not trading or I'm trading with an increased level of caution. 
+
+So let's jump into some more of these gamma exposure profiles. I'll show you some of the other ones. So the Gex pillar let me show you this one real quick. 
+
+I'll jump over here and if you see here I'm going to click and I'll look at the historical gamma exposure and if you look it's very similar to the wall except it's on the put side. So basically there's this large block of put open interest and if you look there's 5600 of put open interest there but also the orange peak right here is on the exact same strike. So in this particular case what we're seeing is there's a high probability that the price if it falls below 6900 is going to have some support because of all of this one open interest here as well as the current daily volume is also on that particular strike. 
+
+So that's where you're going to see some hedging whenever the price gets there. So what I did was trade a long call spread saying it was going to rebound after it got down to that price range. The next one we're going to look at is the Gex slide. 
+
+So let me jump over here to February 13th click on this one here and as you can see it was a nice little profit. If we look at the gamma exposure profile at the time the position was open. So what we're looking at here I call the Gex slide and what it is is all of the put gamma exposure and open interest is actually spread across many strikes and what that means is as the price moves across there there's going to be hedging at each of those different strike points causing it to continue to move down. 
+
+Now the thing about the gamma exposure slide though is just as fast as it can move down it can go right back up. So that Gex slide it can create some whipsaw action that we see on the market sometimes but it's also something that you can use to get into a position that's far out of the money like in this case what I did was get in a 68.55 68.50 and sure enough it hit. So the last one we're going to look at is the Gex pin.
+
+Jump over here to the 16th and we're going to look at this one as you can see I traded an iron butterfly ten dollars wide. So if you look you can see there's one of those Gex walls along with the Gex pillar and if you look at the volume overall also on this particular day is semi peaked at around the same price as well. So what I ultimately did was decided to open an iron butterfly just so you know this was also flat on the day. 
+
+So one of the other things that I'm always looking for every day is will the actual price end up at the previous day's close if you've been watching the market over the last few months that's been happening a lot. We did add a couple new features to the platform that I'm very excited to share with you guys. I'll do that in my next video which involved trading the previous day's close. 
+
+The back test results are incredible and we also added that to bots so it could be fully automated. Again that'll be in my next video so keep your eyes open for it. But on this particular day what was really great is I was able to combine the gamma exposure profile with the return to flat. 
+
+So basically flat on the day and both of them lined up and I got in this $10 wide iron butterfly that I held for just a short period of time and was able to take down a nice profit. Gamma exposure is something that has completely revolutionised my trading. The way I approach everything I'm doing involves looking at the market, looking at what's going on underneath the hood, seeing where everyone else is and then positioning myself to where I can take advantage of that information.
+
+As I continue to improve at reading the gamma exposure profiles and getting an understanding of what the market is going to do I will share what I learned with you. That's it for today's video. On behalf of the Option Alpha team we love you guys. 
+
+I'll see you again next time.
+
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)

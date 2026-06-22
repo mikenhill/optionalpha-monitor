@@ -1,0 +1,63 @@
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)
+
+Hi, I'm Jack Slocum with Option Alpha. Today we're going to be going over this new tool here we're using to make more informed zero DTE trades. I have a few trades over here that I have personally made today. 
+
+I have been trading it over the past week. I'm really excited to introduce it to you and give you a quick preview. We'll be going live in approximately two weeks. 
+
+A quick overview of what it is you're actually looking at here. This chart here is measuring gamut exposure for market makers. Basically, anytime it's in this red zone here, this is where gamma exposure is negative.
+
+Market makers are going to hedge by going with the current trend. So, for example, if the price is moving downwards, they're going to sell shares short in order to hedge their positions. And if the price is moving upwards, they're going to be buying back those short shares in order to hedge their position and keep their portfolios neutral. 
+
+However, there's this other view here that we added, which looks at the direct call and put gamut exposure. I'm going to go through the series of trades I made here today using this particular tool and give you a little overview of how I've been using it. Now, I haven't figured out exactly how yet we can back test the trades this tool is making and the logic that I'm doing here manually. 
+
+I haven't actually automated it yet either, but rest assured we're working on that and we will get that implemented at some point in the future. So, if we look here at today's expiration, we can see the total gamut exposure overall is negative. If we were to click here, we can look at tomorrow. 
+
+You can see overall is positive 1.5 billion and you can see there's a lot of call action here. There is actually still a lot of put action as well. The open interest charts down here, you can also see the daily volume. 
+
+You can select to see more strikes if you wanted to. In the background, so I'm going to go back to today's zero DTE chart. In the background here, what you're seeing, the orange is the total put volume for the day and the blue is the total call volume and the grey is where it overlaps. 
+
+If we scroll down here though, we can see it actually stacked here and you can see most of the call and put volume is on this 6300 strike today and also most of the open interest other than these way out of the money ones over here is also around that 6300 strike. And if we look at this call first put view, we can see there's this big pillar here, both directions at the 6300 strike call and put gamma as well. So let me walk you through a series of trades that I made and where this chart was when I actually made those trades. 
+
+So really early in the morning, I traded this long put spread. And if you could see the price at that time was 6,287. And if we look at what the chart looked like this morning, early this morning around 9.55am, you can see that we were deep in negative territory here. 
+
+And as you can see, the chart is also a little bit different. I've been working on this chart throughout the day today to add new things that we can use to try to trade this gamma exposure strategy. But basically, it was deep red here with lots of negative gamma exposure, which means that if we continue to move downward, there's a high likelihood that market makers would have to short shares in order to hedge their positions and the price would rapidly move downwards. 
+
+With that in mind, I opened up this long put spread. And at that time, I looked at this chart, the call verse put chart. And what I saw was this big block of call gamma exposure, along with this big negative block of put gamma exposure. 
+
+So theory is that the price then will gravitate towards where this gamma exposure is highest and then ultimately get pinned. So I opened this iron butterfly very narrow. This is very optimistic trade here. 
+
+Basically, I have a $4.55 window each direction in order to be profitable. But I was only risking $135 with the max profit around 1365. And if I wanted to right now, I could actually make a day trade, which I'm not going to because this is a four-legged position and take down $100 profit, even though it's in max loss territory out here. 
+
+So these iron butterflies with very low risk with a very high reward at that point over here, which is this point where the gamma exposure is highest to the call side and to the downside. And this is actually what I'm trying to figure out, how we can auto trade this and also back test what would it be like if we opened iron butterflies every single day at this point at a certain time of day. Would we actually be profitable long term? So that's one thing I'm working on. 
+
+But if we look at the actual price action, exactly what I was thinking would happen with the iron butterfly. So again, the long put spread, when we hit this negative gamma territory part over here, you can see the moves were exaggerated to the downside as market makers were forced to hedge their positions by shorting shares. But then the price basically came back up a bit and got pinned right around $6,300, which is what I was thinking was going to happen. 
+
+So at some point, though, you can see here the price started going up. And as that price started going up, I was in here looking again at this chart and I saw that this gamma exposure here at $6,300 was decreasing, but there was also another spike of gamma exposure right here at $6,310. And if you look, the other thing you can see, it's obviously later in the day now, is the blue right here is a big spike of call volume at this strike. 
+
+And so the idea is that this right here is based on the open interest, which was calculated at the close yesterday. But a lot of action is going on at the $6,310 strike, especially call action, which the theory that I would have is that there'll be a bit of resistance there from market makers allowing the price to go above $6,310. And if you look at the other gamma exposure chart here, you can see that point a bit clearer. 
+
+So what I did at that point was I looked at my positions that I had open and I'm risking approximately $320 or $30 on these two positions I had opened earlier in the day. And the idea was to hedge both of those positions by opening this short call spread here at the $6,310 strike and with the max profit of $365. So my risk reward profile basically on the trades that I've made here is anything below $6,310, I'll pretty much break even, make a couple bucks profit. 
+
+If it finishes somewhere in the $6,300 range, I have the ability to win not only a large chunk here from this iron butterfly, but also I'll win this short call spread as well. And the put spread here is probably going to expire worthless. But overall, the reason I traded is look at this reward risk, 669%. 
+
+And I was hoping that the price would continue to fall. It didn't. But I will try again at some point in the future when the gamma once again looks like this right here. 
+
+So this is the new tool we've been working on. I have been trading it personally. I'm excited to get it automated and figure out how exactly we can backtest some of these trades. 
+
+We'll get that done in the very near future. Let me jump back over here and show you how my bots have been doing overall. If you've been following along in this video series, I started with $10,000. 
+
+It's been an up and down ride. Currently this bot, the YFLY bot is once again on an upward move. This bot's been doing pretty good lately. 
+
+If you see here, it's up almost 300% in the last year. But in all transparency, if you look here around November of last year, all the way until late May this year, it was pretty much breaking even or losing. So it had a great run right here. 
+
+Another nice run that is currently on. But just want to be completely transparent. This bot does not win every day. 
+
+It does have rocky periods like any trading strategy. But long term, I'm going to continue to hold it. Other people in the community are also trading it. 
+
+We did recently release this new view of the top bot templates where you can see how the bots that have been shared in the community are doing overall. YFLY is currently on top for the last 90 days. This new opening range breakout strategy that we introduced in our last release a couple weeks ago has been on a tear for users. 
+
+Thank you God for blessing us with the wisdom to create these bots and to all the people in the Option Alpha community who have shared their work with others as well. It's a beautiful thing to have all of us working together towards success and sharing what we do with other people. I'm really grateful for all of you.
+
+That's it for today's video. Thank you for watching and I'll see you again next time.
+
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)

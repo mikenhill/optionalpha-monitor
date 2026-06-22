@@ -1,0 +1,1916 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
+  <meta http-equiv="Expires" content="0">
+  <title>GEX Intraday Viewer</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://cdn.plot.ly/plotly-2.32.0.min.js"></script>
+  <style>
+    body { background:#f0f2f5; color:#212529; font-family:'Segoe UI',sans-serif; font-size:13px; }
+    .card { background:#ffffff; border:1px solid #dee2e6; border-radius:8px; box-shadow:0 1px 4px rgba(0,0,0,0.07); }
+    .card-header { background:#f8f9fa; border-bottom:1px solid #dee2e6; font-size:12px; padding:6px 12px; font-weight:600; color:#343a40; }
+    .point-card { border-left:4px solid #aaa; margin-bottom:7px; padding:8px 12px; border-radius:4px; background:#f8f9fa; }
+    .point-card.danger   { border-color:#dc3545; background:#fff5f5; }
+    .point-card.success  { border-color:#198754; background:#f0fff4; }
+    .point-card.warning  { border-color:#ffc107; background:#fffdf0; }
+    .point-card.info     { border-color:#0d6efd; background:#f0f6ff; }
+    .point-card.primary  { border-color:#0d6efd; background:#f0f6ff; }
+    .point-card.secondary{ border-color:#6c757d; background:#f8f9fa; }
+    .point-card.dark     { border-color:#495057; background:#f8f9fa; }
+    .point-title { font-weight:700; font-size:12px; margin-bottom:3px; color:#212529; }
+    .point-text  { font-size:11px; color:#495057; line-height:1.55; }
+    .time-badge  { font-size:1.1rem; font-weight:700; color:#0d6efd; }
+    .regime-neg  { background:#f8d7da; color:#842029; }
+    .regime-pos  { background:#d1e7dd; color:#0f5132; }
+    .regime-badge{ padding:3px 10px; border-radius:12px; font-size:11px; font-weight:700; }
+    .stat-lbl    { color:#6c757d; font-size:11px; }
+    .stat-val    { font-weight:700; font-size:12px; color:#212529; }
+    .gex-hdr     { display:flex; justify-content:space-between; align-items:center;
+                   padding:5px 10px; background:#f8f9fa; border-bottom:1px solid #dee2e6; font-size:11px; }
+    .pct-badge   { font-size:10px; font-weight:700; padding:1px 4px; border-radius:3px; cursor:help; display:inline-block; vertical-align:middle; line-height:14px; margin-left:2px; }
+    .pct-extreme { background:rgba(220,53,69,0.18); color:#dc3545; }
+    .pct-high    { background:rgba(253,126,20,0.18); color:#fd7e14; }
+    .pct-mid     { background:rgba(255,193,7,0.18);  color:#9a7d00; }
+    .pct-low     { background:rgba(108,117,125,0.13); color:#6c757d; }
+  </style>
+</head>
+<body>
+<div class="container-fluid px-2 py-2">
+
+  <!-- Tabs -->
+  <ul class="nav nav-tabs mb-2" role="tablist">
+    <li class="nav-item">
+      <button class="nav-link active" id="tab-hist-btn" data-bs-toggle="tab" data-bs-target="#tab-hist" type="button" role="tab">Historical</button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" id="tab-live-btn" data-bs-toggle="tab" data-bs-target="#tab-live" type="button" role="tab">Live</button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" id="tab-analysis-btn" data-bs-toggle="tab" data-bs-target="#tab-analysis" type="button" role="tab">Analysis</button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" id="tab-hscatter-btn" data-bs-toggle="tab" data-bs-target="#tab-hscatter" type="button" role="tab">History</button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" id="tab-csv-btn" data-bs-toggle="tab" data-bs-target="#tab-csv" type="button" role="tab">CSV Data</button>
+    </li>
+    <li class="nav-item">
+      <button class="nav-link" id="tab-spx-btn" data-bs-toggle="tab" data-bs-target="#tab-spx" type="button" role="tab">SPX Price</button>
+    </li>
+  </ul>
+
+  <div class="tab-content">
+  <!-- ======= HISTORICAL TAB ======= -->
+  <div class="tab-pane fade show active" id="tab-hist" role="tabpanel">
+
+  <!-- Control bar -->
+  <div class="card mb-2">
+    <div class="card-body py-2 px-3">
+      <div class="d-flex flex-wrap align-items-center gap-3">
+        <div>
+          <button class="btn btn-sm btn-outline-secondary" id="btn-prev-day">&laquo;</button>
+          <select id="date-sel" class="form-select form-select-sm d-inline-block mx-1" style="width:130px"></select>
+          <button class="btn btn-sm btn-outline-secondary" id="btn-next-day">&raquo;</button>
+        </div>
+        <div>
+          <button class="btn btn-sm btn-outline-secondary" id="btn-prev" disabled>&laquo; Prev 30m</button>
+          <button class="btn btn-sm btn-outline-secondary" id="btn-go-first">09:30</button>
+          <span class="time-badge mx-2" id="lbl-time">09:30</span>
+          <button class="btn btn-sm btn-outline-secondary" id="btn-go-last">EOD</button>
+          <button class="btn btn-sm btn-primary" id="btn-next">Next 30m &raquo;</button>
+        </div>
+        <div>
+          <span class="stat-lbl" data-bs-toggle="tooltip" title="SPX last price" style="cursor:help">SPX</span>
+          <span class="stat-val ms-1" id="lbl-uprice">--</span>
+          <span id="regime-badge" class="regime-badge ms-2">--</span>
+        </div>
+        <div>
+          <span class="stat-lbl" data-bs-toggle="tooltip" title="Percentage of net GEX that is call GEX (0-100%)" style="cursor:help">Sentiment</span> <span class="stat-val ms-1" id="lbl-sentiment">--</span>
+          <span class="stat-lbl ms-3" data-bs-toggle="tooltip" title="Ratio of call GEX to put GEX (negative = put-dominant)" style="cursor:help">Ratio</span> <span class="stat-val ms-1" id="lbl-ratio">--</span>
+          <span class="stat-lbl ms-3" data-bs-toggle="tooltip" title="Net GEX = total call GEX minus total put GEX" style="cursor:help">Net GEX</span> <span class="stat-val ms-1" id="lbl-net">--</span><span id="pct-net"></span>
+        </div>
+        <div>
+          <span class="stat-lbl" data-bs-toggle="tooltip" title="Strike with the largest absolute GEX concentration" style="cursor:help">Wall</span> <span class="stat-val text-info ms-1" id="lbl-wall">--</span>
+          <span class="stat-lbl ms-3" data-bs-toggle="tooltip" title="Price where cumulative net GEX crosses zero (negative to positive)" style="cursor:help">Flip</span> <span class="stat-val ms-1" style="color:#d29922" id="lbl-flip">--</span>
+        </div>
+        <div>
+          <span class="stat-lbl" data-bs-toggle="tooltip" title="Key Confluence Score: weighted concentration of GEX, OI and volume at the key strike" style="cursor:help">KCS</span> <span class="stat-val ms-1" id="lbl-kcs">--</span><span id="pct-kcs"></span>
+          <span class="stat-lbl ms-3" data-bs-toggle="tooltip" title="Key Strike Dominance: percentage of total absolute GEX held at the key strike" style="cursor:help">Dominance</span> <span class="stat-val ms-1" id="lbl-dominance">--</span><span id="pct-dominance"></span>
+        </div>
+        <div class="ms-auto">
+          <div class="form-check form-check-inline">
+            <input class="form-check-input" type="checkbox" id="chk-show-rankings">
+            <label class="form-check-label" for="chk-show-rankings" style="font-size:12px">Show Rankings</label>
+          </div>
+          <button class="btn btn-sm btn-info fw-bold" id="btn-sync-hist">Sync Historical Data</button>
+          <span class="text-muted ms-2" style="font-size:11px" id="sync-status"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Day Type Classification (hidden until revealed) -->
+  <div class="card mb-2" id="day-type-card" style="display:none">
+    <div class="card-body py-2 px-3">
+      <div class="d-flex align-items-center gap-2">
+        <button class="btn btn-sm btn-outline-dark" id="btn-reveal-type">Reveal Day Type</button>
+        <span class="fw-bold" style="font-size:13px;display:none" id="day-type-label">--</span>
+        <span class="text-muted" style="font-size:11px;display:none" id="day-type-desc"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ROW 1: SPX chart (left) + Teaching points (right) -->
+  <div class="row g-2 mb-2">
+
+    <div class="col-lg-8">
+      <div class="card h-100">
+        <div class="card-header">SPX Price with GEX Levels</div>
+        <div class="card-body p-0">
+          <div id="spx-chart" style="height:320px;width:100%"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="col-lg-4">
+      <div class="card h-100">
+        <div class="card-header fw-semibold">GEX Teaching Points</div>
+        <div id="points-panel" class="card-body p-2" style="overflow-y:auto;height:320px">
+          <p class="text-muted mb-0">Select a date to begin.</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ROW 2: 3-panel GEX chart (full width) -->
+  <div class="row g-2">
+    <div class="col-12">
+      <div class="card">
+
+        <div class="gex-hdr">
+          <span class="fw-semibold">Gamma Exposure</span>
+          <span>
+            <span class="stat-lbl">Puts</span> <span class="stat-val text-danger ms-1" id="gex-puts">--</span><span id="pct-gex-puts"></span>
+            <span class="stat-lbl ms-3">Calls</span> <span class="stat-val text-success ms-1" id="gex-calls">--</span><span id="pct-gex-calls"></span>
+          </span>
+        </div>
+        <div id="gex-chart" style="height:240px;width:100%"></div>
+
+        <div class="row g-0">
+          <div class="col-6" style="border-right:1px solid #dee2e6">
+            <div class="gex-hdr">
+              <span class="fw-semibold">Open Interest</span>
+              <span>
+                <span class="stat-lbl">Puts</span> <span class="stat-val text-danger ms-1" id="oi-puts">--</span><span id="pct-oi-puts"></span>
+                <span class="stat-lbl ms-2">Calls</span> <span class="stat-val text-success ms-1" id="oi-calls">--</span><span id="pct-oi-calls"></span>
+                <span class="stat-lbl ms-2">P/C</span> <span class="stat-val ms-1" id="oi-pc">--</span>
+              </span>
+            </div>
+            <div id="oi-chart" style="height:200px;width:100%"></div>
+          </div>
+          <div class="col-6">
+            <div class="gex-hdr">
+              <span class="fw-semibold">Daily Volume</span>
+              <span>
+                <span class="stat-lbl">Puts</span> <span class="stat-val text-danger ms-1" id="vol-puts">--</span><span id="pct-vol-puts"></span>
+                <span class="stat-lbl ms-2">Calls</span> <span class="stat-val text-success ms-1" id="vol-calls">--</span><span id="pct-vol-calls"></span>
+                <span class="stat-lbl ms-2">P/C</span> <span class="stat-val ms-1" id="vol-pc">--</span>
+              </span>
+            </div>
+            <div id="vol-chart" style="height:200px;width:100%"></div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  </div><!-- end #tab-hist -->
+
+  <!-- ======= LIVE TAB ======= -->
+  <div class="tab-pane fade" id="tab-live" role="tabpanel">
+
+    <!-- Live control bar -->
+    <div class="card mb-2">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <button class="btn btn-sm btn-warning fw-bold" id="btn-capture-session">Capture Session</button>
+          <button class="btn btn-sm btn-success fw-bold" id="btn-fetch-live">Fetch Live GEX</button>
+          <span class="stat-lbl" id="live-status">No snapshots yet today</span>
+          <div>
+            <button class="btn btn-sm btn-outline-secondary" id="btn-live-prev" disabled>&laquo; Prev</button>
+            <span class="time-badge mx-2" id="live-lbl-time">--:--</span>
+            <button class="btn btn-sm btn-outline-secondary" id="btn-live-next" disabled>Next &raquo;</button>
+          </div>
+          <div>
+            <span class="stat-lbl" data-bs-toggle="tooltip" title="SPX last price" style="cursor:help">SPX</span>
+            <span class="stat-val ms-1" id="live-lbl-uprice">--</span>
+            <span id="live-regime-badge" class="regime-badge ms-2">--</span>
+          </div>
+          <div>
+            <span class="stat-lbl" data-bs-toggle="tooltip" title="Percentage of net GEX that is call GEX (0-100%)" style="cursor:help">Sentiment</span> <span class="stat-val ms-1" id="live-lbl-sentiment">--</span>
+            <span class="stat-lbl ms-3" data-bs-toggle="tooltip" title="Ratio of call GEX to put GEX (negative = put-dominant)" style="cursor:help">Ratio</span> <span class="stat-val ms-1" id="live-lbl-ratio">--</span>
+            <span class="stat-lbl ms-3" data-bs-toggle="tooltip" title="Net GEX = total call GEX minus total put GEX" style="cursor:help">Net GEX</span> <span class="stat-val ms-1" id="live-lbl-net">--</span><span id="live-pct-net"></span>
+          </div>
+          <div>
+            <span class="stat-lbl" data-bs-toggle="tooltip" title="Strike with the largest absolute GEX concentration" style="cursor:help">Wall</span> <span class="stat-val text-info ms-1" id="live-lbl-wall">--</span>
+            <span class="stat-lbl ms-3" data-bs-toggle="tooltip" title="Price where cumulative net GEX crosses zero (negative to positive)" style="cursor:help">Flip</span> <span class="stat-val ms-1" style="color:#fd7e14" id="live-lbl-flip">--</span>
+          </div>
+          <div>
+            <span class="stat-lbl" data-bs-toggle="tooltip" title="Key Confluence Score: weighted concentration of GEX, OI and volume at the key strike" style="cursor:help">KCS</span> <span class="stat-val ms-1" id="live-lbl-kcs">--</span><span id="live-pct-kcs"></span>
+            <span class="stat-lbl ms-3" data-bs-toggle="tooltip" title="Key Strike Dominance: percentage of total absolute GEX held at the key strike" style="cursor:help">Dominance</span> <span class="stat-val ms-1" id="live-lbl-dominance">--</span><span id="live-pct-dominance"></span>
+          </div>
+          <div>
+            <span class="stat-lbl" id="live-divergence-lbl" data-bs-toggle="tooltip" title="Volume divergence: significant volume move without corresponding price follow-through" style="display:none;cursor:help">Divergence</span>
+            <span class="stat-val text-danger ms-1 fw-bold" id="live-divergence-val" style="display:none">--</span>
+          </div>
+          <div class="ms-auto">
+            <div class="form-check form-check-inline">
+              <input class="form-check-input" type="checkbox" id="chk-live-show-rankings">
+              <label class="form-check-label" for="chk-live-show-rankings" style="font-size:12px">Show Rankings</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live pipeline log -->
+    <div class="card mb-2" id="live-pipeline-card" style="display:none">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex align-items-center gap-2">
+          <span class="fw-bold" style="font-size:12px">Pipeline:</span>
+          <span class="text-muted" style="font-size:11px" id="live-pipeline-status">Ready</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live charts -->
+    <div class="row g-2 mb-2">
+      <div class="col-lg-8">
+        <div class="card h-100">
+          <div class="gex-hdr">
+            <span class="fw-semibold">Live GEX — Gamma Exposure</span>
+            <span>
+              <span class="stat-lbl">Puts</span> <span class="stat-val text-danger ms-1" id="live-gex-puts">--</span><span id="live-pct-gex-puts"></span>
+              <span class="stat-lbl ms-3">Calls</span> <span class="stat-val text-success ms-1" id="live-gex-calls">--</span><span id="live-pct-gex-calls"></span>
+            </span>
+          </div>
+          <div class="card-body p-0">
+            <div id="live-gex-chart" style="height:300px;width:100%"></div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="card h-100">
+          <div class="card-header fw-semibold">GEX Teaching Points</div>
+          <div id="live-points-panel" class="card-body p-2" style="overflow-y:auto;height:300px">
+            <p class="text-muted mb-0">Click "Fetch Live GEX" to capture current snapshot.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row g-2">
+      <div class="col-6">
+        <div class="card">
+          <div class="gex-hdr">
+            <span class="fw-semibold">Open Interest</span>
+            <span>
+              <span class="stat-lbl">Puts</span> <span class="stat-val text-danger ms-1" id="live-oi-puts">--</span><span id="live-pct-oi-puts"></span>
+              <span class="stat-lbl ms-2">Calls</span> <span class="stat-val text-success ms-1" id="live-oi-calls">--</span><span id="live-pct-oi-calls"></span>
+              <span class="stat-lbl ms-2">P/C</span> <span class="stat-val ms-1" id="live-oi-pc">--</span>
+            </span>
+          </div>
+          <div id="live-oi-chart" style="height:200px;width:100%"></div>
+        </div>
+      </div>
+      <div class="col-6">
+        <div class="card">
+          <div class="gex-hdr">
+            <span class="fw-semibold">Daily Volume</span>
+            <span>
+              <span class="stat-lbl">Puts</span> <span class="stat-val text-danger ms-1" id="live-vol-puts">--</span><span id="live-pct-vol-puts"></span>
+              <span class="stat-lbl ms-2">Calls</span> <span class="stat-val text-success ms-1" id="live-vol-calls">--</span><span id="live-pct-vol-calls"></span>
+              <span class="stat-lbl ms-2">P/C</span> <span class="stat-val ms-1" id="live-vol-pc">--</span>
+            </span>
+          </div>
+          <div id="live-vol-chart" style="height:200px;width:100%"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Live Analysis panel -->
+    <div class="card mt-2">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <span class="fw-semibold">Live Analysis (from daily summary)</span>
+        <button class="btn btn-sm btn-primary" id="btn-live-analysis">Load Analysis</button>
+      </div>
+      <div id="live-analysis-panel" class="card-body p-3" style="overflow-y:auto;max-height:300px">
+        <p class="text-muted mb-0">Click "Fetch Live GEX" first, then "Load Analysis" to see the current-day thesis.</p>
+      </div>
+    </div>
+
+  </div><!-- end #tab-live -->
+
+  <!-- ======= ANALYSIS TAB ======= -->
+  <div class="tab-pane fade" id="tab-analysis" role="tabpanel">
+
+    <!-- Analysis control bar -->
+    <div class="card mb-2">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex align-items-center gap-3">
+          <span class="fw-bold me-1">Date</span>
+          <select id="analysis-date-sel" class="form-select form-select-sm d-inline-block" style="width:130px"></select>
+          <button class="btn btn-sm btn-primary" id="btn-load-analysis">Load Analysis</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Historical EOD Analysis -->
+    <div class="card mb-2">
+      <div class="card-header fw-semibold">Historical EOD Analysis (histgex + SPX only)</div>
+      <div id="analysis-panel" class="card-body p-3" style="overflow-y:auto;height:300px">
+        <p class="text-muted mb-0">Select a historical date and click "Load Analysis".</p>
+      </div>
+    </div>
+
+    <!-- Archived Live -->
+    <div class="card">
+      <div class="card-header fw-semibold">Archived Live (daily summary + captures)</div>
+      <div id="archived-live-panel" class="card-body p-3" style="overflow-y:auto;height:300px">
+        <p class="text-muted mb-0">Select a date and click "Load Analysis" to see any live/daily-capture artifacts for that day.</p>
+      </div>
+    </div>
+
+  </div><!-- end #tab-analysis -->
+
+  <!-- ======= HISTORY SCATTER TAB ======= -->
+  <div class="tab-pane fade" id="tab-hscatter" role="tabpanel">
+
+    <!-- Control bar mirrors Historical -->
+    <div class="card mb-2">
+      <div class="card-body py-2 px-3">
+        <div class="d-flex flex-wrap align-items-center gap-3">
+          <div>
+            <button class="btn btn-sm btn-outline-secondary" id="hsc-btn-prev-day">&laquo;</button>
+            <select id="hsc-date-sel" class="form-select form-select-sm d-inline-block mx-1" style="width:130px"></select>
+            <button class="btn btn-sm btn-outline-secondary" id="hsc-btn-next-day">&raquo;</button>
+          </div>
+          <div>
+            <button class="btn btn-sm btn-outline-secondary" id="hsc-btn-prev" disabled>&laquo; Prev 30m</button>
+            <span class="time-badge mx-2" id="hsc-lbl-time">09:30</span>
+            <button class="btn btn-sm btn-primary" id="hsc-btn-next">Next 30m &raquo;</button>
+          </div>
+          <div>
+            <span class="stat-lbl">SPX</span>
+            <span class="stat-val ms-1" id="hsc-lbl-uprice">--</span>
+            <span id="hsc-regime-badge" class="regime-badge ms-2">--</span>
+          </div>
+          <div>
+            <span class="stat-lbl">Sentiment</span> <span class="stat-val ms-1" id="hsc-lbl-sentiment">--</span>
+            <span class="stat-lbl ms-3">Ratio</span> <span class="stat-val ms-1" id="hsc-lbl-ratio">--</span>
+            <span class="stat-lbl ms-3">Net GEX</span> <span class="stat-val ms-1" id="hsc-lbl-net">--</span>
+          </div>
+          <div>
+            <span class="stat-lbl">Wall</span> <span class="stat-val text-info ms-1" id="hsc-lbl-wall">--</span>
+            <span class="stat-lbl ms-3">Flip</span> <span class="stat-val ms-1" style="color:#d29922" id="hsc-lbl-flip">--</span>
+          </div>
+          <div>
+            <span class="stat-lbl">KCS</span> <span class="stat-val ms-1" id="hsc-lbl-kcs">--</span>
+            <span class="stat-lbl ms-3">Dominance</span> <span class="stat-val ms-1" id="hsc-lbl-dominance">--</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- KCS history chart -->
+    <div class="card mb-2">
+      <div class="gex-hdr">
+        <span class="fw-semibold">Key Strike Confluence Score (KCS)</span>
+        <span class="d-flex align-items-center gap-2">
+          <span class="text-muted" style="font-size:10px">all dates at this time</span>
+          <div class="btn-group btn-group-sm" id="hsc-mode-kcs">
+            <button class="btn btn-primary" style="font-size:10px;padding:1px 6px" onclick="setHscKcsMode('scatter')">Scatter</button>
+            <button class="btn btn-outline-secondary" style="font-size:10px;padding:1px 6px" onclick="setHscKcsMode('bar')">Bar</button>
+          </div>
+        </span>
+      </div>
+      <div id="hsc-kcs" style="height:220px;width:100%"></div>
+    </div>
+
+    <!-- 3 full-width stacked charts -->
+    <div class="row g-2">
+      <div class="col-12">
+        <div class="card">
+          <div class="gex-hdr">
+            <span class="fw-semibold">GEX History (B)</span>
+            <span class="d-flex align-items-center gap-2">
+              <span class="text-muted" style="font-size:10px">vs same time of day</span>
+              <div class="btn-group btn-group-sm" id="hsc-mode-gex">
+                <button class="btn btn-primary" style="font-size:10px;padding:1px 6px" onclick="setHscMode('gex','scatter')">Scatter</button>
+                <button class="btn btn-outline-secondary" style="font-size:10px;padding:1px 6px" onclick="setHscMode('gex','histogram')">Histogram</button>
+              </div>
+            </span>
+          </div>
+          <div id="hsc-gex" style="height:280px;width:100%"></div>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="card">
+          <div class="gex-hdr">
+            <span class="fw-semibold">OI History (K)</span>
+            <span class="d-flex align-items-center gap-2">
+              <span class="text-muted" style="font-size:10px">vs same time of day</span>
+              <div class="btn-group btn-group-sm" id="hsc-mode-oi">
+                <button class="btn btn-primary" style="font-size:10px;padding:1px 6px" onclick="setHscMode('oi','scatter')">Scatter</button>
+                <button class="btn btn-outline-secondary" style="font-size:10px;padding:1px 6px" onclick="setHscMode('oi','histogram')">Histogram</button>
+              </div>
+            </span>
+          </div>
+          <div id="hsc-oi" style="height:280px;width:100%"></div>
+        </div>
+      </div>
+      <div class="col-12">
+        <div class="card">
+          <div class="gex-hdr">
+            <span class="fw-semibold">Vol History (K)</span>
+            <span class="d-flex align-items-center gap-2">
+              <span class="text-muted" style="font-size:10px">vs same time of day</span>
+              <div class="btn-group btn-group-sm" id="hsc-mode-vol">
+                <button class="btn btn-primary" style="font-size:10px;padding:1px 6px" onclick="setHscMode('vol','scatter')">Scatter</button>
+                <button class="btn btn-outline-secondary" style="font-size:10px;padding:1px 6px" onclick="setHscMode('vol','histogram')">Histogram</button>
+              </div>
+            </span>
+          </div>
+          <div id="hsc-vol" style="height:280px;width:100%"></div>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- end #tab-hscatter -->
+
+  <!-- ======= CSV DATA TAB ======= -->
+  <div class="tab-pane fade" id="tab-csv" role="tabpanel">
+    <div class="card">
+      <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
+        <span class="fw-semibold" style="font-size:13px">Daily GEX Summary</span>
+        <span class="text-muted" style="font-size:11px" id="csv-row-count"></span>
+        <input type="text" id="csv-filter" class="form-control form-control-sm ms-auto" style="max-width:220px" placeholder="Filter rows…">
+      </div>
+    </div>
+    <div style="overflow-x:auto;overflow-y:auto;max-height:calc(100vh - 160px)">
+      <table class="table table-sm table-bordered table-hover mb-0" id="csv-table" style="font-size:11px;white-space:nowrap">
+        <thead class="table-dark sticky-top" id="csv-thead"></thead>
+        <tbody id="csv-tbody"></tbody>
+      </table>
+    </div>
+  </div><!-- end #tab-csv -->
+
+  <!-- ======= SPX Price Tab ======= -->
+  <div class="tab-pane fade" id="tab-spx" role="tabpanel">
+    <div class="card mb-2">
+      <div class="card-body py-2 px-3 d-flex align-items-center gap-3">
+        <span class="fw-semibold" style="font-size:13px">SPX Price History</span>
+        <div class="btn-group btn-group-sm ms-auto">
+          <button class="btn btn-primary" id="spx-mode-eod">EOD</button>
+          <button class="btn btn-outline-secondary" id="spx-mode-single">Single Date</button>
+        </div>
+        <select id="spx-date-sel" class="form-select form-select-sm" style="width:130px" disabled></select>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-body p-0">
+        <div id="spx-history-chart" style="height:500px;width:100%"></div>
+      </div>
+    </div>
+  </div><!-- end #tab-spx -->
+
+  </div><!-- end .tab-content -->
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+const TIMES = [930,1000,1030,1100,1130,1200,1230,1300,1330,1400,1430,1500,1530,1555,1600];
+let timeIdx = 0, prevTime = null, currentDate = null;
+let hscTimeIdx = 0, hscDate = null;
+
+function fmtTime(t) { const s=String(t).padStart(4,'0'); return s.slice(0,2)+':'+s.slice(2); }
+function fmtBig(n) {
+  const a = Math.abs(n);
+  if (a>=1e9) return (n/1e9).toFixed(1)+'B';
+  if (a>=1e6) return (n/1e6).toFixed(0)+'M';
+  if (a>=1e3) return (n/1e3).toFixed(0)+'K';
+  return String(Math.round(n));
+}
+function fmtK(n) { return Math.abs(n)>=1000 ? (n/1000).toFixed(1)+'K' : String(n); }
+
+/* ---------- data loading ---------- */
+async function loadDates() {
+  const r = await fetch('/api/dates');
+  const dates = await r.json();
+  const sel = document.getElementById('date-sel');
+  const days = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+  dates.forEach(function(d) {
+    const o = document.createElement('option');
+    o.value = d;
+    const dateObj = new Date(d);
+    const dayLetter = days[dateObj.getDay()];
+    o.textContent = d + ' ' + dayLetter;
+    sel.appendChild(o);
+  });
+  if (dates.length) { sel.value = dates[dates.length-1]; loadDay(dates[dates.length-1]); }
+}
+
+function loadDay(date) {
+  currentDate = date; timeIdx = 0; prevTime = null;
+  document.getElementById('btn-prev').disabled = true;
+  document.getElementById('btn-next').disabled = false;
+  loadSnapshot();
+}
+
+async function loadAnalysis(date) {
+  await loadHistoricalAnalysis(date);
+  await loadArchivedLive(date);
+}
+
+async function loadHistoricalAnalysis(date) {
+  const panel = document.getElementById('analysis-panel');
+  panel.innerHTML = '<p class="text-muted mb-0">Loading historical analysis...</p>';
+  try {
+    const resp = await fetch('/api/analysis?date=' + date);
+    if (!resp.ok) {
+      panel.innerHTML = '<p class="text-danger mb-0">No historical analysis available for this date.</p>';
+      return;
+    }
+    const d = await resp.json();
+    if (d.error) {
+      panel.innerHTML = '<p class="text-danger mb-0">' + d.error + '</p>';
+      return;
+    }
+    const html = `
+      <div class="mb-3">
+        <strong class="text-primary">Thesis (from 10:00 GEX):</strong>
+        <p class="mb-1">${d.thesis.thesis}</p>
+      </div>
+      <div class="mb-3">
+        <strong class="text-info">Actuals (OHLC):</strong>
+        <p class="mb-1">Open: ${d.actuals.open.toFixed(2)} | High: ${d.actuals.high.toFixed(2)} | Low: ${d.actuals.low.toFixed(2)} | Close: ${d.actuals.close.toFixed(2)}</p>
+      </div>
+      <div>
+        <strong class="text-success">Verdict:</strong>
+        <p class="mb-0">${d.verdict}</p>
+      </div>
+    `;
+    panel.innerHTML = html;
+  } catch(e) {
+    panel.innerHTML = '<p class="text-danger mb-0">Failed to load historical analysis: ' + e.message + '</p>';
+  }
+}
+
+async function loadArchivedLive(date) {
+  const panel = document.getElementById('archived-live-panel');
+  panel.innerHTML = '<p class="text-muted mb-0">Loading archived live data...</p>';
+  try {
+    const resp = await fetch('/api/archived-live?date=' + date);
+    if (!resp.ok) {
+      panel.innerHTML = '<p class="text-danger mb-0">No archived live data available for this date.</p>';
+      return;
+    }
+    const d = await resp.json();
+
+    let html = '';
+
+    if (d.live_analysis && !d.live_analysis.error) {
+      const a = d.live_analysis;
+      html += `
+        <div class="mb-3">
+          <strong class="text-primary">Live/Daily Summary Thesis:</strong>
+          <p class="mb-1">${a.thesis.thesis}</p>
+        </div>
+        <div class="mb-3">
+          <strong class="text-info">Actuals (OHLC):</strong>
+          <p class="mb-1">Open: ${a.actuals.open.toFixed(2)} | High: ${a.actuals.high.toFixed(2)} | Low: ${a.actuals.low.toFixed(2)} | Close: ${a.actuals.close.toFixed(2)}</p>
+        </div>
+        <div class="mb-3">
+          <strong class="text-success">Verdict:</strong>
+          <p class="mb-0">${a.verdict}</p>
+        </div>
+      `;
+    }
+
+    if (d.analysis_files && d.analysis_files.length > 0) {
+      html += '<div class="mb-2"><strong class="text-secondary">Saved analysis files:</strong><ul class="mb-1 ps-3">';
+      d.analysis_files.forEach(function(f) {
+        html += `<li><small>${f.name} <span class="text-muted">(${f.mtime})</span></small></li>`;
+      });
+      html += '</ul></div>';
+    }
+
+    if (d.raw_captures && d.raw_captures.length > 0) {
+      html += '<div class="mb-2"><strong class="text-secondary">Raw captures:</strong><ul class="mb-1 ps-3">';
+      d.raw_captures.forEach(function(f) {
+        html += `<li><small>${f.name} <span class="text-muted">(${f.mtime})</span></small></li>`;
+      });
+      html += '</ul></div>';
+    }
+
+    if (!html) {
+      html = '<p class="text-muted mb-0">No archived live data for this date.</p>';
+    }
+
+    panel.innerHTML = html;
+  } catch(e) {
+    panel.innerHTML = '<p class="text-danger mb-0">Failed to load archived live data: ' + e.message + '</p>';
+  }
+}
+
+async function loadSnapshot() {
+  const ntime = TIMES[timeIdx];
+  let url = '/api/snapshot?date=' + currentDate + '&time=' + ntime;
+  if (prevTime) url += '&prev_time=' + prevTime;
+  let resp;
+  try { resp = await fetch(url); } catch(e) { console.error('fetch error', e); return; }
+  if (!resp.ok) { console.error('HTTP', resp.status); return; }
+  let d;
+  try { d = await resp.json(); } catch(e) { console.error('JSON parse error', e); return; }
+
+  const s = d.summary || {};
+  setText('lbl-time',      fmtTime(ntime));
+  setText('lbl-uprice',    s.uprice ? s.uprice.toFixed(2) : '--');
+  setText('lbl-wall',      s.wall ? String(s.wall) : '--');
+  setText('lbl-flip',      s.flip  ? s.flip.toFixed(0)  : '--');
+  setText('lbl-sentiment', s.sentiment_pct != null ? s.sentiment_pct + '%' : '--');
+  setText('lbl-ratio',     s.gex_ratio     != null ? s.gex_ratio + 'x'    : '--');
+  setText('lbl-net',       s.net_gex       != null ? fmtBig(s.net_gex)    : '--');
+  setText('lbl-kcs',       s.kcs           != null ? s.kcs.toFixed(1)      : '--');
+  setText('lbl-dominance', s.key_dominance_pct != null ? s.key_dominance_pct + '%' : '--');
+  setText('gex-calls',     fmtBig(s.call_gex || 0));
+  setText('gex-puts',      fmtBig(Math.abs(s.put_gex || 0)));
+  setText('oi-calls',      fmtK(s.total_call_oi  || 0));
+  setText('oi-puts',       fmtK(s.total_put_oi   || 0));
+  setText('oi-pc',         s.total_call_oi ? ((s.total_put_oi||0)/(s.total_call_oi)).toFixed(2) : '--');
+  setText('vol-calls',     fmtK(s.total_call_vol || 0));
+  setText('vol-puts',      fmtK(s.total_put_vol  || 0));
+  setText('vol-pc',        s.total_call_vol ? ((s.total_put_vol||0)/(s.total_call_vol)).toFixed(2) : '--');
+
+  const rb = document.getElementById('regime-badge');
+  if (s.net_gex < 0) { rb.textContent = 'NEGATIVE GEX'; rb.className = 'regime-badge regime-neg'; }
+  else               { rb.textContent = 'POSITIVE GEX'; rb.className = 'regime-badge regime-pos'; }
+
+  // Day type classification — store but keep hidden until reveal
+  const dt = d.day_type;
+  const dtCard = document.getElementById('day-type-card');
+  const dtLabel = document.getElementById('day-type-label');
+  const dtDesc = document.getElementById('day-type-desc');
+  const dtBtn = document.getElementById('btn-reveal-type');
+  if (dt && dt.type !== 'no-data') {
+    dtCard.style.display = '';
+    dtLabel.textContent = dt.label || '--';
+    dtLabel.style.color = dt.color || '#212529';
+    dtLabel.style.borderLeft = '4px solid ' + (dt.color || '#6c757d');
+    dtLabel.style.paddingLeft = '8px';
+    dtDesc.textContent = dt.description || '';
+    // Hide answer, show button (reset on each new day load)
+    dtLabel.style.display = 'none';
+    dtDesc.style.display = 'none';
+    dtBtn.style.display = '';
+  } else {
+    dtCard.style.display = 'none';
+  }
+
+  renderSpxChart(d);
+  renderGexChart(d);
+  renderOiChart(d);
+  renderVolChart(d);
+  renderPoints(d.points);
+
+  loadPercentiles(currentDate, ntime, false);
+}
+
+/* ---- Percentile badge helpers ---- */
+function pctBadgeHtml(pct, title) {
+  let cls;
+  if (pct >= 90) cls = 'pct-extreme';
+  else if (pct >= 75) cls = 'pct-high';
+  else if (pct >= 50) cls = 'pct-mid';
+  else cls = 'pct-low';
+  return '<span class="pct-badge ' + cls + '" title="' + title + '">P' + pct + '</span>';
+}
+
+async function loadPercentiles(date, ntime, isLive) {
+  const checkboxId = isLive ? 'chk-live-show-rankings' : 'chk-show-rankings';
+  const checkbox = document.getElementById(checkboxId);
+  if (!checkbox || !checkbox.checked) {
+    return;
+  }
+
+  console.log('loadPercentiles called: date=' + date + ', ntime=' + ntime + ', isLive=' + isLive);
+  const prefix = isLive ? 'live-' : '';
+  const allIds = ['pct-net','pct-gex-puts','pct-gex-calls','pct-oi-puts','pct-oi-calls','pct-vol-puts','pct-vol-calls','pct-kcs','pct-dominance',
+                  'live-pct-net','live-pct-gex-puts','live-pct-gex-calls','live-pct-oi-puts','live-pct-oi-calls','live-pct-vol-puts','live-pct-vol-calls','live-pct-kcs','live-pct-dominance'];
+  allIds.forEach(function(id) { const el=document.getElementById(id); if(el) el.innerHTML=''; });
+
+  try {
+    const resp = await fetch('/api/percentiles?date=' + date + '&time=' + ntime);
+    if (!resp.ok) return;
+    const d = await resp.json();
+    console.log('Percentiles API response:', d);
+    if (d.error) return;
+    const n = d.sample_size;
+
+    // Net GEX — bearish percentile
+    const netEl = document.getElementById(prefix + 'pct-net');
+    console.log('Net GEX element:', prefix + 'pct-net', 'found:', !!netEl);
+    if (netEl) {
+      const bp = d.net_gex.bearish_pct;
+      const dir = d.net_gex.value < 0 ? 'bearish' : 'bullish';
+      netEl.innerHTML = pctBadgeHtml(bp, 'Net GEX more ' + dir + ' than ' + bp + '% of ' + n + ' historical readings at this time');
+      console.log('Net GEX badge set to:', netEl.innerHTML);
+    }
+
+    if (!isLive) {
+      // GEX puts/calls
+      const gp = document.getElementById('pct-gex-puts');
+      if (gp) gp.innerHTML = pctBadgeHtml(d.put_gex.pct, 'Put GEX larger than ' + d.put_gex.pct + '% of ' + n + ' historical readings at this time');
+      const gc = document.getElementById('pct-gex-calls');
+      if (gc) gc.innerHTML = pctBadgeHtml(d.call_gex.pct, 'Call GEX larger than ' + d.call_gex.pct + '% of ' + n + ' historical readings at this time');
+      // OI
+      const op = document.getElementById('pct-oi-puts');
+      if (op) op.innerHTML = pctBadgeHtml(d.put_oi.pct, 'Put OI larger than ' + d.put_oi.pct + '% of ' + n + ' historical readings at this time');
+      const oc = document.getElementById('pct-oi-calls');
+      if (oc) oc.innerHTML = pctBadgeHtml(d.call_oi.pct, 'Call OI larger than ' + d.call_oi.pct + '% of ' + n + ' historical readings at this time');
+      // Vol
+      const vp = document.getElementById('pct-vol-puts');
+      if (vp) vp.innerHTML = pctBadgeHtml(d.put_vol.pct, 'Put Vol larger than ' + d.put_vol.pct + '% of ' + n + ' historical readings at this time');
+      const vc = document.getElementById('pct-vol-calls');
+      if (vc) vc.innerHTML = pctBadgeHtml(d.call_vol.pct, 'Call Vol larger than ' + d.call_vol.pct + '% of ' + n + ' historical readings at this time');
+      // KCS
+      if (d.kcs) {
+        const ke = document.getElementById('pct-kcs');
+        if (ke) ke.innerHTML = pctBadgeHtml(d.kcs.pct, 'KCS stronger than ' + d.kcs.pct + '% of ' + n + ' historical readings at this time');
+      }
+      // Dominance
+      if (d.dominance) {
+        const de = document.getElementById('pct-dominance');
+        if (de) de.innerHTML = pctBadgeHtml(d.dominance.pct, 'Dominance higher than ' + d.dominance.pct + '% of ' + n + ' historical readings at this time');
+      }
+    } else {
+      // Live tab percentiles
+      console.log('Setting live tab percentiles');
+      const gp = document.getElementById('live-pct-gex-puts');
+      console.log('live-pct-gex-puts found:', !!gp);
+      if (gp) gp.innerHTML = pctBadgeHtml(d.put_gex.pct, 'Put GEX larger than ' + d.put_gex.pct + '% of ' + n + ' historical readings at this time');
+      const gc = document.getElementById('live-pct-gex-calls');
+      console.log('live-pct-gex-calls found:', !!gc);
+      if (gc) gc.innerHTML = pctBadgeHtml(d.call_gex.pct, 'Call GEX larger than ' + d.call_gex.pct + '% of ' + n + ' historical readings at this time');
+      const op = document.getElementById('live-pct-oi-puts');
+      console.log('live-pct-oi-puts found:', !!op);
+      if (op) op.innerHTML = pctBadgeHtml(d.put_oi.pct, 'Put OI larger than ' + d.put_oi.pct + '% of ' + n + ' historical readings at this time');
+      const oc = document.getElementById('live-pct-oi-calls');
+      console.log('live-pct-oi-calls found:', !!oc);
+      if (oc) oc.innerHTML = pctBadgeHtml(d.call_oi.pct, 'Call OI larger than ' + d.call_oi.pct + '% of ' + n + ' historical readings at this time');
+      const vp = document.getElementById('live-pct-vol-puts');
+      console.log('live-pct-vol-puts found:', !!vp);
+      if (vp) vp.innerHTML = pctBadgeHtml(d.put_vol.pct, 'Put Vol larger than ' + d.put_vol.pct + '% of ' + n + ' historical readings at this time');
+      const vc = document.getElementById('live-pct-vol-calls');
+      console.log('live-pct-vol-calls found:', !!vc);
+      if (vc) vc.innerHTML = pctBadgeHtml(d.call_vol.pct, 'Call Vol larger than ' + d.call_vol.pct + '% of ' + n + ' historical readings at this time');
+      if (d.kcs) {
+        const ke = document.getElementById('live-pct-kcs');
+        console.log('live-pct-kcs found:', !!ke);
+        if (ke) ke.innerHTML = pctBadgeHtml(d.kcs.pct, 'KCS stronger than ' + d.kcs.pct + '% of ' + n + ' historical readings at this time');
+      }
+      // Dominance
+      if (d.dominance) {
+        const de = document.getElementById('live-pct-dominance');
+        console.log('live-pct-dominance found:', !!de);
+        if (de) de.innerHTML = pctBadgeHtml(d.dominance.pct, 'Dominance higher than ' + d.dominance.pct + '% of ' + n + ' historical readings at this time');
+      }
+    }
+  } catch(e) {
+    console.error('Error in loadPercentiles:', e);
+  }
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+/* ---------- shared Plotly helpers ---------- */
+const BG = { paper_bgcolor:'#ffffff', plot_bgcolor:'#f8f9fa', font:{color:'#212529', size:10} };
+
+function strikeAxis() {
+  return { gridcolor:'#dee2e6', tickfont:{size:9}, tickangle:-45 };
+}
+
+function priceShapes(uprice, wall, flip) {
+  const sh = [{ type:'line', x0:uprice, x1:uprice, yref:'paper', y0:0, y1:1,
+                line:{color:'#003366', width:2, dash:'dot'} }];
+  if (wall) sh.push({ type:'line', x0:wall, x1:wall, yref:'paper', y0:0, y1:1,
+    line:{color:'#0d6efd', width:1.5, dash:'dash'} });
+  if (flip) sh.push({ type:'line', x0:flip, x1:flip, yref:'paper', y0:0, y1:1,
+    line:{color:'#fd7e14', width:1.5, dash:'dot'} });
+  return sh;
+}
+
+/* ---------- SPX candlestick ---------- */
+function renderSpxChart(d) {
+  const bars = d.spx_bars || [];
+  const s = d.summary || {};
+  const traces = [];
+  if (bars.length) {
+    traces.push({
+      type:'candlestick',
+      x: bars.map(function(b){return b.time_str;}),
+      open:  bars.map(function(b){return b.Open;}),
+      high:  bars.map(function(b){return b.High;}),
+      low:   bars.map(function(b){return b.Low;}),
+      close: bars.map(function(b){return b.Close;}),
+      increasing:{line:{color:'#3fb950'}},
+      decreasing:{line:{color:'#f85149'}},
+      name:'SPX',
+    });
+  } else {
+    traces.push({ type:'scatter', mode:'markers',
+      x:[fmtTime(TIMES[timeIdx])], y:[s.uprice || 0],
+      marker:{color:'#58a6ff', size:10}, name:'SPX' });
+  }
+  const shapes=[], ann=[];
+  if (s.wall) {
+    shapes.push({ type:'line', x0:0, x1:1, xref:'paper', y0:s.wall, y1:s.wall,
+      line:{color:'#0d6efd',width:1.5,dash:'dash'} });
+    ann.push({ xref:'paper',yref:'y',x:1.01,y:s.wall,
+      text:'Wall '+s.wall, showarrow:false, font:{color:'#0d6efd',size:10}, xanchor:'left' });
+  }
+  if (s.flip) {
+    shapes.push({ type:'line', x0:0, x1:1, xref:'paper', y0:s.flip, y1:s.flip,
+      line:{color:'#fd7e14',width:1.5,dash:'dot'} });
+    ann.push({ xref:'paper',yref:'y',x:1.01,y:s.flip,
+      text:'Flip '+s.flip.toFixed(0), showarrow:false, font:{color:'#fd7e14',size:10}, xanchor:'left' });
+  }
+  Plotly.react('spx-chart', traces, Object.assign({}, BG, {
+    margin:{t:5,b:35,l:55,r:70},
+    xaxis:{ gridcolor:'#dee2e6', type:'category', nticks:13, tickfont:{size:9}, rangeslider:{visible:false} },
+    yaxis:{ gridcolor:'#dee2e6' },
+    showlegend:false, shapes:shapes, annotations:ann,
+  }), {responsive:true, displayModeBar:false});
+}
+
+/* ---------- GEX bar + cumulative area ---------- */
+function renderGexChart(d) {
+  const s = d.summary || {};
+  const uprice = s.uprice || 0;
+  const wall   = s.wall;
+  const flip   = s.flip;
+  const strikes = d.strikes || [];
+  const callColors = strikes.map(function(){ return '#3fb950'; });
+  const putColors  = strikes.map(function(){ return '#f85149'; });
+  const callBorders = strikes.map(function(k){ return k===wall ? '#1f6feb':'rgba(0,0,0,0)'; });
+  const putBorders  = strikes.map(function(k){ return k===wall ? '#1f6feb':'rgba(0,0,0,0)'; });
+  const borderW = strikes.map(function(k){ return k===wall ? 2.5 : 0; });
+  const B = 1e9;
+  const callB  = (d.call_gex||[]).map(function(v){return +(v/B).toFixed(3);});
+  const putB   = (d.put_gex||[]).map(function(v){return +(v/B).toFixed(3);});
+  const cumulB = (d.cumulative_gex||[]).map(function(v){return +(v/B).toFixed(3);});
+  const traces = [
+    { type:'bar', name:'Call GEX', x:strikes, y:callB,
+      marker:{color:callColors, line:{color:callBorders, width:borderW}},
+      hovertemplate:'Strike %{x}<br>Call: %{y:.3f}B<extra></extra>' },
+    { type:'bar', name:'Put GEX', x:strikes, y:putB,
+      marker:{color:putColors, line:{color:putBorders, width:borderW}},
+      hovertemplate:'Strike %{x}<br>Put: %{y:.3f}B<extra></extra>' },
+    { type:'scatter', name:'Cumul.', x:strikes, y:cumulB,
+      mode:'lines', fill:'tozeroy',
+      line:{color:'rgba(56,139,253,0.7)',width:1.5},
+      fillcolor:'rgba(56,139,253,0.12)',
+      yaxis:'y2',
+      hovertemplate:'Strike %{x}<br>Cumul: %{y:.3f}B<extra></extra>' },
+  ];
+  const gexAnn = [
+    { xref:'x', yref:'y', x:uprice, y:1.0,
+      text: uprice.toFixed(0), showarrow:false, font:{color:'#212529',size:11}, xanchor:'center' },
+  ];
+  if (s.key_strike != null && s.key_dominance_pct != null) {
+    gexAnn.push({ xref:'x', yref:'paper', x:s.key_strike, y:1.05,
+      text: s.key_strike + ' (' + s.key_dominance_pct + '%)',
+      showarrow:false, font:{color:'#0d6efd', size:9}, xanchor:'center',
+      bgcolor:'rgba(13,110,253,0.08)', bordercolor:'#0d6efd', borderwidth:1 });
+  }
+  Plotly.react('gex-chart', traces, Object.assign({}, BG, {
+    barmode:'relative',
+    margin:{t:20,b:35,l:65,r:65},
+    xaxis: strikeAxis(),
+    yaxis:{ gridcolor:'#dee2e6', zeroline:true, zerolinecolor:'#adb5bd',
+            tickfont:{size:9}, title:{text:'GEX ($B)',font:{size:9}}, tickformat:'.2f' },
+    yaxis2:{ overlaying:'y', side:'right', showgrid:false, zeroline:false,
+             tickfont:{size:9}, title:{text:'Cumul ($B)',font:{size:9}}, tickformat:'.2f' },
+    showlegend:false,
+    shapes: priceShapes(uprice, wall, flip),
+    annotations: gexAnn,
+  }), {responsive:true, displayModeBar:false});
+}
+
+/* ---------- Open Interest ---------- */
+function renderOiChart(d) {
+  const s = d.summary || {};
+  const uprice = s.uprice || 0;
+  const callK = (d.call_oi||[]).map(function(v){return +(v/1000).toFixed(1);});
+  const putK  = (d.put_oi||[]).map(function(v){return +(v/1000).toFixed(1);});
+  const traces = [
+    { type:'bar', name:'Call OI', x:d.strikes||[], y:callK,
+      marker:{color:'#3fb950'},
+      hovertemplate:'Strike %{x}<br>Call OI: %{y:.1f}K<extra></extra>' },
+    { type:'bar', name:'Put OI',  x:d.strikes||[], y:putK,
+      marker:{color:'#f85149'},
+      hovertemplate:'Strike %{x}<br>Put OI: %{y:.1f}K<extra></extra>' },
+  ];
+  Plotly.react('oi-chart', traces, Object.assign({}, BG, {
+    barmode:'relative',
+    margin:{t:5,b:35,l:55,r:20},
+    xaxis: strikeAxis(),
+    yaxis:{ gridcolor:'#dee2e6', zeroline:true, zerolinecolor:'#adb5bd',
+            tickfont:{size:9}, title:{text:'OI (K)',font:{size:9}}, tickformat:'.1f' },
+    showlegend:false,
+    shapes: priceShapes(s.uprice, null, s.flip),
+  }), {responsive:true, displayModeBar:false});
+}
+
+/* ---------- Daily Volume ---------- */
+function renderVolChart(d) {
+  const s = d.summary || {};
+  const uprice = s.uprice || 0;
+  const callVK = (d.call_vol||[]).map(function(v){return +(v/1000).toFixed(1);});
+  const putVK  = (d.put_vol||[]).map(function(v){return +(v/1000).toFixed(1);});
+  const traces = [
+    { type:'bar', name:'Call Vol', x:d.strikes||[], y:callVK,
+      marker:{color:'#3fb950'},
+      hovertemplate:'Strike %{x}<br>Call Vol: %{y:.1f}K<extra></extra>' },
+    { type:'bar', name:'Put Vol',  x:d.strikes||[], y:putVK,
+      marker:{color:'#f85149'},
+      hovertemplate:'Strike %{x}<br>Put Vol: %{y:.1f}K<extra></extra>' },
+  ];
+  Plotly.react('vol-chart', traces, Object.assign({}, BG, {
+    barmode:'relative',
+    margin:{t:5,b:35,l:55,r:20},
+    xaxis: strikeAxis(),
+    yaxis:{ gridcolor:'#dee2e6', zeroline:true, zerolinecolor:'#adb5bd',
+            tickfont:{size:9}, title:{text:'Vol (K)',font:{size:9}}, tickformat:'.1f' },
+    showlegend:false,
+    shapes: priceShapes(uprice, null, null),
+  }), {responsive:true, displayModeBar:false});
+}
+
+/* ---------- History scatter / histogram charts ---------- */
+let _historyCache = {};  // keyed by ntime
+let hscModes = {gex:'scatter', oi:'scatter', vol:'scatter'};
+
+function makeChart(chartId, callArr, putArr, yLabel, dates, currentDate, mode) {
+  const idx = dates.indexOf(currentDate);
+
+  if (mode === 'histogram') {
+    // Stacked bar: puts (bottom) + calls (top), date on X, current date outlined
+    const callColors = dates.map(function(d){ return d===currentDate ? '#3fb950' : 'rgba(63,185,80,0.65)'; });
+    const putColors  = dates.map(function(d){ return d===currentDate ? '#f85149' : 'rgba(248,81,73,0.65)'; });
+    const borderW    = dates.map(function(d){ return d===currentDate ? 2 : 0; });
+    const borderC    = dates.map(function(d){ return d===currentDate ? '#212529' : 'rgba(0,0,0,0)'; });
+    const traces = [
+      { type:'bar', name:'Puts', x:dates, y:putArr,
+        marker:{color:putColors, line:{color:borderC, width:borderW}},
+        hovertemplate:'%{x}<br>Puts: %{y:.2f} ' + yLabel + '<extra></extra>' },
+      { type:'bar', name:'Calls', x:dates, y:callArr,
+        marker:{color:callColors, line:{color:borderC, width:borderW}},
+        hovertemplate:'%{x}<br>Calls: %{y:.2f} ' + yLabel + '<extra></extra>' },
+    ];
+    Plotly.react(chartId, traces, Object.assign({}, BG, {
+      barmode:'stack',
+      margin:{t:15,b:60,l:60,r:15},
+      xaxis:{ gridcolor:'#dee2e6', tickfont:{size:9}, tickangle:-45, nticks:12 },
+      yaxis:{ gridcolor:'#dee2e6', tickfont:{size:9}, title:{text:yLabel, font:{size:10}} },
+      showlegend:true, legend:{ orientation:'h', y:-0.15, font:{size:9} },
+    }), {responsive:true, displayModeBar:false});
+
+  } else {
+    const histDates = dates.filter(function(_,i){ return i !== idx; });
+    const histCall  = callArr.filter(function(_,i){ return i !== idx; });
+    const histPut   = putArr.filter(function(_,i){ return i !== idx; });
+    const traces = [
+      { type:'scatter', mode:'markers', name:'Calls (hist)',
+        x:histDates, y:histCall, marker:{color:'rgba(63,185,80,0.55)', size:5},
+        hovertemplate:'%{x}<br>Calls: %{y:.2f} ' + yLabel + '<extra></extra>' },
+      { type:'scatter', mode:'markers', name:'Puts (hist)',
+        x:histDates, y:histPut,  marker:{color:'rgba(248,81,73,0.55)', size:5},
+        hovertemplate:'%{x}<br>Puts: %{y:.2f} ' + yLabel + '<extra></extra>' },
+    ];
+    if (idx !== -1) {
+      traces.push(
+        { type:'scatter', mode:'markers', name:'Calls (now)',
+          x:[currentDate], y:[callArr[idx]],
+          marker:{color:'#3fb950', size:11, symbol:'diamond', line:{color:'#212529', width:1.5}},
+          hovertemplate:'%{x}<br>Calls: %{y:.2f} ' + yLabel + '<extra></extra>' },
+        { type:'scatter', mode:'markers', name:'Puts (now)',
+          x:[currentDate], y:[putArr[idx]],
+          marker:{color:'#f85149', size:11, symbol:'diamond', line:{color:'#212529', width:1.5}},
+          hovertemplate:'%{x}<br>Puts: %{y:.2f} ' + yLabel + '<extra></extra>' }
+      );
+    }
+    Plotly.react(chartId, traces, Object.assign({}, BG, {
+      margin:{t:15,b:60,l:60,r:15},
+      xaxis:{ gridcolor:'#dee2e6', tickfont:{size:9}, tickangle:-45, nticks:12 },
+      yaxis:{ gridcolor:'#dee2e6', tickfont:{size:9},
+              title:{text:yLabel, font:{size:10}}, zeroline:false },
+      showlegend:true, legend:{ orientation:'h', y:-0.15, font:{size:9} },
+    }), {responsive:true, displayModeBar:false});
+  }
+}
+
+function setHscMode(chartKey, mode) {
+  hscModes[chartKey] = mode;
+  const grp = document.getElementById('hsc-mode-' + chartKey);
+  if (grp) {
+    Array.from(grp.children).forEach(function(btn) {
+      const isActive = btn.textContent.toLowerCase() === mode;
+      btn.className = isActive ? 'btn btn-primary' : 'btn btn-outline-secondary';
+      btn.style.fontSize = '10px'; btn.style.padding = '1px 6px';
+    });
+  }
+  const ntime = TIMES[hscTimeIdx];
+  const h = _historyCache[ntime];
+  if (!h || !hscDate) return;
+  const keyMap = {gex:['call_gex','put_gex','B'], oi:['call_oi','put_oi','K'], vol:['call_vol','put_vol','K']};
+  const [ck, pk, lbl] = keyMap[chartKey];
+  makeChart('hsc-' + chartKey, h[ck], h[pk], lbl, h.dates, hscDate, mode);
+}
+
+async function renderHistoryScatters(date, ntime, ids) {
+  ids = ids || {gex:'hsc-gex', oi:'hsc-oi', vol:'hsc-vol'};
+  let h = _historyCache[ntime];
+  if (!h) {
+    try {
+      const resp = await fetch('/api/history?time=' + ntime);
+      if (!resp.ok) return;
+      h = await resp.json();
+      _historyCache[ntime] = h;
+    } catch(e) { return; }
+  }
+  makeChart(ids.gex, h.call_gex, h.put_gex, 'B', h.dates, date, hscModes.gex);
+  makeChart(ids.oi,  h.call_oi,  h.put_oi,  'K', h.dates, date, hscModes.oi);
+  makeChart(ids.vol, h.call_vol, h.put_vol, 'K', h.dates, date, hscModes.vol);
+}
+
+/* ---------- Teaching points — pure DOM, no innerHTML ---------- */
+const PT_COLORS = {
+  danger:'#f85149', success:'#3fb950', warning:'#d29922',
+  info:'#58a6ff', primary:'#388bfd', secondary:'#8b949e', dark:'#6e7681'
+};
+
+function renderPoints(points, panelId) {
+  const panel = document.getElementById(panelId || 'points-panel');
+  while (panel.firstChild) panel.removeChild(panel.firstChild);
+
+  if (!Array.isArray(points) || points.length === 0) {
+    const msg = document.createElement('p');
+    msg.className = 'text-muted mb-0';
+    msg.textContent = 'No teaching points for this snapshot.';
+    panel.appendChild(msg);
+    return;
+  }
+
+  points.forEach(function(pt) {
+    const card = document.createElement('div');
+    card.className = 'point-card';
+    card.style.borderLeftColor = PT_COLORS[pt.type] || '#8b949e';
+
+    const titleEl = document.createElement('div');
+    titleEl.className = 'point-title';
+    titleEl.textContent = String(pt.title || '');
+
+    const bodyEl = document.createElement('div');
+    bodyEl.className = 'point-text';
+    bodyEl.textContent = String(pt.text || '');
+
+    card.appendChild(titleEl);
+    card.appendChild(bodyEl);
+    panel.appendChild(card);
+  });
+}
+
+/* ---------- button handlers ---------- */
+document.getElementById('date-sel').addEventListener('change', function(e) { loadDay(e.target.value); });
+
+document.getElementById('btn-next').addEventListener('click', function() {
+  if (timeIdx < TIMES.length - 1) {
+    prevTime = TIMES[timeIdx]; timeIdx++;
+    document.getElementById('btn-prev').disabled = false;
+    document.getElementById('btn-next').disabled = (timeIdx === TIMES.length - 1);
+    loadSnapshot();
+  }
+});
+
+document.getElementById('btn-prev').addEventListener('click', function() {
+  if (timeIdx > 0) {
+    timeIdx--;
+    prevTime = timeIdx > 0 ? TIMES[timeIdx - 1] : null;
+    document.getElementById('btn-next').disabled = false;
+    document.getElementById('btn-prev').disabled = (timeIdx === 0);
+    loadSnapshot();
+  }
+});
+
+document.getElementById('btn-go-first').addEventListener('click', function() {
+  if (timeIdx !== 0) {
+    timeIdx = 0;
+    prevTime = null;
+    document.getElementById('btn-prev').disabled = true;
+    document.getElementById('btn-next').disabled = false;
+    loadSnapshot();
+  }
+});
+
+document.getElementById('btn-go-last').addEventListener('click', async function() {
+  try {
+    const resp = await fetch('/api/snapshots?date=' + currentDate);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    const times = data.times || [];
+    if (times.length === 0) return;
+    const lastTime = times[times.length - 1];
+    const lastIdx = TIMES.indexOf(lastTime);
+    if (lastIdx !== -1 && timeIdx !== lastIdx) {
+      timeIdx = lastIdx;
+      prevTime = times.length > 1 ? times[times.length - 2] : null;
+      document.getElementById('btn-prev').disabled = (timeIdx === 0);
+      document.getElementById('btn-next').disabled = true;
+      loadSnapshot();
+    }
+  } catch(e) { console.error('EOD button error:', e); }
+});
+
+/* Prev / Next Day */
+document.getElementById('btn-prev-day').addEventListener('click', function() {
+  const sel = document.getElementById('date-sel');
+  if (sel.selectedIndex > 0) {
+    sel.selectedIndex--;
+    loadDay(sel.value);
+  }
+});
+
+document.getElementById('btn-next-day').addEventListener('click', function() {
+  const sel = document.getElementById('date-sel');
+  if (sel.selectedIndex < sel.options.length - 1) {
+    sel.selectedIndex++;
+    loadDay(sel.value);
+  }
+});
+
+/* Reveal Day Type */
+document.getElementById('btn-reveal-type').addEventListener('click', function() {
+  document.getElementById('day-type-label').style.display = '';
+  document.getElementById('day-type-desc').style.display = '';
+  this.style.display = 'none';
+});
+
+loadDates();
+
+/* ==========================================================================
+   LIVE TAB
+   ========================================================================== */
+
+let liveTimes = [];    // array of ntime values captured today
+let liveIdx = -1;      // current index into liveTimes
+
+function updateLiveNav() {
+  const status = document.getElementById('live-status');
+  status.textContent = liveTimes.length + ' snapshot' + (liveTimes.length===1?'':'s') + ' today';
+  document.getElementById('btn-live-prev').disabled = (liveIdx <= 0);
+  document.getElementById('btn-live-next').disabled = (liveIdx >= liveTimes.length - 1);
+  if (liveIdx >= 0 && liveIdx < liveTimes.length) {
+    setText('live-lbl-time', fmtTime(liveTimes[liveIdx]));
+  }
+}
+
+function renderLiveData(d) {
+  const s = d.summary || {};
+  setText('live-lbl-uprice',    s.uprice ? s.uprice.toFixed(2) : '--');
+  setText('live-lbl-wall',       s.wall ? String(s.wall) : '--');
+  setText('live-lbl-flip',       s.flip ? s.flip.toFixed(0) : '--');
+  setText('live-lbl-sentiment',  s.sentiment_pct != null ? s.sentiment_pct + '%' : '--');
+  setText('live-lbl-ratio',      s.gex_ratio != null ? s.gex_ratio + 'x' : '--');
+  setText('live-lbl-net',        s.net_gex != null ? fmtBig(s.net_gex) : '--');
+  setText('live-lbl-kcs',        s.kcs != null ? s.kcs.toFixed(1) : '--');
+  setText('live-lbl-dominance',  s.key_dominance_pct != null ? s.key_dominance_pct + '%' : '--');
+
+  // Load historical percentile rankings for live snapshot
+  console.log('Live snapshot data:', d);
+  console.log('date:', d.date, 'ntime:', d.ntime);
+  if (d.date && d.ntime) {
+    console.log('Calling loadPercentiles for live tab');
+    loadPercentiles(d.date, d.ntime, true);
+  } else {
+    console.log('Not calling loadPercentiles - missing date or ntime');
+  }
+
+  // Volume divergence warning
+  const divEl = document.getElementById('live-divergence-lbl');
+  const divVal = document.getElementById('live-divergence-val');
+  if (d.divergence) {
+    divEl.style.display = '';
+    divVal.style.display = '';
+    divVal.textContent = d.divergence;
+    // Initialize tooltip for dynamically shown divergence label
+    if (!divEl.getAttribute('data-bs-original-title')) {
+      new bootstrap.Tooltip(divEl);
+    }
+  } else {
+    divEl.style.display = 'none';
+    divVal.style.display = 'none';
+  }
+
+  const rb = document.getElementById('live-regime-badge');
+  if (s.net_gex < 0) { rb.textContent = 'NEGATIVE GEX'; rb.className = 'regime-badge regime-neg'; }
+  else               { rb.textContent = 'POSITIVE GEX'; rb.className = 'regime-badge regime-pos'; }
+
+  // OI/Vol stats
+  setText('live-oi-calls', fmtK(s.total_call_oi || 0));
+  setText('live-gex-puts',  fmtBig(Math.abs(s.put_gex || 0)));
+  setText('live-gex-calls', fmtBig(s.call_gex || 0));
+  setText('live-oi-puts',  fmtK(s.total_put_oi || 0));
+  setText('live-oi-pc',    s.total_call_oi ? ((s.total_put_oi||0)/s.total_call_oi).toFixed(2) : '--');
+  setText('live-vol-calls', fmtK(s.total_call_vol || 0));
+  setText('live-vol-puts',  fmtK(s.total_put_vol || 0));
+  setText('live-vol-pc',    s.total_call_vol ? ((s.total_put_vol||0)/s.total_call_vol).toFixed(2) : '--');
+
+  // GEX chart
+  const strikes = d.strikes || [];
+  const wall = s.wall;
+  const B = 1e9;
+  const callB  = (d.call_gex||[]).map(function(v){return +(v/B).toFixed(3);});
+  const putB   = (d.put_gex||[]).map(function(v){return +(v/B).toFixed(3);});
+  const cumulB = (d.cumulative_gex||[]).map(function(v){return +(v/B).toFixed(3);});
+  const callBorders = strikes.map(function(k){ return k===wall ? '#1f6feb':'rgba(0,0,0,0)'; });
+  const putBorders  = strikes.map(function(k){ return k===wall ? '#1f6feb':'rgba(0,0,0,0)'; });
+  const bW = strikes.map(function(k){ return k===wall ? 2.5 : 0; });
+
+  Plotly.react('live-gex-chart', [
+    { type:'bar', name:'Call GEX', x:strikes, y:callB,
+      marker:{color:'#3fb950', line:{color:callBorders, width:bW}},
+      hovertemplate:'Strike %{x}<br>Call: %{y:.3f}B<extra></extra>' },
+    { type:'bar', name:'Put GEX', x:strikes, y:putB,
+      marker:{color:'#f85149', line:{color:putBorders, width:bW}},
+      hovertemplate:'Strike %{x}<br>Put: %{y:.3f}B<extra></extra>' },
+    { type:'scatter', name:'Cumul.', x:strikes, y:cumulB,
+      mode:'lines', fill:'tozeroy',
+      line:{color:'rgba(56,139,253,0.7)',width:1.5},
+      fillcolor:'rgba(56,139,253,0.12)',
+      yaxis:'y2',
+      hovertemplate:'Strike %{x}<br>Cumul: %{y:.3f}B<extra></extra>' },
+  ], Object.assign({}, BG, {
+    barmode:'relative',
+    margin:{t:5,b:35,l:65,r:65},
+    xaxis: strikeAxis(),
+    yaxis:{ gridcolor:'#dee2e6', zeroline:true, zerolinecolor:'#adb5bd',
+            tickfont:{size:9}, title:{text:'GEX ($B)',font:{size:9}}, tickformat:'.2f' },
+    yaxis2:{ overlaying:'y', side:'right', showgrid:false, zeroline:false,
+             tickfont:{size:9}, title:{text:'Cumul ($B)',font:{size:9}}, tickformat:'.2f' },
+    showlegend:false,
+    shapes: priceShapes(s.uprice||0, wall, s.flip),
+    annotations: [
+      { xref:'x', yref:'y', x:s.uprice||0, y:1.0,
+        text: (s.uprice||0).toFixed(0), showarrow:false, font:{color:'#212529',size:11}, xanchor:'center' }
+    ],
+  }), {responsive:true, displayModeBar:false});
+
+  // OI chart
+  const callK = (d.call_oi||[]).map(function(v){return +(v/1000).toFixed(1);});
+  const putK  = (d.put_oi||[]).map(function(v){return +(v/1000).toFixed(1);});
+  Plotly.react('live-oi-chart', [
+    { type:'bar', name:'Call OI', x:strikes, y:callK, marker:{color:'#3fb950'},
+      hovertemplate:'Strike %{x}<br>Call OI: %{y:.1f}K<extra></extra>' },
+    { type:'bar', name:'Put OI', x:strikes, y:putK, marker:{color:'#f85149'},
+      hovertemplate:'Strike %{x}<br>Put OI: %{y:.1f}K<extra></extra>' },
+  ], Object.assign({}, BG, {
+    barmode:'relative', margin:{t:5,b:35,l:55,r:20},
+    xaxis: strikeAxis(),
+    yaxis:{ gridcolor:'#dee2e6', zeroline:true, zerolinecolor:'#adb5bd',
+            tickfont:{size:9}, title:{text:'OI (K)',font:{size:9}}, tickformat:'.1f' },
+    showlegend:false,
+    shapes: priceShapes(s.uprice||0, null, s.flip),
+  }), {responsive:true, displayModeBar:false});
+
+  // Vol chart
+  const callVK = (d.call_vol||[]).map(function(v){return +(v/1000).toFixed(1);});
+  const putVK  = (d.put_vol||[]).map(function(v){return +(v/1000).toFixed(1);});
+  Plotly.react('live-vol-chart', [
+    { type:'bar', name:'Call Vol', x:strikes, y:callVK, marker:{color:'#3fb950'},
+      hovertemplate:'Strike %{x}<br>Call Vol: %{y:.1f}K<extra></extra>' },
+    { type:'bar', name:'Put Vol', x:strikes, y:putVK, marker:{color:'#f85149'},
+      hovertemplate:'Strike %{x}<br>Put Vol: %{y:.1f}K<extra></extra>' },
+  ], Object.assign({}, BG, {
+    barmode:'relative', margin:{t:5,b:35,l:55,r:20},
+    xaxis: strikeAxis(),
+    yaxis:{ gridcolor:'#dee2e6', zeroline:true, zerolinecolor:'#adb5bd',
+            tickfont:{size:9}, title:{text:'Vol (K)',font:{size:9}}, tickformat:'.1f' },
+    showlegend:false,
+    shapes: priceShapes(s.uprice||0, null, null),
+  }), {responsive:true, displayModeBar:false});
+
+  // Teaching points
+  renderPoints(d.points || [], 'live-points-panel');
+}
+
+/* Capture Session button */
+document.getElementById('btn-capture-session').addEventListener('click', async function() {
+  this.disabled = true;
+  this.textContent = 'Capturing...';
+  const status = document.getElementById('live-pipeline-status');
+  document.getElementById('live-pipeline-card').style.display = '';
+  status.textContent = 'Running optionalpha_capture.py (refreshing Playwright session cookies)...';
+  try {
+    const resp = await fetch('/api/live/capture');
+    const d = await resp.json();
+    if (!resp.ok) {
+      status.textContent = 'Capture failed: ' + (d.error || resp.statusText);
+      status.className = 'text-danger';
+      return;
+    }
+    status.textContent = 'Capture completed. You can now fetch live GEX.';
+    status.className = 'text-success';
+  } catch(e) {
+    status.textContent = 'Capture failed: ' + e.message;
+    status.className = 'text-danger';
+  } finally {
+    this.disabled = false;
+    this.textContent = 'Capture Session';
+  }
+});
+
+
+/* Fetch Live button — runs full pipeline */
+document.getElementById('btn-fetch-live').addEventListener('click', async function() {
+  this.disabled = true;
+  this.textContent = 'Running pipeline...';
+  const status = document.getElementById('live-pipeline-status');
+  const card = document.getElementById('live-pipeline-card');
+  card.style.display = '';
+  status.className = 'text-muted';
+  status.textContent = 'Step 1/3: running optionalpha_daily.py...';
+  try {
+    const resp = await fetch('/api/live/fetch');
+    const d = await resp.json();
+    if (!resp.ok) {
+      status.textContent = 'Pipeline failed: ' + (d.error || resp.statusText);
+      status.className = 'text-danger';
+      return;
+    }
+    status.textContent = 'Pipeline complete. Report saved to: ' + (d.report_path || 'n/a');
+    status.className = 'text-success';
+    // Add to our local times list if not already there
+    const nt = d.ntime;
+    if (liveTimes.indexOf(nt) === -1) {
+      liveTimes.push(nt);
+      liveTimes.sort(function(a,b){return a-b;});
+    }
+    liveIdx = liveTimes.indexOf(nt);
+    updateLiveNav();
+    renderLiveData(d);
+  } catch(e) {
+    status.textContent = 'Pipeline failed: ' + e.message;
+    status.className = 'text-danger';
+  } finally {
+    this.disabled = false;
+    this.textContent = 'Fetch Live GEX';
+  }
+});
+
+
+/* Load Live Analysis button */
+document.getElementById('btn-live-analysis').addEventListener('click', async function() {
+  const panel = document.getElementById('live-analysis-panel');
+  panel.innerHTML = '<p class="text-muted mb-0">Loading live analysis...</p>';
+  try {
+    const resp = await fetch('/api/live/analysis');
+    if (!resp.ok) {
+      const d = await resp.json();
+      panel.innerHTML = '<p class="text-danger mb-0">' + (d.error || 'No live analysis available.') + '</p>';
+      return;
+    }
+    const d = await resp.json();
+    const html = '<div class="mb-2"><strong class="text-primary">Live Thesis:</strong><p class="mb-1">' + d.thesis.thesis + '</p></div>' +
+      '<div class="mb-2"><strong class="text-info">Actuals (OHLC):</strong><p class="mb-1">Open: ' + d.actuals.open.toFixed(2) +
+      ' | High: ' + d.actuals.high.toFixed(2) + ' | Low: ' + d.actuals.low.toFixed(2) +
+      ' | Close: ' + d.actuals.close.toFixed(2) + '</p></div>' +
+      '<div><strong class="text-success">Verdict:</strong><p class="mb-0">' + d.verdict + '</p></div>';
+    panel.innerHTML = html;
+  } catch(e) {
+    panel.innerHTML = '<p class="text-danger mb-0">Failed to load live analysis: ' + e.message + '</p>';
+  }
+});
+
+/* Navigate live snapshots */
+document.getElementById('btn-live-prev').addEventListener('click', async function() {
+  if (liveIdx > 0) {
+    liveIdx--;
+    updateLiveNav();
+    const resp = await fetch('/api/live/snapshot?time=' + liveTimes[liveIdx]);
+    if (resp.ok) renderLiveData(await resp.json());
+  }
+});
+
+document.getElementById('btn-live-next').addEventListener('click', async function() {
+  if (liveIdx < liveTimes.length - 1) {
+    liveIdx++;
+    updateLiveNav();
+    const resp = await fetch('/api/live/snapshot?time=' + liveTimes[liveIdx]);
+    if (resp.ok) renderLiveData(await resp.json());
+  }
+});
+
+/* On Live tab activation, load today's existing snapshots */
+document.getElementById('tab-live-btn').addEventListener('shown.bs.tab', async function() {
+  const resp = await fetch('/api/live/snapshots');
+  if (resp.ok) {
+    const d = await resp.json();
+    liveTimes = d.times || [];
+    if (liveTimes.length) {
+      liveIdx = liveTimes.length - 1;
+      updateLiveNav();
+      const sr = await fetch('/api/live/snapshot?time=' + liveTimes[liveIdx]);
+      if (sr.ok) renderLiveData(await sr.json());
+    } else {
+      updateLiveNav();
+    }
+  }
+});
+
+/* Analysis tab handlers */
+document.getElementById('tab-analysis-btn').addEventListener('shown.bs.tab', async function() {
+  const sel = document.getElementById('analysis-date-sel');
+  if (sel.options.length === 0) {
+    const r = await fetch('/api/dates');
+    const dates = await r.json();
+    dates.forEach(function(d) {
+      const o = document.createElement('option'); o.value = d; o.textContent = d; sel.appendChild(o);
+    });
+    if (dates.length) sel.value = dates[dates.length-1];
+  }
+});
+
+document.getElementById('btn-load-analysis').addEventListener('click', function() {
+  const sel = document.getElementById('analysis-date-sel');
+  if (sel.value) loadAnalysis(sel.value);
+});
+
+/* ===== History Scatter Tab ===== */
+async function hscLoadDates() {
+  const sel = document.getElementById('hsc-date-sel');
+  if (sel.options.length) return;
+  const r = await fetch('/api/dates');
+  const dates = await r.json();
+  dates.forEach(function(d) {
+    const o = document.createElement('option'); o.value = d; o.textContent = d; sel.appendChild(o);
+  });
+  if (dates.length) { sel.value = dates[dates.length-1]; hscDate = dates[dates.length-1]; hscLoadSnapshot(); }
+}
+
+async function hscLoadSnapshot() {
+  if (!hscDate) return;
+  const ntime = TIMES[hscTimeIdx];
+  document.getElementById('hsc-lbl-time').textContent = fmtTime(ntime);
+  document.getElementById('hsc-btn-prev').disabled = hscTimeIdx === 0;
+  document.getElementById('hsc-btn-next').disabled = hscTimeIdx === TIMES.length - 1;
+  try {
+    const resp = await fetch('/api/snapshot?date=' + hscDate + '&time=' + ntime);
+    if (resp.ok) {
+      const d = await resp.json();
+      const s = d.summary || {};
+      setText('hsc-lbl-uprice',    s.uprice ? s.uprice.toFixed(2) : '--');
+      setText('hsc-lbl-wall',      s.wall   ? String(s.wall)       : '--');
+      setText('hsc-lbl-flip',      s.flip   ? s.flip.toFixed(0)    : '--');
+      setText('hsc-lbl-sentiment', s.sentiment_pct != null ? s.sentiment_pct + '%' : '--');
+      setText('hsc-lbl-ratio',     s.gex_ratio     != null ? s.gex_ratio + 'x'     : '--');
+      setText('hsc-lbl-net',       s.net_gex       != null ? fmtBig(s.net_gex)     : '--');
+      setText('hsc-lbl-kcs',       s.kcs           != null ? s.kcs.toFixed(1)       : '--');
+      setText('hsc-lbl-dominance', s.key_dominance_pct != null ? s.key_dominance_pct + '%' : '--');
+      const rb = document.getElementById('hsc-regime-badge');
+      if (rb) {
+        if (s.net_gex < 0) { rb.textContent = 'NEGATIVE GEX'; rb.className = 'regime-badge regime-neg'; }
+        else               { rb.textContent = 'POSITIVE GEX'; rb.className = 'regime-badge regime-pos'; }
+      }
+    }
+  } catch(e) {}
+  renderHistoryScatters(hscDate, ntime, {gex:'hsc-gex', oi:'hsc-oi', vol:'hsc-vol'});
+  renderKcsChart(hscDate, ntime);
+}
+
+/* ---------- KCS history chart ---------- */
+let hscKcsMode = 'scatter';
+
+function setHscKcsMode(mode) {
+  hscKcsMode = mode;
+  const grp = document.getElementById('hsc-mode-kcs');
+  if (grp) {
+    Array.from(grp.children).forEach(function(btn) {
+      const isActive = btn.textContent.toLowerCase() === mode;
+      btn.className = isActive ? 'btn btn-primary' : 'btn btn-outline-secondary';
+      btn.style.fontSize = '10px'; btn.style.padding = '1px 6px';
+    });
+  }
+  const ntime = TIMES[hscTimeIdx];
+  const h = _historyCache[ntime];
+  if (h && hscDate) renderKcsChart(hscDate, ntime);
+}
+
+async function renderKcsChart(date, ntime) {
+  let h = _historyCache[ntime];
+  if (!h) {
+    try {
+      const resp = await fetch('/api/history?time=' + ntime);
+      if (!resp.ok) return;
+      h = await resp.json();
+      _historyCache[ntime] = h;
+    } catch(e) { return; }
+  }
+  const dates = h.dates || [];
+  const kcsArr = h.kcs || [];
+  const idx = dates.indexOf(date);
+  let traces, layout;
+  if (hscKcsMode === 'bar') {
+    const colors = dates.map(function(d){ return d === date ? '#f0ad00' : 'rgba(240,173,0,0.5)'; });
+    const borders = dates.map(function(d){ return d === date ? 2 : 0; });
+    const borderC = dates.map(function(d){ return d === date ? '#212529' : 'rgba(0,0,0,0)'; });
+    traces = [{ type:'bar', name:'KCS', x:dates, y:kcsArr,
+      marker:{color:colors, line:{color:borderC, width:borders}},
+      hovertemplate:'%{x}<br>KCS: %{y:.2f}<extra></extra>' }];
+    layout = Object.assign({}, BG, {
+      margin:{t:15,b:60,l:50,r:15},
+      xaxis:{ gridcolor:'#dee2e6', tickfont:{size:9}, tickangle:-45, nticks:12 },
+      yaxis:{ gridcolor:'#dee2e6', tickfont:{size:9}, title:{text:'KCS', font:{size:10}} },
+      showlegend:false,
+    });
+  } else {
+    const histDates = dates.filter(function(_,i){ return i !== idx; });
+    const histKcs   = kcsArr.filter(function(_,i){ return i !== idx; });
+    traces = [
+      { type:'scatter', mode:'markers', name:'KCS (hist)',
+        x:histDates, y:histKcs, marker:{color:'rgba(240,173,0,0.55)', size:5},
+        hovertemplate:'%{x}<br>KCS: %{y:.2f}<extra></extra>' },
+    ];
+    if (idx !== -1) {
+      traces.push({ type:'scatter', mode:'markers', name:'KCS (now)',
+        x:[date], y:[kcsArr[idx]],
+        marker:{color:'#f0ad00', size:11, symbol:'diamond', line:{color:'#212529', width:1.5}},
+        hovertemplate:'%{x}<br>KCS: %{y:.2f}<extra></extra>' });
+    }
+    layout = Object.assign({}, BG, {
+      margin:{t:15,b:60,l:50,r:15},
+      xaxis:{ gridcolor:'#dee2e6', tickfont:{size:9}, tickangle:-45, nticks:12 },
+      yaxis:{ gridcolor:'#dee2e6', tickfont:{size:9}, title:{text:'KCS', font:{size:10}}, zeroline:false },
+      showlegend:true, legend:{ orientation:'h', y:-0.15, font:{size:9} },
+    });
+  }
+  Plotly.react('hsc-kcs', traces, layout, {responsive:true, displayModeBar:false});
+}
+
+document.getElementById('tab-hscatter-btn').addEventListener('shown.bs.tab', hscLoadDates);
+
+document.getElementById('hsc-date-sel').addEventListener('change', function() {
+  hscDate = this.value; hscTimeIdx = 0; hscLoadSnapshot();
+});
+
+document.getElementById('hsc-btn-prev-day').addEventListener('click', function() {
+  const sel = document.getElementById('hsc-date-sel');
+  if (sel.selectedIndex > 0) { sel.selectedIndex--; hscDate = sel.value; hscTimeIdx = 0; hscLoadSnapshot(); }
+});
+
+document.getElementById('hsc-btn-next-day').addEventListener('click', function() {
+  const sel = document.getElementById('hsc-date-sel');
+  if (sel.selectedIndex < sel.options.length - 1) { sel.selectedIndex++; hscDate = sel.value; hscTimeIdx = 0; hscLoadSnapshot(); }
+});
+
+document.getElementById('hsc-btn-prev').addEventListener('click', function() {
+  if (hscTimeIdx > 0) { hscTimeIdx--; hscLoadSnapshot(); }
+});
+
+document.getElementById('hsc-btn-next').addEventListener('click', function() {
+  if (hscTimeIdx < TIMES.length - 1) { hscTimeIdx++; hscLoadSnapshot(); }
+});
+
+/* ===== CSV Data Tab ===== */
+let _csvCols = [], _csvRows = [], _csvSortCol = null, _csvSortAsc = true;
+
+/* ===== Sync Historical Data ===== */
+async function syncHistoricalData() {
+  const btn = document.getElementById('btn-sync-hist');
+  const status = document.getElementById('sync-status');
+  if (!btn || !status) return;
+
+  btn.disabled = true;
+  btn.textContent = 'Syncing...';
+  status.textContent = 'Fetching missing dates...';
+
+  try {
+    const resp = await fetch('/api/sync-historical?max_days=30');
+    if (!resp.ok) {
+      status.textContent = 'Error: ' + resp.status;
+      return;
+    }
+    const result = await resp.json();
+    const fetched = result.fetched || [];
+    const skipped = result.skipped || [];
+    const failed = result.failed || [];
+
+    let statusText = 'Fetched: ' + fetched.length + ', Skipped: ' + skipped.length;
+    if (failed.length > 0) {
+      statusText += ', Failed: ' + failed.length;
+      const failedDetails = failed.map(function(f){ return f.date + ' (' + f.error + ')'; }).join('; ');
+      statusText += ' [' + failedDetails + ']';
+    }
+    status.textContent = statusText;
+
+    if (fetched.length > 0) {
+      // Reload dates and refresh current view
+      loadDates();
+      if (currentDate) loadSnapshot(currentDate, TIMES[timeIdx], prevTime);
+    }
+  } catch(e) {
+    status.textContent = 'Error: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Sync Historical Data';
+  }
+}
+
+document.getElementById('btn-sync-hist').addEventListener('click', syncHistoricalData);
+
+// Checkbox event listeners for rankings
+document.getElementById('chk-show-rankings').addEventListener('change', function() {
+  if (this.checked && currentDate && timeIdx !== -1) {
+    loadPercentiles(currentDate, TIMES[timeIdx], false);
+  } else {
+    // Clear all percentile badges
+    const allIds = ['pct-net','pct-gex-puts','pct-gex-calls','pct-oi-puts','pct-oi-calls','pct-vol-puts','pct-vol-calls','pct-kcs','pct-dominance'];
+    allIds.forEach(function(id) { const el=document.getElementById(id); if(el) el.innerHTML=''; });
+  }
+});
+
+document.getElementById('chk-live-show-rankings').addEventListener('change', function() {
+  if (this.checked && liveIdx >= 0 && liveIdx < liveTimes.length) {
+    const resp = fetch('/api/live/snapshot?time=' + liveTimes[liveIdx]);
+    resp.then(r => r.json()).then(d => {
+      if (d.date && d.ntime) {
+        loadPercentiles(d.date, d.ntime, true);
+      }
+    });
+  } else {
+    // Clear all live percentile badges
+    const allIds = ['live-pct-net','live-pct-gex-puts','live-pct-gex-calls','live-pct-oi-puts','live-pct-oi-calls','live-pct-vol-puts','live-pct-vol-calls','live-pct-kcs','live-pct-dominance'];
+    allIds.forEach(function(id) { const el=document.getElementById(id); if(el) el.innerHTML=''; });
+  }
+});
+
+function csvNumeric(v) {
+  if (v === null || v === undefined || v === '') return null;
+  const s = String(v);
+  if (s.includes(':')) return null;  // Don't parse time values
+  if (s.match(/^\d{4}-\d{2}-\d{2}$/)) return null;  // Don't parse ISO dates
+  const n = parseFloat(s.replace(/[B%x]/g, ''));
+  return isNaN(n) ? null : n;
+}
+
+function formatLargeNumber(v, suffix) {
+  if (v === null || v === undefined || v === '') return '';
+  const n = parseFloat(v);
+  if (isNaN(n)) return v;
+  if (suffix === 'B') return (n / 1e9).toFixed(2) + 'B';
+  if (suffix === 'M') return (n / 1e6).toFixed(2) + 'M';
+  if (suffix === 'K') return (n / 1e3).toFixed(1) + 'K';
+  return String(n);
+}
+
+function getColumnSuffixes(rows) {
+  const suffixes = {};
+  const noSuffixCols = ['date', 'time', 'sentiment', 'gex_ratio', 'key_dominance_pct', 'key_strike'];
+  const noNumericCols = ['date', 'time', 'key_strike'];
+  _csvCols.forEach(function(col) {
+    if (noSuffixCols.includes(col)) {
+      suffixes[col] = '';
+      return;
+    }
+    let maxVal = 0;
+    rows.forEach(function(row) {
+      const v = row[col];
+      if (noNumericCols.includes(col)) return;
+      const n = csvNumeric(v);
+      if (n !== null && Math.abs(n) > maxVal) maxVal = Math.abs(n);
+    });
+    if (maxVal >= 1e9) suffixes[col] = 'B';
+    else if (maxVal >= 1e6) suffixes[col] = 'M';
+    else if (maxVal >= 1e3) suffixes[col] = 'K';
+    else suffixes[col] = '';
+  });
+  return suffixes;
+}
+
+function csvRenderTable(rows) {
+  const tbody = document.getElementById('csv-tbody');
+  tbody.innerHTML = '';
+  const suffixes = getColumnSuffixes(rows);
+  rows.forEach(function(row) {
+    const tr = document.createElement('tr');
+    _csvCols.forEach(function(col) {
+      const td = document.createElement('td');
+      const v = row[col];
+      const isNumeric = csvNumeric(v) !== null;
+      td.textContent = (v === null || v === undefined) ? '' : (isNumeric ? formatLargeNumber(v, suffixes[col]) : v);
+      td.style.textAlign = isNumeric ? 'right' : 'left';
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+  document.getElementById('csv-row-count').textContent = rows.length + ' row' + (rows.length !== 1 ? 's' : '');
+}
+
+function csvSortAndRender(col) {
+  if (_csvSortCol === col) { _csvSortAsc = !_csvSortAsc; }
+  else { _csvSortCol = col; _csvSortAsc = true; }
+  const sorted = _csvRows.slice().sort(function(a, b) {
+    const av = a[col], bv = b[col];
+    const an = csvNumeric(av), bn = csvNumeric(bv);
+    let cmp;
+    if (an !== null && bn !== null) cmp = an - bn;
+    else cmp = String(av != null ? av : '').localeCompare(String(bv != null ? bv : ''));
+    return _csvSortAsc ? cmp : -cmp;
+  });
+  // Update header arrows
+  document.querySelectorAll('#csv-thead th').forEach(function(th) {
+    const arrow = th.querySelector('.csv-arrow');
+    if (arrow) arrow.textContent = (th.dataset.col === col) ? (_csvSortAsc ? ' ▲' : ' ▼') : ' ⇅';
+  });
+  csvApplyFilter(sorted);
+}
+
+function csvBuildHeader() {
+  const thead = document.getElementById('csv-thead');
+  thead.innerHTML = '';
+  const tr = document.createElement('tr');
+  _csvCols.forEach(function(col) {
+    const th = document.createElement('th');
+    th.dataset.col = col;
+    th.style.cursor = 'pointer';
+    th.style.userSelect = 'none';
+    th.style.whiteSpace = 'nowrap';
+    th.innerHTML = col + '<span class="csv-arrow"> ⇅</span>';
+    th.addEventListener('click', function() { csvSortAndRender(col); });
+    tr.appendChild(th);
+  });
+  thead.appendChild(tr);
+}
+
+function csvApplyFilter(sortedRows) {
+  const filter = document.getElementById('csv-filter').value.toLowerCase();
+  const rows = filter ? (sortedRows || _csvRows).filter(function(row) {
+    return _csvCols.some(function(c){ return String(row[c] != null ? row[c] : '').toLowerCase().includes(filter); });
+  }) : (sortedRows || _csvRows);
+  csvRenderTable(rows);
+}
+
+document.getElementById('csv-filter').addEventListener('input', function() { csvApplyFilter(); });
+
+async function csvLoad() {
+  try {
+    const url = '/api/csv-data?time=' + TIMES[timeIdx];
+    const resp = await fetch(url);
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data.error) {
+      document.getElementById('csv-row-count').textContent = data.error;
+      return;
+    }
+    _csvCols = data.columns;
+    _csvRows = data.rows;
+    csvBuildHeader();
+    csvRenderTable(_csvRows);
+  } catch(e) { console.error('csv-data fetch error', e); }
+}
+
+document.getElementById('tab-csv-btn').addEventListener('shown.bs.tab', function() {
+  csvLoad();
+});
+
+/* ===== SPX Price Tab ===== */
+let spxMode = 'eod';
+let spxDate = null;
+
+async function loadSpxPrices() {
+  try {
+    const chartDiv = document.getElementById('spx-history-chart');
+    console.log('Chart container:', chartDiv);
+    console.log('Chart container dimensions:', chartDiv ? { width: chartDiv.offsetWidth, height: chartDiv.offsetHeight } : 'not found');
+    console.log('Current mode:', spxMode, 'spxDate:', spxDate);
+
+    const url = '/api/spx-prices?mode=' + spxMode + (spxDate ? '&date=' + spxDate : '');
+    console.log('Fetching SPX prices from:', url);
+    const resp = await fetch(url);
+    if (!resp.ok) {
+      console.error('API response not OK:', resp.status);
+      return;
+    }
+    const data = await resp.json();
+    console.log('SPX prices data:', data);
+    const prices = data.prices || [];
+    console.log('Number of prices:', prices.length);
+
+    if (prices.length === 0) {
+      console.warn('No prices returned');
+      return;
+    }
+
+    // Use time as x-axis for single date mode, date for EOD mode
+    const xValues = (spxMode === 'single') ? prices.map(function(p) { return p.time; }) : prices.map(function(p) { return p.date; });
+    const uprices = prices.map(function(p) { return p.uprice; });
+    const hoverText = prices.map(function(p) { return 'Date: ' + p.date + '<br>Time: ' + p.time + '<br>Price: ' + p.uprice.toFixed(2); });
+
+    console.log('xValues sample:', xValues.slice(0, 5));
+    console.log('uprices sample:', uprices.slice(0, 5));
+
+    const trace = {
+      type: 'scatter',
+      mode: 'lines+markers',
+      x: xValues,
+      y: uprices,
+      text: hoverText,
+      hovertemplate: '%{text}<extra></extra>',
+      line: { color: '#1f6feb', width: 2 },
+      marker: { size: 4, color: '#1f6feb' }
+    };
+
+    const layout = {
+      paper_bgcolor: '#ffffff',
+      plot_bgcolor: '#f8f9fa',
+      font: { color: '#212529', size: 10 },
+      margin: { t: 20, b: 60, l: 60, r: 20 },
+      xaxis: { gridcolor: '#dee2e6', tickfont: { size: 9 }, tickangle: -45, title: { text: spxMode === 'single' ? 'Time' : 'Date', font: { size: 10 } } },
+      yaxis: { gridcolor: '#dee2e6', tickfont: { size: 9 }, title: { text: 'SPX Price', font: { size: 10 } } },
+      showlegend: false
+    };
+
+    const config = { responsive: true, displayModeBar: false };
+    console.log('Calling Plotly.newPlot...');
+    Plotly.newPlot('spx-history-chart', [trace], layout, config).then(function() {
+      console.log('Plotly.newPlot completed successfully');
+    }).catch(function(err) {
+      console.error('Plotly.newPlot error:', err);
+    });
+  } catch(e) {
+    console.error('Error loading SPX prices:', e);
+  }
+}
+
+document.getElementById('tab-spx-btn').addEventListener('shown.bs.tab', async function() {
+  // Populate date dropdown if empty
+  const sel = document.getElementById('spx-date-sel');
+  if (sel.options.length === 0) {
+    const r = await fetch('/api/dates');
+    const dates = await r.json();
+    dates.forEach(function(d) {
+      const o = document.createElement('option');
+      o.value = d;
+      o.textContent = d;
+      sel.appendChild(o);
+    });
+  }
+  // Small delay to ensure tab is fully visible
+  setTimeout(loadSpxPrices, 100);
+});
+
+document.getElementById('spx-mode-eod').addEventListener('click', function() {
+  spxMode = 'eod';
+  spxDate = null;
+  document.getElementById('spx-date-sel').disabled = true;
+  document.getElementById('spx-date-sel').value = '';
+  loadSpxPrices();
+});
+
+document.getElementById('spx-mode-single').addEventListener('click', function() {
+  spxMode = 'single';
+  document.getElementById('spx-date-sel').disabled = false;
+});
+
+document.getElementById('spx-date-sel').addEventListener('change', function() {
+  spxDate = this.value;
+  if (spxDate) loadSpxPrices();
+});
+
+// Initialize Bootstrap tooltips
+var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+  return new bootstrap.Tooltip(tooltipTriggerEl);
+});
+</script>
+</body>
+</html>

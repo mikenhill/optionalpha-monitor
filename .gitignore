@@ -1,0 +1,7 @@
+.env
+session.json
+screenshots/
+captures/
+results/
+__pycache__/
+.venv/

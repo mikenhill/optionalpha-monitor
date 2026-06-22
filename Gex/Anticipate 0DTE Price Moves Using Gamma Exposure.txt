@@ -1,0 +1,115 @@
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)
+
+Hi, I'm Jack Slocum with Option Alpha. Before I jump in and show you how my bots have been doing and go over some of the trades I've been making, in particular, this Gamma Exposure bot right here where I've been making a lot of manual trades, I'm actually gonna make a live trade right now. I already made one earlier today and I'm gonna make another one very similar with a long call spread.
+
+Hopefully the opportunity is still there. See here, wow, okay. Maybe I'm not gonna make this trade.
+
+Look at the pricing on that one, it's pretty high, 230. Getting 100% reward risk on it. I'm gonna go ahead and make a little two contract trade if I can get in at $2.50. No, this is one of those times I think I'm just not gonna do it.
+
+235, if I could get filled at that. And I'll show you the decision making process I'm making as to why I wanna make this trade. If we look over here at Gamma Exposure, I'll go over the general gist of the logic behind this trade and the play that I'm trying to make in the short term right now.
+
+I'm gonna go ahead and place this trade. 235 is pretty rich. I doubt I will get filled on it, but boom.
+
+Okay, I just got filled and wow, look how quickly the pricing is moving. So on this particular trade, I'm going to be looking to take down very quickly $100 profit. So that's 50 cents per contract on the trade that I'm making.
+
+My total risk for this position is $470. So I'm trying to make a really quick 20%. Usually I aim a little higher.
+
+In this particular case, I'll show you why I'm willing to take a little smaller. So let me go over the logic behind why I'm making this trade right now and what I'm looking at in order to determine that I'm willing to take this particular risk. So if we look here at the Gamma Exposure currently, you can see here that one, we're in negative Gamma territory.
+
+So today overall the market, there's more bets that the market's going to be going down than the market's actually going to be going up. And what I've been looking at over the course of today is there's this one particular strike here, this 6730 strike, where there's a large amount of put open interest. So if you look there, there's 4,243 contracts of put open interest.
+
+And in our previous recordings, which we released where we spoke with market makers, they explained that when the price drops about $5 to $10 below a price that has a large amount of Gamma Exposure, that that's when market makers will start hedging. So what I'm actually hoping for right now, and what I just placed a trade based on, is the fact that the price, which was down at 6720, was going to rebound pretty quickly up to 6730. And when it does, I'll be able to close for a really quick profit.
+
+And it looks like currently that is what is happening. It's already trying to take profits on the position. So we'll see.
+
+It's deposits that it keeps trying. We'll see if I can just get a quick win while we're on this video. That would be great.
+
+So again, what I'm looking at though, is the price dropped down here into 6720. There's this large bar here with this open interest and the biggest Gamma Exposure strike. I actually traded this exact same trade the other direction just a few minutes ago, and I'll show you, boom.
+
+So this one closed while we're on this video quickly for $100 profit, and the price did indeed rebound up above the target price where I was going. So if we click on my Gamma Exposure trades right here bot, and we look at the positions, you'll see that earlier today, I actually traded a long put spread. So basically I traded a long put spread saying the price was gonna go down towards that 6730 strike.
+
+And I'll show you here this position, I opened it up for 165 this morning at 10 a.m., and I closed it at 1009 a.m. And what I was looking at when I made this trade, if I jump back over here, and take a long route over to this. So this right here is not available on the website yet, but I am in the development environment, and we have this new thing coming out, which is a historical view of Gamma Exposure. So what we're looking at here is the Gamma Exposure earlier today at 10 a.m., and that's when I opened that trade that I just showed you where I made $300 in about nine minutes.
+
+So when I was looking at this chart at 10 a.m., what I was trying to conclude is where was the price going to move in the next few minutes? And the two strikes that stood out to me were the 6750 strike right here, where the put open interest 2200, call open interest of 1300. Pretty well balanced, and if the price moves towards there, this bar will develop into a pretty strong potential magnet for the price over the course of the day. But the other price that I was looking at here was the 6730 strike, which usually the strikes with the biggest open interest are somewhere an even number, like 6700, 6750, 6800.
+
+But in this case, the 6730 strike has 4200 put open interest. And so when I was looking at this chart, I was trying to decide whether it was gonna go towards that direction or whether it was gonna go up towards 6750. And ultimately what I looked at in order to make the decision was these numbers up here.
+
+What I'm looking at is overall there is a bearish lean. And if they're net short, then I'm gonna bet with them that the price is gonna ultimately head down towards this 6730 strike, which is exactly what I did. So I quickly jumped in on a position this morning.
+
+Jump on over here back towards that bot. And over a period of nine minutes, I made a quick trade and took down this $300 profit. I did get in at a much better price, 165, than I did on the trade we made in the beginning of this video, where, look, I opened it at 1042 and I was out at 1044.
+
+Basically basing this entire trade off of the gamma exposure chart that I was just showing you. I've been making these gamma exposure trades over the last couple months, ever since we released this tool and I've been learning along the way. You can see here the beginning here was up and down, up and down.
+
+Moving forward, the gamma exposure trades I'm making will be made on this account. And I'm gonna try to share as many of them live as possible with you guys here. If we look at some of the trades I've been making, you can see it is not an easy, every trade's gonna win like these two look like, make it look really easy.
+
+That's not how it goes. Let's look back on last Friday. So if we look at last Friday, look at all these giant losers towards the end of the day.
+
+Now all of these trades weren't made at the end of the day. This one was at 358 and 356. I made another trade here, $475.
+
+I did regret that trade afterwards. This one was at 1043, just a trade that didn't work out. If you look, it's way outside of the price range where it actually ended up.
+
+The price moved big during the day. This one was another last minute trade that was made earlier in the day. And this one was 1042, so also earlier in the day.
+
+Now this, of course, makes it look like, wow, this is terrible. But if you look, earlier in the day, these are all still the same day, November 14th. So all of these right here also happened.
+
+And ultimately, I ended up net positive in the day. And if you look, this one right here was opened at 353 and closed at 353 for a quick 200. This one was at 350, closed at 351 for a quick 200.
+
+So these trades that I was making here that lost out, before these losers happened, there were a lot of winners that happened as well. So if you look at this one, this one opened at noon, closed at 327 for a pretty sizable profit. This one was another loser here, 351.
+
+So going through the last two weeks, you can see here a bunch of losing positions, but also a lot of really strong positions as well. There were a few days where you can see some really huge wins right here. These were made 352, closed at 357, had a lot of risk.
+
+I've been increasing the amount that I've been risking on these trades as I developed more confidence working with the Gamma Exposure Tool. I feel like looking at the exposure charts, I'm able to somewhat try to predict where the market is going. And based on the amount of all input exposure on a particular strike, I'll show you again over here.
+
+I do have, if you see right here, this hedge against the market right now, it does look like it could be ending up in the period of volatility. So this is my little hedge. But, let me jump back over here.
+
+What was the click here? Get where we are right now before I do anything else, because I might want... So again, you can see here that price that I was predicting earlier, we're still pegged around that 67.30. Doesn't mean it's gonna stick there all day. But at this particular time, if I was gonna predict where I think the market is going next, it's either going to stick somewhere around here. This is gonna be a pretty decent bar of support with 4,200 open interest.
+
+Or we could see it head down towards this 67.30. So I'm not gonna make another 100 strike, not 100%. I'm not gonna make another trade right now. What I am gonna do is jump over here.
+
+We're gonna jump back over here to the 12th. We're gonna look at maybe around like 11 a.m. and see where it was. So you can see here, one thing is, as we started capturing this historical data, we're gonna be releasing this really soon in the next week or two.
+
+But we started capturing this historical data about Wednesday of last week, maybe Thursday of last week, later in the day. Anywhere after we started catching the data, we actually have the full chart that you see in the application with the volume and everything else. But if it's a date before then, we're actually using our back tester data to generate this.
+
+So there's no volume data in that, so you won't be able to see that. But moving forward, you'll be able to see the volume data as well. So if you look here, you can see that on the 12th, there's this large bar appearing here.
+
+As I move through the day, you can see it become more and more pronounced. And if you look towards the end of the day, the price ended up closing at 68.50 and a couple pennies. So throughout the day though, you could watch as the price went above, as the price fell below, there was this particular strike where this is where the action was centred.
+
+And at this point right here, similar to what I was showing you with today where there was overall more negative gamut exposure than there was positive. So here you're looking, you see these two bars are forming and you have to decide, okay, where do I think the price is going to go? In my case, I decided that the price was going up to here because once again, looking up here at the sentiment ratio and the net gamut exposure and seeing the positive values, I'm predicting that, okay, the market as a whole, the sentiment is saying that it's going up. So it's going to push up and it's going to end up somewhere around this 68.50. If this was all red up here, then I may have predicted that we're moving towards that strike.
+
+I probably would have let it get down to around 68.30 or so before I was willing to make any type of position. Once again, this historical tool's not yet available, but we will be releasing it really soon. But the live tool here is available in the platform and this is what I've been using to trade every day.
+
+And look, the price once again fell down here. And remember what I was saying, we could be heading towards the 6700 strike. There's no guarantee that this particular strike is going to hold.
+
+And the more this negative net gamma builds, the more likely that the price actually heads further south. So that's what I wanted to show you guys, a little bit about what I've been doing with this gamut exposure stuff. And we'll take a quick look here at how my bots have been doing.
+
+If you've been following along in this video series, I started these bots up over the course of the past year, started this video series with $10,000. Overall, it's been an up and down journey. This bot here was on a tear for a while for everyone in the community.
+
+It has been going through a drawdown recently. It was at a high of 1400 for me and is currently negative $955. This is part of this strategy though.
+
+So when I come in and I look at the back test that I originally used when I created it, and I look at the max drawdown here that it's had over the course of the entire three year trading period that I back tested, I can see that this is a larger drawdown than what I'm currently in. There was another drawdown here that was larger as well. So some of this is just timing of when I started this bot.
+
+Some of it is also the fact that I've been closing a lot of positions early. So, and many of those were profitable. For example, on Friday, I closed this one here.
+
+I took a $40 profit, but it was supposed to be $70 profit. Same thing here, $1.45 was the trade price. I closed it for $75 profit, but it should have been $145 profit.
+
+So each time that I've done these where I'm taking profits early, most of the time it's been a poor decision. These profits should, it shouldn't have this bad of a drawdown right now. This should probably be maybe around like $500.
+
+I've been closing a lot of positions early instead of trusting the strategy overall. I plan to do better with that moving forward and just letting it run, knowing that drawdowns are a normal part of the strategy after looking at the fact test. So I'll be holding on to letting this bot make a comeback.
+
+Also my YFLY bot down here. So if you look, this bot has been crossing it over the course of the past, started in August. Yeah, August 30th of 2024.
+
+It has went through some up and down periods over the course of that time. Recurrently it's in a bit of a drawdown as well. If you look, has not been pretty.
+
+What I do want to share though is if you look at all of these profit and losses here, you'll notice that typically this bot closes at about $300 profit or more. And you'll notice a lot of these are way smaller than that. And the interesting thing about this is many of these trades that I closed here for 200, $200 would have been 300 plus dollars profits as well.
+
+I've been taking profits and losses early with this bot because of how the market has had a lot of volatility and that is costing me money as well instead of just trusting the strategy to play out long term. So I plan to do better about that as well. So if you look here, for example, this morning, I literally closed it for $190.
+
+And then two minutes later, the market shot up and I could have actually taken profit for $380, which it would have done automatically without me even having to think about it. On Friday, I closed this one before the market opened. I actually posted in the community about it and later on it made a comeback and would have won $395.
+
+So what I'm finding is that when I'm trading gamut exposure, I have a lot of information available and I'm using that information to make calculated trades based on where I think the price is going in the short term. However, when I'm making these things with opening range breakout and YFLY where I'm taking manual action on a strategy that I've actually tested running long term, holding until the close, I'm allowing fear to creep into what I'm doing. And I'm closing the opening range breakout position early because I'm scared that the profit is gonna reverse and it's gonna turn into a loss.
+
+And the same thing here with YFLY is I'm making these particular trades out of fear. That's not a strategic thing where I'm thinking this is in my best interest long term. I'm thinking, I'm worried that this position is gonna reverse and turn into a loss so let me close it beforehand.
+
+And that's where I think as a trader, I need to eliminate as much of that fear-based trading as possible and add in as much of this information-based trading as possible where I'm looking at it with a strategy and an objective opinion about where I think the market is going and how I'm gonna trade in order to take advantage of that. So that's what I wanted to share in this video. On behalf of the Option Alpha team, thank you for watching, and we'll see you again next time.
+
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)

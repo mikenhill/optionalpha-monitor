@@ -1,0 +1,49 @@
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)
+
+Hi, I'm Jack Slocum with Option Alpha. Today we're going to be going over one of my favourite strategies to trade these days. It's based entirely on gamma exposure. 
+
+And if you look here, today is one of the days that I love when this happens, where all of the gamma exposure is on one strike. If we look here and we switch this to the absolute gamma view, you'll see this 66.50 strike is very pronounced, has a very high magnitude is what we're calling it within the platform over all of the other strikes gamma exposure. So switching back over here to the call and put view, you can see that also on this view, the call and the put gamma exposure are both pretty balanced, which means that as the price oscillates above or below that particular strike, there's going to be a lot of action for market makers having to hedge, which ultimately makes that price act as a pin and keeps it there throughout the day. 
+
+So if we look here at this chart for SPX for today, we can see that's exactly what's been happening. The blue line here is the 66.50 price point. And as the price falls below, it comes back up, falls below, comes back up.
+
+And basically it's doing this oscillating pattern. So one of the things that I'm looking for is the open interest as well at one of these particular strikes. So if we look here, this call open interest is nine point four K and the put open interest is eight point two K. These are actually large numbers. 
+
+This is a quarterly expiration. So there's a lot of volume that's been traded on these particular strikes. So there's a lot of hedging required in order to maintain a delta neutral portfolio for market makers. 
+
+So if we take a look real quick at the trades that I've actually made today as part of this strategy, you'll see early in the morning I got into my first trade when the price fell to 66.47. So it was down here somewhere. It fell down below this this 66.50 price point that I had set for the day. And then when it fell down below that price, I entered into a short put spread that was actually three dollars in the money. 
+
+And then approximately one minute later, I went ahead and closed the position for 70 dollars worth of profit. So I did this process several times during the day. This was actually a trade for a longer term trade by one of my other bots. 
+
+This one right here is what happened is the price then shot up above that 66.50 and I went ahead and traded a short call spread the other direction. So as you see here is that 66.57. It fell back down to 66.51. I was actually in this position for nine minutes and took down a quick hundred dollar profit. And then once again, same thing happened. 
+
+It fell down to 66.46 later in the day as part of these oscillations going back and forth. And I opened this one and quickly closed it. This one was open for two minutes and took down 80 dollars. 
+
+And this one was similar as well. It fell down below to 66.44, quickly took a hundred dollars profit. This one was five minutes.
+
+This is actually my YFLY trade for the day. If you're familiar with this video series, let me go ahead and show you. YFLY is a bot that I share in the Option Alpha community. 
+
+I've been running it for a little over a year. I started with twenty five hundred dollars. It has made a total of twelve thousand one hundred and three dollars over the past year, which is 484 percent.
+
+It trades an iron butterfly every day at one thirty and holds it until the next morning or whenever it can take 15 percent profit. And the whole strategy is based on the fact that every night overnight, the volatility that market makers are pricing into options prices is overstated. And there's an opportunity for us as traders to then sell this iron butterfly at the current price and hold it to the next day and capitalise over time on that volatility. 
+
+Now, even though this chart looks like it's going straight up, if you look here, I definitely want to be transparent from November all the way until May of this year. It had a little bit of a rough patch, but other than that, it's been a pretty solid performer for me, for my bots. And this morning, this is what I want to share with you, is I actually, it was actually going to take profit on this for about three hundred dollars. 
+
+But if you look, the short strike for this iron butterfly is sixty six fifty. And because it's sixty six fifty, which is the same exact strike of this massive gamut exposure strike right here, I decided I was going to let it run for a little bit. And so I went ahead and set profit taking to eight hundred dollars instead of the usual 15 percent, which would have been around three hundred dollars. 
+
+And then I checked it manually and saw that I could take down seven hundred dollars profit and went ahead and closed it for a nice little win. So this is a good little profit on YFLY that basically where I was using that same gamma exposure chart over here, which is located in the option alpha platform in order to determine that the price may actually stick there longer today. So I would go ahead and hold on to that iron butterfly a bit longer than I usually would. 
+
+And it turned out to be a good decision. And then just a little while ago, I also traded another one of these. I was in this one for a bit longer, twenty six minutes. 
+
+It took me to take down profit on this one. But again, it took down another hundred dollars. So overall, throughout the day, it's been a good trading day.
+
+I'm trading specifically on this gamma exposure strike right here. So typically when this strike here comes about, it holds. It's not necessarily going to hold all the way until the end of the day. 
+
+You really have to look and see like what's going on tomorrow that could cause the price to change. Like where might market makers be adjusting their hedging for the following day? Like, for example, if we look at this one here, a lot of this stuff right here, which could actually be hedged by market makers, is going to come off the books at the end of the day. And how will market makers then have to adjust their positions to maintain a delta neutral portfolio going into the next day? And what I found is if you look here. 
+
+So yesterday, for example, the price opened up high. But because of this sixty six fifty strike here, having so much open interest for the next day, as the day progressed, the price gradually moved towards that sixty six fifty strike until towards the end of the day it was oscillating back and forth around it. And then today it just opened right back around that strike as well. 
+
+So using these gamma exposure tools has really been a game changer for my personal trading. Very grateful to have this tool and just wanted to share that with all of you. So that's it for today's video.
+
+Thank you for watching and I'll see you again next time.
+
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)

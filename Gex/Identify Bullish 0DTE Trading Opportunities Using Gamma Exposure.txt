@@ -1,0 +1,71 @@
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)
+
+Hi, I'm Jack Slocum with Option Alpha. Today I'm going to be going through a strategy that has quickly become one of my absolute favourite strategies. It's a strategy that involves trading gamma exposure. 
+
+This strategy uses insights provided by gamma exposure in order to find places where there's a good chance that the price is going to reverse and move back the other direction. So what we're looking at here is a community topic and what I shared in this topic is what it is that I look for for this exact trading scenario. Now there's many different types of trades you can make with gamma exposure. 
+
+Some have been more successful than others, but this particular trading opportunity is one that has quickly become my favourite because it has been the most consistent. And before I jump in and break down the different things that I'm looking for, I just want to be completely transparent and show that my gamma exposure trading, this is the bot I have selected on my gamma exposure bots, is not always winning every time. As you can see, there's significant losses here along with significant wins and same thing every day. 
+
+Most days there's some wins, some losses, but the one that I'm going to share with you today has been the one that has been most consistent and most profitable. And what it has to do is there's scenarios in the market where, and this chart is the chart that we have within Option Alpha that you can see where the current gamma exposures are, I have it selected for call versus put here. And that's where I typically keep it most of the time. 
+
+And on this particular day, the spread that I've been trading is the 68.95 long call and the 69.00 short call. And if you look here, all of the gamma is concentrated on this 69.00 strike. So if you look here, what you can see is over the last two days, this here is the last two days, there's been a lot of action around the 69.00 strike with the price bouncing back and forth. 
+
+And what I'm looking for actually over the course of the day is for it to drop back down here, where that long call spread from the 68.95 to the 69.00 starts to go out of the money. And then I immediately get into a long call spread where I can get somewhere between 80% and 100% reward risk ratio. And then I hold it until it comes back up to this range and I get out really quickly with a nice sizable profit. 
+
+And that's what I've been doing. So if we jump back over here to this community post, here are the things that I specifically look for. One is I'm looking for this red put gamma exposure bar here to be the biggest of all, and for it to be outsized as far as the other ones, which we call an outlier. 
+
+So if it is a major outlier, in this case, it looks like it's about two times the size of any other bar. And the second thing I'm looking for is this put volume for the day is also concentrated. The high is at the 69.00 strike. 
+
+Both of these suggest that the 69.00 strike is going to be a point of support. And if the price moves down below it, there's an opportunity to get in a trade for a quick rebound and the price starts to move back the other direction. The other thing that I'm seeing here is the gamma exposure on the call side. 
+
+This is also the highest strike. And so what that suggests to me is there's a chance that when it goes above that strike, it's going to move back down. And that's why this is an opportunity to get in and get out, get in and get out as the price oscillates back and forth. 
+
+Now, I'm not going to bet in this particular scenario that the price is not going to go above 69.00. So a lot of people call this a call wall. Some of those days that I showed you with my personal trading results here with losses, big losses in particular, were days where these ones right here were days where there was something that suggested that we had a call wall and I made trades that it was not going to go above those particular prices. And it did. 
+
+So in my case, when I'm looking at this, the thing that I really love to trade is this point of support and not the call side, which is a point of resistance. It doesn't mean that that strategy isn't good. It just means that in my personal experience, I haven't had as much success with it. 
+
+The next thing that I'm looking at here is, if you look, this absolute gamma, which is basically summing these two bars together and comparing them with all of the neighbour strikes. You can see it's a major outlier. So most of the put and call gamma exposure is concentrated on this 6900 strike.
+
+The next thing that I'm looking at as well, and this is a very important one for me, is the put open interest. And so if you look here, it's 5600. And if you compare that with the other strikes that are nearby, and I'll jump over here and show you, you can see it's 5600, 1500, 2100, 1100, 2000, 1700, 1300. 
+
+So none of the strikes that are nearby are anywhere near the level of open interest that this 6900 strike has. So this is the best point of support that there is. The next thing, and this one is actually really important to determine whether or not I'm going to make trades later in the day. 
+
+Just because this gamma exposure strategy is suggesting that there's going to be support earlier in the day on the 6900 strike does not mean that's going to last all the way until the end of the day, because people can be unwinding positions and if the next day's gamma exposure profile is different towards the end of the day, things might start moving towards where it is tomorrow. But in this particular case today, if you look, the gamma exposure profile for tomorrow is very similar to today with it concentrated on this 6900 strike. What that suggests to me is that there's a chance, again, it's not guaranteed this is not a crystal ball, but that there's a chance that the 6900 strike could hold into the close. 
+
+And so that's where I'm going to go ahead and make trades later on in the day around the 6900 strike as well. So if we look at the actual chart though over the last two days, you can see that it's been hovering around this 6900 strike over the past two days. So if I come here to my positions and we look on my closed positions, let me select the gamma exposure trades. 
+
+If you look yesterday, I also made a significant number of trades around this 6900 strike too. So the price opened yesterday up here in this higher range and I was basically trading that it was going to be above the 6925 I think is where I was trading. Here, let's take a look. 
+
+We can see, yeah, the 6925, 6930 had a lot of put open interest and I thought it was going to stall there. It did not. And so earlier in the day, my trade sizes were a bit smaller and my goal that I was going after was also a bit smaller. 
+
+But as the day progressed, what happened is the price continued to move down. And when it got down near the 6900 mark, I immediately saw an opportunity similar to what we see today. So if we look at yesterday, this is 1229 around noon, which is when I started making those trades. 
+
+You can see we were in a very similar scenario as we are today. So there was this humongous GEX put bar here with 4600 open interest. The call bar was also the highest. 
+
+The price was a little bit below those and the put volume for the day was concentrated on the 6900 strike as well. As soon as I saw that, I levered up and started making a few trades. And you can see here, those trades were highly successful and had the ability to counter all the rest of these losing trades that I made earlier in the day. 
+
+And if you're seeing these overrides here, just so you know what happened is this is a total of 20 contracts. I made three trades to get into them at 270, 270, and 265. And the average price was 268. 
+
+And what I did was override these three and import the 210 contracts one at a time so I could close them separately. This one with a $1,000 profit target, and this one I closed manually at 1670. So these two trades were also based on this exact same strategy that I traded yesterday. 
+
+So if we return back over to this chart, you can see the 6900 price point. It was oscillating back and forth yesterday. I made those trades. 
+
+If we look at when I actually made them, you can see the price fell to 68.96. I got in. The price fell to 68.97. I got in again. The price fell to 68.97 again. 
+
+I got in again. And all three of those I ended up getting out here at 6905. So the price only went up eight points and I made $1,600. 
+
+Same thing with this one right here. The price actually only went up to 6902. Made $1,000 off those trades. 
+
+So that point where it goes out of the money and then back in the money is a critical point where the value increases pretty rapidly and you can make a quick return, especially as you get closer to expiration. Today's trades were similar. If you look, the price fell to 68.97. It went up to 6908. 
+
+I made a total of $450 off this trade. This one was a little bit bigger. I actually traded 10 contracts. 
+
+This was a lot more risky, as you can see. $2,500 I risked. This was even money though. 
+
+100% reward risk ratio. So I put in $2,500 for a chance to win $2,500. The price was at 68.95 when I got in. 
+
+It only moved up six points to 6901 and I took a quick $800 profit. So that's my favourite gamma exposure scenario. I will be trading more scenarios in the near future. 
+
+Hope everyone has a happy New Year. Stay blessed. Stay close to God.
+
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)

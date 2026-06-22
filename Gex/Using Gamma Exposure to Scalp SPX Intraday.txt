@@ -1,0 +1,187 @@
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)
+
+Hey everyone, it's Kirk here again at Option Alpha. So in this video, I just want to share a little bit about what I'm doing with GEX or Gamma Exposure trades. I've actually been having a lot of fun doing this using some of the new charts that we have inside of the ticker symbol for SPX or any other positions that you want to look at.
+
+So what I want to do is kind of go through and share some of the trades that I've been doing. I've been doing a little bit of like intraday scalping. I can tell you I've never done this before, like this is the first time I'm going through this.
+
+So I am by no means an expert at doing this, I'm just truly sharing what I'm doing. I know a lot of other people have already shared in the community, there's been a lot of threads started about GEX and Gamma Exposure and how they're using it. So I just want to add my two cents in here, share what I'm doing.
+
+It's been working out really, really well for me. I think it adds a level of just understanding of the market that I didn't have before and a little bit of more insight. I don't know if it's perfect because it hasn't always worked out for every position, but it is very cool and very fun to do.
+
+So let me just kind of show you some of these trades that I've done. And just like walk through the process and talk through this as we go. So this is the first one, this is back on November 19th and it will depend, I don't have like a perfect thing that says like I always do put spread, long put spreads or short call spreads or iron butterflies or iron condors.
+
+I kind of feel out what seems to work best for that particular situation. But I'm going to talk through a bunch of these with you so you have an understanding of it. So this one here was a fairly quick trade, it was 9.57 to 9.52, so about an hour or so.
+
+By the way, I'm not a big trader in doing this, I'm trying to learn as I go. As always, I'm a very conservative trader just by nature anyway, so you're not going to see me doing 50 contracts or $1,000 of risk or anything like that, maybe not yet. So here's what I did.
+
+I opened a long put spread at 9.57 in the morning. These are all zero DT trades, I'm just purely trying to scalp a little bit of this movement around GEX. So this was the 6.65 put and short 6.66 put, and so what I was looking for is I was looking for move down in the market.
+
+So if I had the 6.65 and then 6.60, if you look at the actual GEX chart from that day and again, we have these historical GEX charts on the back end right now, they're going to be coming out in a future release here very soon, so the next update I think should have these in here. But you'll be able to go back and look at the GEX profile or the gamma exposure profile at the time that you got into the position or any time during the day, so we kind of capture all these screenshots. So this goes back to November 19th and it is about 9.55, so just a couple minutes before I got into this trade.
+
+So the market at that point was here, it was at 6.62 and the reason I got into this bearish position was because at that time this was kind of what, I think Jack's referred to this before, people have referred to this in the community as a little bit of a pull or attraction point. I don't know how better to describe it, but just this idea that we have very even distribution or fairly even distribution of call gamma and then put gamma on the bottom side. And so my thought was that at this point that it would continue or at least maybe potentially move back down to that level, so that would be an attracting point where market makers and participants are hedging in so much as they're actually just going to push the market back down to that level.
+
+So that was at about 9.57 I think when I got into the trade, when it actually filled. So yeah, 9.57. By the way, these are all live trades, so everything I'm showing you is live trades, not paper trades. So that was 9.57. If you actually go to the chart of that day, so this is the 19th, I think it's in here, yeah.
+
+So this is the 19th, this is a one minute chart of the S&P. And so at 9.57 the market was basically all the way up here. So it was right about here, right on this chart, right about there.
+
+That's where the market was at 9.57. I was thinking that the market was going to go back down. So I had the 6.65, 6.60. So that's right about here. So if you kind of draw like a little dotted line all the way across, it's not going to be perfectly straight.
+
+But essentially what I was waiting for is I was waiting for it to move back down. So I think at that time it was about 6.65, yeah, or 6.650 was the level that was kind of that pull level. So a little bit below that, right about here, that was that pull at that time during the day.
+
+And so we actually saw the market go back up just a little bit more. I probably could have had a better entry. I actually stored my life here with a lot of these entries that just waited a little bit longer.
+
+I could have had a better entry. But then it eventually did come back down into that range and actually kind of stuck around that range for quite a bit. Actually later in the day it kind of came back up to that range.
+
+And for most of the day, and this is what was really fascinating, it's like if you look at the 6.650, that's about where the market kind of oscillated for most of the day. Very, very fascinating. So I ended up taking just a quick little $50 profit on that trade, got out of that trade pretty quick.
+
+So that was that one. After I did that on the same day, what I did at that point was I just said, look, I'm going to roll this thing into just an iron butterfly and I'm going to try the iron butterfly at 6.650. So that's what I did. I did the exact same thing.
+
+This was a little bit later in the afternoon. So this was about 12.43. So 12.43, let's go to that Gex profile at that time. So let's go 12.43. So about right there.
+
+So what I was still thinking is I was still thinking 6.650, which was back, I think it was all the way back up here. Yeah. So at that point, the market had come down to 66.06. That pull position that we had from before, where the market was all the way back up here, was actually much higher than where the market was at the time, which was pretty fascinating.
+
+There was a lot of negative gamma exposure, so it could be a day where things kind of go that way. But at that time, at about 12.40 or so, the market was lower and so I was anticipating that the market goes higher to 6.650. So I was really kind of playing that pull position, if you will, during that time period. So this is about 12.40 right in this range here and I was anticipating 6.650, so the market coming back up to that range.
+
+The fascinating thing about it is that it actually did. So this is like me learning in this process as I go through it. So one, it did.
+
+I didn't nail it exactly, but I was kind of playing on house money. I had won 50 bucks. I was risking $25 on that position.
+
+So if you go back to this one, the risk on this position was $25. I could have won a couple hundred dollars. So I still made out even on the up 25 bucks on the day, whatever.
+
+But it actually did come back up to that level. Very fascinating. It didn't close exactly at 6.650. I don't think I've seen a lot of times where it does do that.
+
+I'll show you one where I actually did pin, which was really fun. But it is very fascinating that it actually did kind of come back up to that level during the day. Okay.
+
+So here's another one. Let's go through another one. This is the one that was a couple days later that I got into.
+
+And again, sometimes I just don't see like anything that just really sticks out to me. I'm still learning. So it's not like I make a trade every day.
+
+I've been a little bit more consistent with doing it just because I feel like I'm getting a better hang of it. But by no means am I making a trade every single day. This one was really fascinating to me.
+
+So this was an iron butterfly. This was a super narrow position. I had $5 at risk.
+
+This is crazy. I should have done more. So what I learned already in this position, I'll just share with you, is that this position to me was just like a little bit of a lottery ticket.
+
+But at the same time, I was using GECK, so I wasn't just randomly picking something out of the air. This is what is different for me is I'm not looking at this going, well, I just randomly think it's going to end at 6600 today. Before this, I could have picked it out of my head and just randomly picked the number.
+
+But using GECKs and kind of looking at the gamma exposure profile, it's given me a little bit more confidence saying, maybe there's a range here that it's going to be gravitating towards or moving away from or towards or whatever the case is. In this case, the risk I got into in this position was only $5. My stupid self just did the $5 trade because I'm very conservative, but it was actually too conservative.
+
+I could have easily done five contracts and risked $25, and I could have done five times this and had it significantly better. I could have done 10 contracts. I should have done 10 contracts and risked $50, and I would have had a significantly better day.
+
+That's the little lesson I learned on some of these where I get some of these trades, I shouldn't be so overly cautious, like uber conservative. I should actually kind of risk it up just a little bit. Here's the entry on this one.
+
+This was fascinating that all this shook out here. This one was an entry, it was at 9.40 in the morning. I got filled for $4.95 credit on $5 wide Iron Butterfly.
+
+This was November 21st, so let's go to the 21st, November 21st, 9.40 in the morning. This was right after the market opened. Here's what I saw.
+
+The market opened at $65.59. I saw it starting to build these two kind of poles out here. These ones down here, I don't look at these because they're not equal and balanced. Those look like areas that the market could potentially just blow through to the downside.
+
+I'm not expecting necessarily that the market's going to go down, but I'm not anticipating that they're going to move to a certain area and then stay there, whereas this one here has a lot of, in my opinion, good balanced exposure on both the call and put side, so it's kind of even on both sides or relatively even. You could have also added a position up here at $66.50. We'll look at the charts and see what went up there. That's what I was playing.
+
+The market was below this level and I thought to myself, okay, maybe the market goes back up to that level. Yeah, I didn't know necessarily it would end there, but maybe it goes back up to that level. If I've got a position on for $5 of risk with a lot of potential reward, it might be a position that I stay into.
+
+All right, so let's go to that day. Okay, so that is the 21st, so if we go out here, okay, so here's the 21st, so the market opened up. Here's the morning of the 21st.
+
+This is the market opened up, $9.40 is probably somewhere in this range, and so I'm playing the position at $6,600, which is right about here, $6,600. The other level that was there for the day was $6,650, if you remember from the Gex chart. Okay, so actually I drew that a little bit high, so it's like right about here, somewhere in this range, about $6,650.
+
+Already you can see the fascinating thing is, number one, the market actually moved up to that level, and then moved through it, and then came back to it, and then went up to the $6,650 level. Now, this was all pre-market at that time at $9.40. There's no, I would have never known, ever, ever, ever in my life without looking at this, that the market could have possibly moved to these potential levels, very fascinating. By the end of the day, it almost exactly pinned at $6,600.
+
+Now, I'm not saying that that's always going to happen by any stretch, but it is really fascinating that that ended up happening. I did end up holding the position all day. I was trying to take early profits on this thing throughout the day.
+
+I had $100 profit, and then I moved it up, and then I moved it back down, and I don't think it seemed to get filled, and sometimes this will happen because you have the legs are just so far out now at some point, so I think my short call spread, or short put spread side was just so far out, it just wasn't working, or the call spread side was out on one side, so it wasn't working, but I ended up, it doesn't matter, I ended up making $196 on the position because it closed at $3, so it was a little bit off on the day, but it's really, really fascinating. Market closed at $6,602, so very, very close to where the market moved for that day. Next one up, so November 25th.
+
+November 25th is an interesting one. I don't often trade a lot during the day, but I did trade a lot today that day. That was just a really, it was just a fun day.
+
+I felt like it was a good day to trade that, so let's go with the earlier trade that I did on November 25th. This was a short put spread, so the 66.50, 66.45. I got into this one. This was two minutes, like a very two minute trade, a very fascinating one, at 9.50 in the morning, so let's go to that, so November 25th, and I was at what, 9.50 in the morning, so you should be able to pull up that exact chart.
+
+Okay, yeah, good. This was an interesting one. Market was at 66.45. I thought that this was obviously a huge set of poles for the market to gravitate towards.
+
+You can see this Gex profile's way different than some of the other ones. There's not a lot of activity, and then all of a sudden, it's like this one sticks out like a sore thumb. My thought at the time when the market was opened on November 25th, okay, so here's November 25th.
+
+Here's the market. That's the start of the day. The market opened, market goes up, and then just drops like a rock.
+
+I was in there watching this at that time, and going, okay, I think this thing was down here at 66.65, all the way down here, 66.65. I said, you know what? I'm going to get into the 66.50, so a little bit below that, 66.45, just an out of the money put spread, and hope that the market, well, anticipate, I don't know, hope, but just like using Gex, the market was down here. I was thinking that the market would gravitate back towards 6,700 at this point. My thought was that, hey, the market's had a huge sell-off.
+
+It's potentially going to be rebounding, so I get into a position that's kind of below that range, give it some room, and see if it goes back up to 6,700, which is where most of the activity was for Gex. You can see that's basically what the market did, so it went right back up to 6,700. Very, very fascinating that that happened.
+
+I was able to take a quick little profit on that one. That one was like two minutes, and I was able to take a profit on that. Later in the day, I ended up doing this other trade.
+
+This was a long put spread at 66.90, 66.95, so hoping that the market goes down just below that level. I don't think this one was far too long after the other one. No, 9.55 entry time, got out of 10.01, so only a couple minute trade, just trying to scalp a little bit of money, but entry at 9.55. Let's go here to the chart and see where we're at at 9.55. 9.55 at the end of that time period, we were actually at 66.89. I think before then, we were actually a little bit higher than that.
+
+I think in that time period, we had rallied up just a little bit in that point, and I just thought, hey look, I think maybe this rally has run back up against this pull area. Maybe it's a little bit of resistance now. That was my opinion.
+
+Not necessarily that it would ... I knew from the other trade that I thought it was too far from that, and it would come back to it. Then I looked at it, and again, I'm just looking at it going, okay, I think it's going to come back up. It did come back up, but it came up really fast, so I was like, okay, maybe there's going to be a little bit of selling pressure.
+
+Maybe people are going to take profits if they didn't take profits at the open. Whatever the case is, it's very, very erratic, so I thought, okay, I'm going to do a little short put spread here, or out of the money long call spread, and see if I can take a little bit of profit on that. That's what I ended up doing.
+
+It actually did fall back down just a little bit, so that's 6,700. Ended up being a little bit of support resistance as you go throughout the day. If you actually just, again, just draw a line here at 6,700 at that time, the market moved away from it, then it came back to it, bounced around, moved up above it, then came back to it, and then eventually things shifted for the rest of the day.
+
+That was that trade. Then later in the day, I'm not sure how much later in the day this one was. This was a short call spread, so this was still a bearish position.
+
+This was 6,750, 6,755, so much higher in the day. This one, I think, was later in the day, so this was at 1,235 or so. Let's look at this one and see where it was at at 1,235.
+
+We'll go to the same day, about 1,235. Now the whole profile has changed. By the way, this is what I like about doing the historical, so I can come back and look at this.
+
+I look at this all the time. You can go back to certain dates and see, even in the same day, you can just toggle through how the whole profile of the market shifted from different time points. Now what happened is that the market blew past that level.
+
+This is why I say, I don't think that all the time these levels hold from the entry to the exit, because they don't. They just absolutely don't. It's not like the entry time is always there.
+
+That's why I like those small iron butterfly positions that I was doing, because sometimes they don't. In this case, you can see it went to that level and then it blew past it. Then that was pretty much it for movement for the day.
+
+It didn't come back down to that level. This entry was at 1,235, so here's where the market was at 1,235. Let me go here.
+
+We're on exchange time. Go here to ... Why doesn't it have ... There we go. Exchange time.
+
+Okay, 1,235 would be right about here or so. The market was up. I'd seen the market do a little bit of a rally, so if you kind of scrunch this down, the market was on quite a bit of a rally as it was going up there, so just getting a little overextended.
+
+What I was looking at on this Gex profile was the 67.50 potentially being, again, a little bit of a barrier, a little bit of a pole, if you will. Some people call this a call wall, where it's just lots and lots of open interest. At some point, once it gets past this level, it kind of gets pushed back down by market makers on winding long positions.
+
+What I was doing here is I was entering a position that was basically at that level and above, so the 67.50, 67.55, so it was right there, 67.50, 67.55, thinking that, look, if this is going to act like a wall or a barrier to the market continuing to go higher and it's already had a little bit of a run up since this morning, so now we're getting to this level, then maybe it pulls back a little bit. That's all I'm looking for. You can see, from that time period forward, it didn't really go much further, but it did actually eventually pull back.
+
+Now this one, I think, took a little bit more time to pull back than the two-minute trade. Some of them have taken a couple of hours, but in a couple of minutes, we had a nice little profit and I was able to scalp another $75 off of that one. Fast-forwarding to a couple more ones.
+
+We've got this December one. This was December 3rd. I got into this short call spread.
+
+This was the 68.55, 68.60. This one I got into about 1.22 in the afternoon. Let's go to that December 3rd at 1.22 in the afternoon. We'll go ahead to ... That was just earlier this week, and 1.22 in the afternoon, so we'll go right about this area here.
+
+Okay, good. Yeah. What I saw here for this one, this was again December 3rd, about 1.20 in the afternoon, is that you don't have at this point an area that has a lot of balance, like a pole where you have a lot of calls and then you have a lot of puts.
+
+Instead what we saw here is just this massive set of open interest of call options. That to me was showing me that this could potentially be one of those walls that is going to be hard to push through. As the market continues to go higher and it starts trying to push through all of these, then that's going to give it some more pressure to the downside.
+
+That seemed like the 68.50 seemed like the area that was going to start seeing a lot of that pressure. That was at 1.20 in the afternoon. I'm just curious what the market opened with.
+
+Even in the morning, that was kind of a level that was up there. You can see that's that call wall up there at 68.50. Very fascinating. The market just continued to plough through the market day, just continued to march higher until it basically hit that wall.
+
+From 9.40 in the morning until you got to the afternoon, it basically just moved straight up towards ... Not straight up towards, but you know what I mean. It moved up towards that level or started to make higher highs going that way. Let's go December.
+
+That's the second. Now we've got December 3rd. This is December 3rd, so this is the market open.
+
+You got the call wall up here that was, even in the morning just after the market opened, the 68.50. That was the level that the market was showing as the level that the market would move to. Market opened up here. You had 68.50, which was all the way up here.
+
+Again, if you're just looking at the market open, I would never have guessed. I don't know this stuff. I'm trying to learn this.
+
+I'm just figuring it out myself. I would have never guessed in my wildest imagination that if the market opened up lower, that that would be the level that it would go to. You could just randomly say it's going to go higher, but where? Where is it going to go to? At what point is it going to stop? That's what I think is very fascinating and interesting about this.
+
+It did end up going to the 68.55 level here, and then at 1 ... When did I get in this trade? 1.20 in the afternoon, so 1.20 would be right about here. At about 1.20 in the afternoon, that's right about here, I got into the 68.55, 68.56, or 68.55, 68.60. Basically my line in the sand is right about here. This one was a little interesting because I got into this trade, I gave myself a little margin of error here where I was trading at just above that level, so just to go back to where everything was at that point, so going back to about 1.20. I was just trading right above this 68.50. My position was the 68.55, 68.60 short call spread, so I was just trading right above that thing.
+
+This thing might be a wall, it might be hard to get through, and if it is, then I might have an opportunity to take some money off the table. I did. It took most of the day until we got further into the close to be able to do that, I believe.
+
+I think most of the day, yeah. This one basically took profits near the end of the day, so a little bit longer holding period than some of the other ones, but it ended up holding, so that was very interesting, again, very fascinating to see that happen for that position. Next day, December 4th, this was a really fun one.
+
+This one was a little bit different, so got into an iron butterfly position. This was the 68.45, and this one was $10 wide, I believe, that I got into. Yeah, $10 wide position, so a little bit bigger position, wanted to get a little bit wider base on this position.
+
+Got into it for a good price of $670, so I was risking $330, so scaling up just a little bit on capital, not going too crazy, and trying to take a little bit more profit out of this thing. Got into this position at $11.34 in the morning on the 4th, so again, let's go to the 4th here. That was just yesterday at the time I'm recording this video, and then $11.34, so right about $11 ... Oh, that's $10.34, $11.34 would be right about here.
+
+Okay, fascinating to see this one again. This one is an interesting one. It's kind of like almost bipolar in this case for this one, but it looks like there's just a big difference in the GEX profile after this level, and that's what I was looking at again, just like the previous day.
+
+The 68.50 was again, just a big pull opportunity where the market had a lot of balance here. It wasn't like we had this huge call side wall, just had a lot of balance here, had a lot of balance at the 68.55 as well, so what I was thinking here with the market down below that level at that time, and I don't even know if maybe it was below that level even before then, but that the market would kind of gravitate towards this range. This would be the range that the market would kind of gravitate towards as it went throughout the day, so I think this was about the same in the morning too when the market opened up.
+
+Yeah, so the market opened up. That was about the profile right in the morning, same thing. These ended up being like the kind of around the open poles for the day, so there was an opportunity that maybe the market kind of goes into that range, and because it wasn't just one pole that was sticking up, it wasn't like it was just this one and none of these other ones existed, that's why I did a little bit wider of a position.
+
+It's a wider iron butterfly, but it's trying to capture more of this opportunity, so trying to capture a bigger credit to widen the base of the position to try and capture something as it starts to move, so that was pretty fascinating. Let's look at the chart here, so 11.34 on the 4th, so if we go over to the 4th which was yesterday, so market opened up and then came back down, and about 11.34 is probably right in this range here, and we're expecting 68.50 which is right about here to 68.55, that's right about here, so the market was just kind of dancing around this level pretty much all morning too, and again, my expectation was, okay, if these things are going to be kind of these pole areas that it might gravitate towards, I know it's going to kind of dance around there all day, I could have traded a put spread for sure, and maybe traded just a little bit of the move up, could have done that, definitely could have added a position here towards the end of the day, probably should have done that as well, I probably should have doubled up on the position, not the position doubling up, but I probably should have added to the position as well, or just gotten into, again, another position further in the day, but it is fascinating because then it'd end up coming right back into range by the end of the day, so again, very fascinating to see this actually play out on the screen for everything, so by the end of the day, though, I got out at 228, so I didn't hold it the whole day, got a nice profit on it, took my money, ran, and off to the next trade. All right, last one here that we did, this one's actually today, so I just got out of this one just a little bit ago before we started recording this one, so this is December 5th at the time that I'm doing this, notice I'm using exit options to take profits on this one, and was just trying to do a quick little scalp $50 profit on this position, but got into this one early today, I don't ever anticipate getting into things earlier or later, I'm just kind of seeing what the profile is and how much time I have to actually look at it too, but this is about 9.40 in the morning today, so if we go back to today, and we go to right at the open, about 9.40, what I was looking at here, oh, let me show you the position that I did, so in this case, I did the 68.75, 68.80 short call spread, so at this point, what I'm looking for is again, a move down or slightly down in the market, the price at the open was 68.72, so at that point, that's where the market was, it was at 68.72, so if we go here, that's where the market was, and I was anticipating that this was going to become one of those call walls, so this is lots and lots of call open interest, almost no put open interest, which means the market can go higher than that, but that potentially what's going to happen is that eventually that buying pressure is going to be overwhelmed by market makers unwinding long positions, and so that means that maybe it'll come back down to that level or kind of trade below that level, so that was my anticipation.
+
+Now, if you look at today's market action at the open, at the open, when I got into this trade, terrible open, so I got in right about here, and I was hoping, or not hoping, I should stop saying that, I was expecting that the market would go down, that it would keep going down, so I sold right around that level, a short call spread to try to get some good premium on this position, hoping that the market, or expecting that the market would go down, so I got into it right about here. Again, I should have waited a little bit longer, I should have let it stretch just a little bit more. If it seems to be the case that I'm learning, it just seems like the market can stretch just a little bit beyond these levels, it's not like they're hard and fast rules and levels that they exactly go to and they exactly stop at, that's not the case, but you can see that it did actually eventually come around and turn over, and well, actually right now it's starting to break down, so we can look at the GEX right now and take a look at that, but it is fascinating that it did come back down, so I do like the fact that I did this.
+
+Again, small position that it did work out, it did take a little bit of time for it to come back down, I got out at 11.28, so if you go to this chart here, 11.28 is about right over here, so this is when I got out, this is when I got in, it did come back down and kind of come full circle, it did act as a wall. It stopped at 6900, or right around 6968.95, that's pretty fascinating because at this time too, this was another level up here, 6900, so it stopped kind of right before that level, so it seems like it did, if I just think about it, it seems like the market went up, hit a little bit of resistance, kind of pushed through that, but then hit again massive resistance, I should have waited for maybe this entry, like looking back on it just at that moment in time, I should have waited for this entry, or gotten into another entry, ultimately I could have done that too, and gotten into two positions, and would have had an opportunity to take a potentially bigger profit on those trades. Very fascinating to see those start to work out, let's just look at the Gex profile at this exact moment in time, so this is the profile right now, I don't know if this is going to be necessarily a pull that the market's going to move towards, it certainly could, but if the market stays above this level, it seems like it might even just trade in between this level, but these are definitely some areas that it potentially has already gone to and blown through, so I don't know if I would use those the rest of the day, because it potentially has unwound some of that activity and some of that action, but they are still very interesting that they could go to that level, so it's at 68.60 right now, it could easily go down to this level here, 68.50, and kind of bounce around this level, to me this is not one that I look at and go, there's a clear cut path right now, I think it could go either way, so I'm more interested in seeing the market potentially go higher and then come back down, or if the market goes significantly lower and come back down, I would rather play one of those, so this one might be one that I kind of sit out and skip, but very interesting nevertheless to see some of this stuff play out, so I hope you guys really enjoy this, the purpose like I said of this video was to kind of share what I think and I'm documenting my journey, I think a couple things I can prove on, waiting a little bit more patient on entries, potentially scaling positions just a little bit better, I did not take, you know some of these positions where I get some good premium, I should scale up some of that positions, looking at getting into multiple positions in the day potentially versus just one and then hoping that one works out, so I do like the idea of kind of layering tranches of different positions.
+
+(This file is longer than 30 minutes. Go Unlimited at https://turboscribe.ai/ to transcribe files up to 10 hours long.)

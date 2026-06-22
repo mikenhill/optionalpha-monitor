@@ -1,0 +1,241 @@
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)
+
+Hey everyone, this is Kirk, here again at Option Alpha. So, today on the podcast, we've got an awesome guest, a friend of mine, Matt Cashman, who is coming on to talk all things gamma and gamma exposure. We really got into it with understanding not only just what gamma is at the very basic level, but why traders should care, what should we think about gamma exposure levels, particularly for zero DT traders.
+
+But I think what Matt does really good, a good job of doing is just adding a lot of context to how people should think about gamma and gamma exposure and what's going on or potentially going on in the market with different market participants. Since he's a 20-year industry veteran, former market maker, he's got a wealth of information and knowledge that he kind of leans on throughout this interview and this conversation. So, if you haven't heard Matt talk before, he does a really good job of kind of breaking things down and adding context to it.
+
+It's always a fun conversation to have him on the show. If you're listening to this audio version of the podcast, you want to go on over and just actually probably check out the YouTube version of the podcast that we have today because there's a lot of charts, a lot of graphs. We're able to get a really cool market environment at the date that we were recording it, which was September 5th, 2025.
+
+This is just after the market opened, and so we had the jobs numbers that came out. Initially, the market was up really big, then started to actually backpedal, and so we actually could see the market playing around with some of these gamma exposure levels as we were recording live. So, it was really cool.
+
+So, I hope you guys enjoy this one, but let's get into the interview with Matt Cashman. Matt, what's going on, man? Good. It's good to be here.
+
+It's good to be here. We already had about 20 minutes of banter, and we're just like, all right, we got to get into this. The bants.
+
+We used to call it, on the Bloomberg chat in London, we used to call it bants, B-A-N-T-Z. He's got, it's like someone has good bants. That means you can talk to him forever.
+
+We could. We could. We talk about skiing.
+
+We talk about markets. Talk about everything. Kirk has good bants.
+
+Yeah. Well, you have good things to talk about. So, hey, listen, I appreciate you being here.
+
+So, we want to talk, you know, kind of all things gamma today, gamma exposure. So, I said at the beginning, but I'll just, I'll start this way too, so everyone knows who's watching this or listening to this. I want to try to take this from the angle of starting at the beginning, trying to understand what is gamma? What does it mean for a trader? How could we use it? How could we interpret it? Maybe things that we don't need or things that people say, and they're like, hey, this is then.
+
+You're like, you probably don't actually want to look at that. So, let's start off with this. Like, what is gamma for options traders, and then why is it important for traders? If it is important for them to understand it or to watch it, I guess.
+
+Yeah. It's a great place to start. Gamma is a measure of an options, I consider it a measure of an options potential to change its delta, essentially.
+
+And so, when you think about gamma, I want you to think about, oftentimes I use the metaphor of like a race car versus a giant truck, right? A giant truck doesn't change direction very quickly. It doesn't move around quite as agilely. A race car moves very quickly and can change direction very fast.
+
+That's kind of like an option that has very little gamma. The big truck and the race car is the one that can change direction very quickly. That has a lot of gamma in it.
+
+One of the things that sometimes it gets missed in the kind of conversation is that gamma is a second derivative. It's a Greek that measures the change of another Greek. So, it can be something that gets people a little confused, but if you think about delta as your kind of net exposure to the underlying, a delta is how much the option is going to change in value for every $1 move in the underlying.
+
+Gamma is that same $1 move, how much does the delta change of that option? So, delta measures like price movement of the option. Gamma measures delta movement of the option over the same $1 move. So, as you can imagine, you're going to get a lot of gamma centred around options that are at the money because those options are going to be the ones that are most sensitive to their delta changing for that $1 move that you're talking about.
+
+And that's because they could be quickly moving in and out of the money, and they're going to be more stock-like. Correct. They will move from an out-of-the-money option that has very little to do with the actual stock movement, which is a low delta option, and if you were to move the stock through that strike, you would end up with an option that has moved from not being very relevant from a gamma and delta perspective to all of a sudden being very relevant.
+
+And that is the actual change of the state of that option from being an inert kind of situation to being a very active situation. I think about things in real kind of like scientific metaphors. It's almost like heating it up, right? You know, like if it's hot, it's going to be bubbling and boiling and quickly moving.
+
+Correct. Yeah. To use a scientific metaphor, yes, I think that's the truth.
+
+I always also like to think about it as gamma is a measure of an option's potential energy, the ability for it to change state quickly, right? The more gamma you have, the more sensitive that option is going to be to the underlying movement because it's going to change the delta of that option for that same $1 move. Gamma is expressed as a decimal. So you're going to see it expressed as a decimal all the time, or I mean, not all the time, but many times.
+
+On the individual chains. Yeah. Yeah.
+
+On individual chains and on individual options. And then it can also, right, you can also think about it as a cumulative idea when you're thinking about a much larger position. All of these options have gamma and they are kind of like pushing and pulling on the overall gamma of the position.
+
+If you have a position that has a lot of options in it, particularly on a lot of different strikes, you're going to have a slightly more complicated gamma profile because your optionality kind of count changes as you move from one strike to another. And that's going to be different depending on whether you're long the at the monies and short the upside calls or the opposite of that or, you know, et cetera, et cetera. And so that's something that people oftentimes, and I'm sure we're going to build into this conversation, how they look at the gamma as it pertains to the market in general, right? Like where is all the gamma, right? There's a lot of talk right now about that.
+
+And that's why I think a lot of people are looking at, too, is they're looking at, okay, because a lot of people trade zero DT, I trade zero DT or one DT or very near term. And so they're trying to figure out, okay, how are, you know, market makers, market participants positioned and what can we infer from that? So I know you did that before. So it's kind of like now the question is, okay, how does, you know, how does a retail trader look at it? But then how does somebody who's, you know, warehousing trades, to use a term, right? Like how does a market maker look at it too? Because they might be looking at it differently, so.
+
+The market maker side of things is kind of interesting because in some ways they are, you know, I pay attention to a lot of people who are on FinTwit and things of that nature who are in the same situation that I am in, where they used to be market makers and particularly market makers that were running very large zero DTE books at very large Chicago market making firms. And many of them talk about it in terms of like, when you're trading that much volume, you don't really have a choice as to like how you're hedging, right? You are hedging constantly. And so you're kind of, you're trading so much that the book itself is just kind of hedging every time it makes an options trade.
+
+And sometimes it waits to trade options versus other option trades that come in. And sometimes you had your Delta on a minute by minute basis. Sometimes you had it on a trade by trade basis.
+
+And so what you really need to think about from the market making perspective is that they are acquiring and deacquiring in some way, just position size on different strikes in different ways throughout the day, throughout the course of normal market making. But that generally speaking, they're constantly hedging their Delta. There's not going to be a bunch of people who are trying to stay as neutral as possible, right? They're trying to take as much variance out of their P&L as is humanly possible.
+
+And to take variance out of an option P&L, you need to hedge it, right? You have to hedge it with whatever, you know, to take variance out of your Delta book, you have to hedge it with other Delta. You can, you know, hedge it with other Delta that comes from other option trades. Or if that's not available immediately, you can temporarily hedge it with stock or with index, which would be futures in that case.
+
+And so when you're trading market maker to market, like just market maker trading, most of the time your machine is just kind of like trading the option, immediately trading the, in the case of the S&P, the spooze against it, right? The S&P futures, the minis against it, and it's just doing that constantly. So what you really need to think about if you really want to try to glean as much information about that side of things as possible is what really matters is the resultant kind of like residual position that you have on, not necessarily like what are they doing right now, but how much of any one strike do you have on and how much of any one other strike do you have on against it, right? Because that's ultimately what rules what your position is as the S&P moves around to those different strikes, your exposure changes, whether you're long or short that strike. All of a sudden you can be, especially when you're talking about options that are zero DTE options, because those options only have however many hours left in them, if you're on that day.
+
+One thing that we didn't necessarily talk about at the beginning is that gamma in its most general idea is we did talk about the fact that it was most centred around at the money options, but we didn't talk about the fact that it is also most centred around options that have the least amount of time left in them. And so you can, you could be able to extrapolate from that the idea that if you're looking for an option that has an exceptionally high gamma profile, it's going to be the at the money option that is expiring in the shortest amount of time. Right.
+
+So basically zero DTE traders, we're playing in fire. That's it. Well, I wouldn't say you're playing with fire.
+
+You're just playing. You need to understand that like you're trading all the gamma. You're trading all this stuff.
+
+Yeah. It's going to move fast. Yeah.
+
+Yeah. Yeah. Yeah.
+
+When I talk about it, I always talk about like, these are very gamma rich options, but they have almost no vega in them. They're not going to be very sensitive to implied volatility moves. Right.
+
+Because it's just the day. Right. Right.
+
+They're going to be real sensitive to where is the underlying at the end of the day, right? Where are we now? And where might it be? That's the only thing that kind of matters in that case. Well, it makes sense because that's the last thing that matters. There's no more time.
+
+You know, volatility doesn't really matter today, you know, because you can't extrapolate it out. Interest rates have no impact on it. Right.
+
+So no interest rates. There's no dividends. There's no nothing.
+
+There's nothing. Right. So it's left this price.
+
+Yeah. OK, so let me share my screen. So this is we were chatting through this, too.
+
+This is the new game exposure stuff that we have on our way. Let me just refresh it. So, oh, my gosh, which actually just changed.
+
+Did you see like it was totally different from before when we even started recording this. So. So just for people who are watching this, this is showing right now the zero duties which are expiring today, which is the day that we're recording this September 5th, which is just after a huge jobs and market very anticipated jobs number markets up big right now.
+
+It was a big I think. I don't know if it's still a big, but this is showing where the market current price is. And then what we have here is we have the, you know, the call game exposure and the put game exposure, which has shifted actually significantly even from when we started seeing this to now we have some negative net game exposure across at least the profile of these strikes.
+
+So here's the question. And I just because we were kind of going through this a little bit, but what I mean, let me try to ask it this way, like what should a trader be looking for or be watching out for or like what does this potentially tell us about who has what position or what market has what position or, you know, any insights on like what could or could happen in the market for the day? Yeah. There's a couple of things that I think are important to build in when you're looking at something like this.
+
+The first one is any assumption that you're going to make based on just like one data point or two data points is going to probably be something that's going to point you in a direction that might not be the truth here. Right. So let's.
+
+It's got to be comprehensive. Yes. I think it's best to really point people to the idea that that you want to use tools like this to build a more comprehensive kind of holistic view of what is happening.
+
+It's going to give you some ideas about like where you should look, but I don't think it's going to give you like I always caution people against trying to like read the tea leaves of just like open interest all by itself because you don't know what those positions were. Exactly. You can't know what people have against it.
+
+You can't know what. Right. Like the hard part about that is that options can be hedged in many, many different ways.
+
+And so you don't know necessarily how other people have it hedged. So the good part is like the added thing that maybe I would add there. You tell me if I'm right or wrong on this, but I always see people or they might email in and be like, hey, there's a, you know, twenty five thousand open interest at this put strike.
+
+And I'm like, well, that doesn't mean that they think the market's going down. That doesn't mean that they know it's going down. It could mean that they're hedging.
+
+It could mean that they're you know, that that is a bet that if it goes down, you know, but but we don't know what the purpose of that was. And it could have been another position. So exactly one.
+
+One thing that I would I'll give you an idea to drive that point home. When I was trading the S&P, oftentimes the most bullish indicator was people buying tiny out of the money puts in size. The reason why.
+
+Right. And you can totally believe that I could tell you that you can see that as a market maker, if you were just starting, you'd be like, these people are buying like one dollar puts like this thing is going down. Right.
+
+And and what was really happening is that they were buying ten times as many futures and they were buying or hedging. Yeah, they were hedging by buying tiny little puts. And so what you end up doing is starting to like create these like second and third knock on effects that you can actually start to like make sense of.
+
+I'm not saying that every time you see someone buy little puts, everything's going straight up. What I'm telling you is that that's one of those kind of like pitfalls of the fool's errand that sends you into the rabbit hole that you don't want to be in. Right.
+
+Let's let's build a more holistic idea. So in in in that regard, right, to that end, let's build a more holistic idea. I think the best part here is that we have most broadly right now, especially right.
+
+One giant customer that happens to come in and trade kind of the same thing many, many times over in the zero DTE space. I've heard him or them referred to as Captain Condor by many people. I don't know how you refer to this person or this what entity, whatever it is, but they trade a lot of condors.
+
+I mean, is that still the case? I'm guessing that's still the case. I mean, I think I'm I think that a lot of people on Option Alpha trade a lot of condors. I definitely do condors with butterflies, spreads, individuals.
+
+So yeah, I would I would assume that would be the case for zero DTE just because it's cheaper for a retail trader anyway. So it's yeah, it's cheaper for a retail trader. It also gives you define a much more defined outcome, right? It doesn't it doesn't leave you open ended in any way, shape or form.
+
+Yeah, 100%. Yeah. But many times when I'm looking at things like open interest and open strikes, what I end up seeing is something similar to what I think you're seeing on this right now, which is that there's some large strike open interest or trade volume that is out there.
+
+That's probably because there's a condor that has been traded in that way. Would you agree with that? Well, that's actually when you said that, I thought I immediately thought, yeah, then if I'm looking at this, I think, OK, that makes sense that these strikes are so close together and maybe potentially a big position just got added to it. So let me actually go to let me let me share a different screen here.
+
+Let me go to this one. This was actually this morning. I did happen to grab a screenshot right after the market opened.
+
+So this was actually this morning right after the market opened, which did not have that. It looked like everyone's position or potentially the bulk of the positions were just a couple strikes above the market. Right.
+
+But I would look at that. And I would I mean, my first reaction is like someone traded a call spread, right? Right. A big call spread.
+
+And it's the whatever that is, the probably the thirty five forty or the thirty thirty five. Sixty five. Yeah.
+
+Sixty five. Thirty five. Sixty five.
+
+Forty. Something like that. It's somewhere close to that.
+
+Right. And and so in some ways, when I look at something like this. Yeah.
+
+Yeah. Yeah. No, go ahead.
+
+No, no, no. Go on. No, I was going to say it.
+
+So in that when I look at the case, I think our connections are where. So when I look at that, I go, OK, so now and I'm trying to put myself in the seat of not only a trader myself, like trying to understand this, but then, you know, trying to like figure out, OK, like what does that mean for me as a trader? So if someone has this massive call spread, right, and somebody is holding this position because that trader has that position and that market maker has is holding that position. Right.
+
+What does this mean for me? Does this mean like I'm just asking questions here, but does this mean that that that level now like if the market gets to that level, the market maker might have to then hedge and sell stock. Right. Or maybe they don't.
+
+Or, you know, like how did because their deltas are going to evolve as they go. Right. So.
+
+Absolutely. Yeah. And like I said at the beginning, their deltas are kind of constantly being hedged.
+
+Right. They don't necessarily have a choice as to whether or not they're hedging their deltas. When I was trading, we had to make that choice.
+
+We had to say like, OK, like, where do we want to hedge the delta? But I think right now the volume is so concentrated in these short term options that they don't even they don't even choose whether or not they're hedging, which actually makes the idea of what what we refer to as charm, something that is actually relevant, more relevant now than it probably ever has been before. Charm is delta decay. It's like how much your delta changes over time.
+
+And so if you think about the fact that maybe a market maker has a large call spread position that they've been put into. Right. Let's say this call spread that we're looking at, the whatever it is, the 3035 or the 3540 is above the market.
+
+And so let's say someone came in and sold it and you're a market maker and you bought, you know, a thousand of the expiring today call spread. Well, you're that has a positive delta. If you're buying it, you're going to be selling spooze, selling some sort of delta against that.
+
+If you are selling underlying like futures spooze against it, you have something against your call spread that does not expire at the same time your call spread does and does not decay in the same way. Yeah. 100 percent.
+
+I get what you're saying there. So what you have is upside call delta that is hedged by something that does not expire. And as that delta decays, you have the same amount of futures against something that doesn't have as much positive delta.
+
+And so you are getting what we call, you know, I would say you're getting shorter and shorter delta over the course of time because your call spread is losing delta. But the hedge against it, which you sold short, is not losing delta. It is still the same.
+
+And in that case, would they start then buying back some of that position and start interesting? Well, I don't think I don't necessarily think that they're buying back necessarily the option position. No, no, no. The futures position.
+
+Right. They don't need the full exposure for the rest of the day. Yeah, exactly.
+
+And so if you think about it, I want you to think about it in this way. If someone came in and just sold like a million of this call spread and every single person who trades options was on the other side of buying that call spread. And then the person who sold the call spread did nothing else all day.
+
+Right. What you would have is all these people who bought this call spread, hedged it with spooze and then sat on it and waited for like the guy to come out and and buy it back at the end of the day. And if the guy doesn't come back and buy it back, what ends up happening? At every hour that passes.
+
+If that call spread does not go into the money, it loses Delta. It's decaying. Yeah.
+
+Right. It's decaying. And all of these market makers who are short spooze against it are buying these spooze back.
+
+Well, what happens when you initially hedge it? When you initially hedge it, everyone has spooze to sell. The spooze probably go down. Right.
+
+And then guess what? As the day progresses, you get this natural drift because everyone's buying back their spooze over time or their underlying or whatever it is. And so what you get is this natural drift back to either the original level or potentially to the strike, which is what people oftentimes look for when they're looking at this. I give you that example, not as like this is definitely going to happen every time this happens.
+
+I try to extrapolate from these situations a more kind of general idea about how the market dynamics work. So this is great. So when you see things like this, you can see how it might play out.
+
+Right. And how those those dynamics are working. That what I just described to you is charm at work in the actual world.
+
+Right. It's kind of evolving as it goes because that's what it really what it is is just the evolution of it. You know.
+
+Correct. And that's all that you know, all that charm is, is us figuring out a word to use for like, you know, the delta of this option changed from six that you 6 a.m. to 10 a.m. Right. I mean, like and so we call it a charm.
+
+I don't know why, but iron condors, iron butterflies. No one knows. Yeah.
+
+They all have crazy names. Jade Lizards. Like, I don't even know what that is.
+
+But so that's what that is. Right. And as you can see, right, this thing just changed again.
+
+Well, I know that now I went back to the live one. So that was like, yeah, that was when the market just opened. So but now back to the market just so we can see.
+
+But so OK, so now we have this scenario where I'm like, OK, well, now, you know, I think when I did the live on, let me just go back. Market was at 60, 65, 28, 64, 60. So it's obviously pulled back.
+
+Right. So now it's like, OK, now I'm looking at this going, OK, this, you know, just visually I'm like, this looks like some potential trouble. But.
+
+Is this the same type of potential trouble on the put side where is this going to act as a mechanism where the market, you know, potentially gets to this level and starts to float a little bit because now everyone has to buy back? You know, yeah, certainly that's a possibility as well. I think what is it just like blow through that level? Well, that we don't like that. You don't know that necessarily.
+
+But what you do know is that if the market does potentially get to that level, that theoretically, if all other things stay the same and things don't change markedly, the market maker position and their resultant gamma and theta positions are going to change if we get closer to that strike. We know that for sure. Because and that's something that you can just look at by saying, OK, these there is an imbalance between buyers and sellers of some sort on these two strikes, right? I mean, that we can extrapolate from the most general and say that there is something going on here.
+
+What I like to do when people show me these things is to look at it and say, like, I don't know exactly what's going to happen when we get down there. But your ears might want to perk up when things start to get to that level, because that means if that if that situation is staying the way that it is and the futures go down to that level, there are going to be some things that are changing on some very big desks and there might be some hedging that is going to be more dynamic at that level than it would be at any other level in the futures. Right.
+
+So the idea would be it's generally going to be or could be, you know, we don't obviously we still don't know. Right. Like anything can happen.
+
+Right. But if there's not much happening around the strikes that's currently at, there's no reason for any of the other participants, regular traders included, to do anything. Right.
+
+That's really the idea. And it's not until they get to these points where it's like, well, OK, now you, you know, pooper get off the pot like something's got to happen. And in the case of it would be right to say in the case of like a market maker at this point, if there's super, super negative gamma exposure at this point, they might have to buy back stock to hedge their negative position.
+
+If they are negative gamma? Yeah. Like if they have negative or negative delta exposure here. If they have negative delta, yes, they would be buying spoofs, buying underlying as it goes down right to hedge.
+
+Right. But the other side of that is if they have negative gamma. Remember what we said about gamma, right? Gamma is the net change of the delta over that one dollar move.
+
+Negative gamma makes people longer delta as you go down and shorter delta as you go up. So that's a, you know, that's an interesting like byproduct of that situation that creates what people call convexity. Right.
+
+Which means that people who are naturally negative gamma have more futures to sell the lower something goes. Right. So now it just becomes like a self-reinforcing process at some point.
+
+Correct. And that's what, when, when you hear all these talking heads talking about, you know, this exact situation, what they're talking about is trying to figure out at some point, yeah, the inflexion point where people don't, where, where it becomes like by the dip is great right up until the point that it's not, everyone's waiting for that kind of thing to occur. And many people that are options centric are out there saying that, that these kinds of flows might be the thing that creates a situation where like everyone buys the dip.
+
+And then all of a sudden the people who actually have to hedge their negative gamma on the downside come in and start selling and there's no one left to buy. Right. Like that's, that's where people are like, oh, that could get real bad.
+
+Well of course it could get real bad. And that's why if you generally see, it would be right to say, that's why when you see things, if you're just happen to be watching the charts, right. And you see like a break and then it just runs, that's why it's running because it's just like a cascading effect of just, you know, needing to sell in order to hedge and needing to sell again in order to hedge, et cetera.
+
+Yeah. I mean, that's definitely one reason why it can happen. I'm not going to tell you every time you see something like move like that, that is what's that could be a reason why it breaks so hard.
+
+Like people always say like, oh, it just breaks and just snaps. Right. And it's like, well, it probably snaps because maybe, you know, a lot of hedging needed to occur, you know, a lot of hedging.
+
+And as you can imagine, I mean, that's part of the reason why, when we started talking about zero DTE volume rotation, that there were so many people that were like, this is a systemic risk, right. Because of this very thing, you're dealing with something that is a very gamma rich, the profile of these options is very gamma centric. For anyone who has traded through something like 2008, that's the first thing that they think about is a flash crash or flash crash or even a flash crash.
+
+Yeah. I mean, they were actually in this case, the flash crash is probably a better example of that because there wasn't as much, you know, 2008 was something where it was just like volatility all over the place, just like, yeah, complete, you know, I call it the goat rodeo, right? It was a goat rodeo in 2008. Flash crash was something much more like this.
+
+I happen to be watching it.
+
+(This file is longer than 30 minutes. Go Unlimited at https://turboscribe.ai/ to transcribe files up to 10 hours long.)

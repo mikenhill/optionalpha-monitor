@@ -1,0 +1,78 @@
+{
+  "info": {
+    "name": "Option Alpha API Capture",
+    "description": "Replay captured Option Alpha RPC calls. Requires valid session cookies copied from a fresh browser session. Do not commit filled cookie values.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "base_url", "value": "https://app.optionalpha.com" },
+    { "key": "symbol", "value": "SPX" },
+    { "key": "xid", "value": "SPX_20260602" },
+    { "key": "a5sid", "value": "PASTE_A5SID_HERE" },
+    { "key": "a5did", "value": "PASTE_A5DID_HERE" },
+    { "key": "cf_clearance", "value": "PASTE_CF_CLEARANCE_HERE" }
+  ],
+  "item": [
+    {
+      "name": "Batched - Max Pain + GEX",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json, text/plain, */*" },
+          { "key": "Origin", "value": "https://app.optionalpha.com" },
+          { "key": "Referer", "value": "https://app.optionalpha.com/screener?symbols=SPX%2CXSP" },
+          { "key": "Cookie", "value": "a5sid={{a5sid}}; a5did={{a5did}}; cf_clearance={{cf_clearance}}" }
+        ],
+        "url": {
+          "raw": "{{base_url}}/api/request",
+          "host": ["{{base_url}}"],
+          "path": ["api", "request"]
+        },
+        "body": {
+          "mode": "raw",
+          "raw": "[\n  {\n    \"t\": \"rpc\",\n    \"tid\": \"postman-maxpain-{{$timestamp}}\",\n    \"api\": \"market.maxpain\",\n    \"args\": [\n      {\n        \"symbol\": \"{{symbol}}\",\n        \"xid\": \"{{xid}}\"\n      }\n    ]\n  },\n  {\n    \"t\": \"rpc\",\n    \"tid\": \"postman-gex-{{$timestamp}}\",\n    \"api\": \"market.gex\",\n    \"args\": [\n      \"{{symbol}}\",\n      \"{{xid}}\"\n    ]\n  }\n]"
+        },
+        "description": "Confirmed captured batch from the screener page. market.maxpain response bars include volume/open-interest style fields: cvol, pvol, coi, poi. market.gex response includes gamma exposure data."
+      }
+    },
+    {
+      "name": "Market Max Pain",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json, text/plain, */*" },
+          { "key": "Origin", "value": "https://app.optionalpha.com" },
+          { "key": "Referer", "value": "https://app.optionalpha.com/screener?symbols=SPX%2CXSP" },
+          { "key": "Cookie", "value": "a5sid={{a5sid}}; a5did={{a5did}}; cf_clearance={{cf_clearance}}" }
+        ],
+        "url": "{{base_url}}/api/request",
+        "body": {
+          "mode": "raw",
+          "raw": "[\n  {\n    \"t\": \"rpc\",\n    \"tid\": \"postman-maxpain-{{$timestamp}}\",\n    \"api\": \"market.maxpain\",\n    \"args\": [\n      {\n        \"symbol\": \"{{symbol}}\",\n        \"xid\": \"{{xid}}\"\n      }\n    ]\n  }\n]"
+        },
+        "description": "Returns max-pain data. The `bars` array includes fields including strike, calls, puts, total, cvol, pvol, coi, poi."
+      }
+    },
+    {
+      "name": "Market GEX",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Accept", "value": "application/json, text/plain, */*" },
+          { "key": "Origin", "value": "https://app.optionalpha.com" },
+          { "key": "Referer", "value": "https://app.optionalpha.com/screener?symbols=SPX%2CXSP" },
+          { "key": "Cookie", "value": "a5sid={{a5sid}}; a5did={{a5did}}; cf_clearance={{cf_clearance}}" }
+        ],
+        "url": "{{base_url}}/api/request",
+        "body": {
+          "mode": "raw",
+          "raw": "[\n  {\n    \"t\": \"rpc\",\n    \"tid\": \"postman-gex-{{$timestamp}}\",\n    \"api\": \"market.gex\",\n    \"args\": [\n      \"{{symbol}}\",\n      \"{{xid}}\"\n    ]\n  }\n]"
+        },
+        "description": "Returns gamma exposure data. Confirmed captured call from screener page."
+      }
+    }
+  ]
+}

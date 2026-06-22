@@ -1,0 +1,169 @@
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)
+
+Hi, I'm Jack Slocum with Option Alpha. It's around noon and I'm going to break down some of the trades that I have made so far today during this trading session. If you look here, you can see that there is a very large block of gamma exposure here around the 6700 strike.
+
+If you look closely as well, you can see not only is the open interest here pinned around that strike, but there's also a lot of daily volume happening at that strike as well. So I have been trading this strike this morning. Earlier in the morning, the price shot up above it. 
+
+If we take a look at the chart over here, you can see the price shot up. It was around, probably around 6708, where I jumped into this position. Let's see, 6708.46. And around that time, I was looking at the gamma exposure profile and I was seeing this big block right here. 
+
+So what I did was make a short-term trade, betting that the price was going to come back down below 6700 in the short-term. And so the price actually did come back down here. You can see 6686. 
+
+It dropped really quickly here around 1049. So I was in this position for around an hour, netted $1,200. And then the price came back up again. 
+
+And when it came back up again, see in this chart right here, I was looking at the gamma exposure chart again. And we'll take a look at where it is right now. And you can see it also has a big spike here. 
+
+So I went ahead and entered another position, which it looks like is actually closing right now. I set this one to a $500 profit, so it's smaller. I did five contracts for this position instead of 10 contracts. 
+
+So let me explain to you really quickly why it is I jumped into this second position. One is the total capital risk here of $1,100 is less than what I won on the previous position. So either way, I net $100. 
+
+The other thing that I was looking at, though, is the price was at 6706. And if you look, this is a long put spread from the 6710 down to the 6705. So this long put spread was basically $3.79 in the money already. 
+
+And what I was paying for it was $2.20. To me, that seemed like a great price. And then when I combine that with looking at this gamma exposure chart, and actually, we can look at the gamma exposure chart from when I opened it. So this is the minute from when I opened this position. 
+
+This is what gamma exposure looked like at that minute. And as you can see, there was this big block still here at 6700. And there's also a lot of call and put volume happening around that price as well. 
+
+So as soon as I saw that, I thought there's another opportunity for me to make another trade that it will be going back in the other direction. And it looks like it is currently headed in that direction. So I'll go ahead and review some of the other things that I've been looking at over the course of the past week. 
+
+We'll see if this one closes. It looks like the mid price is right around the profit target. So it might close here in the next couple minutes.
+
+But if we come and we look at my trade log over here. So my goal for the year, I started off with $50,000 in my account. And if I win $1,000 per trading day over the course of the year, I'll turn $50,000 into $250,000. 
+
+And that's kind of the goal of what I'm trying to do here. It started off really well in January. As you can see here for January, my P&L per day was $1,194.
+
+It was a great month. The next month, not so much, $524. The combination of the two put me at an average of about $840. 
+
+But what I want to share with you is how this month has went. So if I come down here and I click on March, and I'll just click directly on March. As you can see, this month has not been as successful. 
+
+My current P&L per day is $113. And that includes the $1,200 position that I closed earlier today. But there were a few days in here where things got a little bit difficult. 
+
+And if we look specifically on Thursday here, the 5th, this was a day that I learned a lot as a trader about no matter how much I think I've overcome this past part of myself, there's always an opportunity for it to come up and show its head. And so on this particular day, if you look, I started off really strong in the morning. I made a quick trade at 10 a.m. And if we look at the gamma exposure profile, you can see I was ultimately making a trade that it was going to come back down around $68.50 here. 
+
+Overall, the gamma exposure net was negative. On this particular day, there was a lot of downward momentum. I entered into this long put spread predicting it was going to go back down towards that $68.50 strike. 
+
+I was in the position for about 22 minutes and exited pretty quickly. This was a good start to the day. This one was actually a position traded by my long put bot. 
+
+It's been running for about a year and a half. It has four wins, around 111 losses or something like that. So it's a long shot bot that hits a really big win every once in a while. 
+
+But the rest of the time, it loses a little bit per day. Later on, around 1 o'clock, I entered into this position, which was a great win, $1,280, closed it out, thought I was done for the day. So ultimately, on this day, I'm looking at around $1,700. 
+
+And I knew I was going to lose this one as well. So I would end up around $1,500 for the day. I hit my $1,000 target all as well. 
+
+But when I went and looked at my position list, I was surprised, really surprised, to see this position right here. And since it was opened, it was already $600 or $700 in the hole because the price had shot up and the call side of this was being challenged. So immediately, I looked and I was like, where did this position come from? It's an iron condor traded around 2 p.m. And the reward risk ratio was not something I typically look for. 
+
+So this particular one right here, you see I got in on a $5 wide for $1.90. So the reward to risk ratio on this trade was well over 100% and closer to 200%. But when I looked at this trade, I took in a $520 credit and I'm risking $1,480 that the price is going to stay within this range. And considering the current volatility, this was not a trade that I would have made. 
+
+So I looked and I saw that it was part of this bot right here. And I'm just going to open this one here in a new tab, which hasn't made any trades since November of last year. So this bot has been running for since March 11th of 2025, so a little over a year. 
+
+And it only trades when the VIX is above 25. And then I also added a progression strategy where after it wins two trades, it goes ahead and makes a larger trade to try to keep the streak going and make bigger profit. However, when I set that up, I never factored in the fact that it would take breaks. 
+
+So if you look at this, the last trade it made was on November 20th. And the previous trade before that was May 7th. And the previous trade before that was April 30th. 
+
+So each one of these trades was made in isolation. And the last thing I want to do for trades made completely in isolation unrelated is use some type of progressive strategy. So this trade, when I saw it immediately put me into a state of frustration. 
+
+So I had hit my goals for the day. I was profitable. I was up $1,700.
+
+I was chill. I was in a state of peace. And I felt like, okay, today's a success. 
+
+I continue to work on the platform. And we'll make more trades tomorrow. Maybe I'll throw something out there before the market closes. 
+
+But I would only risk like maybe $200 or $300. So I wasn't jeopardising hitting my goal of $1,000 per day. But once this trade was on the books and was $600 or $700 in the hole, that changed everything. 
+
+So immediately, I threw in another trade when I discovered it right here, in which I risked $570. And this had a chance to win pretty big. But you can see, I was setting profit taking pretty low. 
+
+I was just trying to make sure that at the end of the day, I would end up with 1,000. So what ultimately this did, as you can see here, these were trades that I made big risk. And I was going to just basically try to scalp $1,000 or scalp $800 on both of these. 
+
+And neither one of them worked out. Next thing I knew, my day had turned into a train wreck. And what this reminded me of is back in the day, I used to play a lot of poker. 
+
+And when I played poker, there was this time where we called it tilt. And when a player went on tilt, everyone at the table knew it. And they would try to get in hands against that player. 
+
+Because that player, once they got on this losing streak and ended up on tilt, their decision making would be compromised because they'd be trying to get back what they had lost instead of trying to long term be a profitable poker player in this case, but in our case, trader. So when I'm thinking about being a long term profitable trader, I have a specific strategy. I have a specific goal that I'm after. 
+
+I make good decisions. But when I'm operating from this position, wow, I just lost $1,500. I didn't expect to lose. 
+
+I need to get that back. My decision making changes and the decisions I make aren't as good. So what happened in this scenario is I made several trades that completely changed the trajectory of my trading for the month. 
+
+And in the next day, things went similarly. If you look, once I got into that state of being bothered, my decision making was compromised the next day because I'm trying to get back that $6,000 that I had lost the previous day. So this particular day was the first Friday of the month, which has very large open interest numbers. 
+
+If I click on one of these, you can see here the open interest here was $10,800. Up here was $6,400. Up here, $11,000. 
+
+Those are really significant numbers. So what I did was I tried to pin a few iron butterflies around those prices. And this one was very profitable earlier in the day, $2,200 a profit here, but I didn't take that profit. 
+
+Instead, I tried to actually pin it, trying to get $4,500 of the $9,700 credit that I took in. And it was a $10 wide iron butterfly. And the reason why I made that decision was because I needed to make a bigger profit in order to make up for the losses that I made the previous day. 
+
+And this one here was very similar. I opened it three days in advance as well. Took in a $9,800 credit on $150 risk. 
+
+But I also tried to nail this one and get at least $4,500. And look at the profit here that was available. Never took it, never got out of the position. 
+
+And this one ended up also being a loss. So these decisions that I was making the next day after losing that $6,000 were all compromised. I was disturbed is what I like to call it, where I'm instead of making the best decision that I can make, I'm making a decision from a state of trying to get something back or trying to make up for something that had already happened. 
+
+And if you look at this position, this is a great example. I opened this position earlier in the day. The price went how I wanted it to. 
+
+This one was actually very profitable. If we take a look at SPX on March 6th. So we'll jump back over here to March 6th.
+
+You can see the price dropped down here earlier in the day. Let's see if I can make this bigger for you. So you can see the price dropped down here earlier in the day. 
+
+I entered this position at $9.46. So around $9.46 here, the price was way down here. And I was trading that it was going to go back above $67.50. And it did. It went well above $67.50. And that position was wildly profitable. 
+
+And what I decided in that moment was, I'm going to hold it until expiration. Basically, this one max profit on this position was $3,100. So I decided, I'm going to hold it until expiration. 
+
+It's definitely going to stay above $67.50. When in most scenarios, I was in this position for maybe, I don't know, 20 minutes and I could have taken down $1,500 profit. But I didn't. Instead, I decided I wanted to get all of the money. 
+
+And I set my profit target here to $2,500. Deciding that that was close enough to getting $3,100, I would close it if I got $2,500, which means the price would need to be like $4.75, which is only going to happen close to expiration. So ultimately, I was still deciding to try to hold this until expiration to get the max profit instead of taking the profit that was available at that time. 
+
+And if you look at the price action, it sunk back down. It went back up and basically oscillated back and forth here throughout the day until at the end of the day, it came all the way down. And that position that I was holding, basically trying to get a max profit turned into a max loss of $1,900. 
+
+And again, the reason for that was compromised decision making. Later on in the day, I threw out a Hail Mary that did pretty well here for $2,600 and saved this day from being a catastrophe. But this was a prime example of where I allowed my piece to become disturbed in my trading. 
+
+And part of the reason I originally was so attracted to automating my trading was I wanted to have the ability to separate my emotional side from my trading. That motivation is still there. I'm still trying to separate myself as much as possible from my trading.
+
+But when it comes to these gamma exposure and the day trading that I'm doing now, it's very difficult for me to fully automate everything just yet, although we are working towards it. So maintaining that state of peace is a high priority. This reminds me of one of my favourite pieces of scripture, which is, peace I leave with you, my peace I give to you. 
+
+Let not your hearts be troubled, neither let them be afraid. So what goes wrong when I'm trading is if I'm making trades and I get scared, if I get afraid that the trade is going to go the other way, that causes me to make decisions differently than when I'm in this state of peace. When I'm in a state of peace, I'm looking, I'm analysing, and I'm making decisions based on logic and reason.
+
+And when I'm in a disturbed state, I'm chasing, I'm operating from a place of fear that only makes matters worse and leads to additional losses. And it's been going a little bit better since then. You can see I had some pretty good days. 
+
+We'll see if today's position, how it's doing, it already closed. So that's great. So I will be keeping an eye today during today's session so we can refresh. 
+
+Still behind on my goal of $1,000 per day for the month of March. But if we combine since the beginning of the year, I'm at $681 per day. So hopefully this week will be a great week and I can get that back towards that goal. 
+
+Before I jump off this video, let me go ahead and see if there's another trade available. I'm going to click here for game exposure. And as you can see, this bar is still here on this $6,700 strike. 
+
+I'll make it bigger for you. And there is a tonne of put volume and call volume at that strike. So if you look here, there is a lot of action at this particular strike. 
+
+So I have been trading that it was going to go down. And I believe I'm going to quickly jump into a new position going the other way, predicting that it's going to come back up around that $6,700 strike in the short term. So how much can I do here? If I do $235, doesn't leave me much room to get out. 
+
+I could go up to $6,700 and then it's only $190. I kind of like this one better. $220. 
+
+I'll do $220 real quick. Gamma exposure trades. I think we're good. 
+
+Looks like $220 already evaporated. I don't necessarily need to make this trade, but it seems like a good opportunity looking at this gamma exposure chart. If I had to predict where the price is going in the short term, considering the open interest here and considering the daily volume at this particular strike, my guess is before the end of the day comes, the price will gravitate back towards there.
+
+And it looks like we can get in around that $225 price. Maybe we'll get filled at $220. All right, boom, we just got filled at $2.25. So I have one more trade here. 
+
+And based on what we were just talking about, what I'm going to look at is I have four contracts. And if the price goes up to $325, I'll go ahead and take that profit. So I'm going to set my profit taking here to $400 or more. 
+
+See how that one does. My total risk here is $900. So I'm going for around 45% return on this. 
+
+I'm looking to make a quick turnaround. I'm looking for the price to bounce back up above $6,700. And if it does, then I'll close this position out really quickly at a profit. 
+
+We'll see how that goes. So that was everything in this session that I want to share with you guys. The only other thing that I would share is how my bots have overall been doing.
+
+So you saw that one that was selling off. This guy is still in a humongous downstreak. Drawdown is $12,367. 
+
+The back test for this did show that this is very much a possibility, and it might lose. And then eventually it's a real big one. And I'm hoping that all of my exposure trades will make up for the drawdown that this is going through. 
+
+And then eventually this will hit, and that will bring me up a sizable amount of money. The other thing here I'll show you is my YFLY bot. So I know a lot of you trade this as well. 
+
+This bot is very streaky. As you can see in 2024 of October, all the way until March or May actually of 2025, it was flat or down a little. It goes through this long stretch. 
+
+This bot is betting on the overnight volatility being overstated. And sometimes it's not overstated. Sometimes we are having gap days and there is volatility overnight. 
+
+This year is going similarly since October. You can see it's been flat or down over the course of this period. And that's also because overnight volatility has not been overstated. 
+
+Now there is a period where the volatility starts to contract and the overnight volatility is overstated. And that seems to be after one of these volatile periods where it does a run up. So I'm waiting for that one. 
+
+This bot, I will link to it in the description of this video if you want to check it out. If you guys have any questions, ask them in the comments, please. I'd love to hear from you. 
+
+Thank you for watching and I'll see you again next time.
+
+(Transcribed by TurboScribe. Go Unlimited to remove this message.)
