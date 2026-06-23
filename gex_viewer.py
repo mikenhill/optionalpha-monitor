@@ -1584,11 +1584,13 @@ def refresh_daily_summary():
 def sync_historical(symbol: str = "SPX", max_days: int = 30) -> dict:
     """Fetch missing historical GEX data working backwards from yesterday.
 
+    Uses market.histgex (not market.gex) — market.gex returns 501 for historical
+    dates because it only serves the current live trading day.
+
     Returns dict with fetched, skipped, and failed counts with details.
     """
     from datetime import date, timedelta
-    from optionalpha_client import fetch_market_data
-    from process_gex_window import summarize_file, write_summary_files
+    from gex_historical_intraday import fetch_histgex
 
     yesterday = date.today() - timedelta(days=1)
     existing = set(available_dates())
@@ -1600,49 +1602,41 @@ def sync_historical(symbol: str = "SPX", max_days: int = 30) -> dict:
         d = yesterday - timedelta(days=i)
         iso = d.isoformat()
         ymd = d.strftime("%Y%m%d")
+        ndate = int(ymd)
 
         if iso in existing:
             skipped.append(iso)
             continue
 
         try:
-            xid = f"{symbol}_{ymd}"
-            data = fetch_market_data(symbol=symbol, xid=xid)
+            # market.histgex at 1530 (3:30pm ET) — the standard EOD snapshot time
+            data = fetch_histgex(symbol=symbol, ndate=ndate, ntime=1530)
 
-            # Save in histgex format (same as histgex snapshots)
+            if not data:
+                raise ValueError("market.histgex returned no data")
+
+            rows = data.get("data") or []
+            if not rows:
+                raise ValueError("market.histgex response has no strike rows")
+
+            uprice = data.get("uprice", 0)
+
+            # Save as histgex snapshot file (standard format used across the app)
             hist_dir = GEX_DIR / ymd
             hist_dir.mkdir(parents=True, exist_ok=True)
-
-            # Use 1530 (3:30pm ET) as the snapshot time for historical daily data
-            snapshot_file = hist_dir / f"{ymd}_1530_SPX_histgex.json"
+            snapshot_file = hist_dir / f"{ymd}_1530_{symbol}_histgex.json"
             snapshot = {
-                "uprice": data[0].get("data", {}).get("uprice", 0) if data else 0,
-                "data": data[0].get("data", {}).get("gex", []) if data else [],
+                "symbol": symbol,
+                "ndate": ndate,
+                "ntime": 1530,
+                "uprice": uprice,
+                "data": rows,
             }
             snapshot_file.write_text(json.dumps(snapshot, indent=2), encoding="utf-8")
 
-            # Also save the raw capture for daily summary
-            output_file = BASE_DIR / "results" / f"{ymd}_1530_{symbol}_{xid}.json"
-            output = {
-                "captured_at": d.isoformat(),
-                "symbol": symbol,
-                "xid": xid,
-                "data": data,
-            }
-            output_file.write_text(json.dumps(output, indent=2), encoding="utf-8")
-
-            # Generate summary and append to daily summary CSV
-            summary = summarize_file(output_file)
-            summary_file, csv_file = write_summary_files(
-                output_file,
-                summary,
-                include_csv=True,
-                append_path=BASE_DIR / "results" / "daily_gex_summary.csv",
-            )
-
             fetched.append(iso)
         except Exception as e:
-            failed.append({"date": iso, "error": str(e)[:100]})  # Truncate long errors
+            failed.append({"date": iso, "error": str(e)[:100]})
 
     return {"fetched": fetched, "skipped": skipped, "failed": failed}
 
