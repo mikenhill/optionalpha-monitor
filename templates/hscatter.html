@@ -26,17 +26,17 @@
     <a href="/">Historical</a>
     <a href="/live">Live</a>
     <a href="/analysis">Analysis</a>
-    <a class="active" href="/hscatter">H. Scatter</a>
+    <a class="active" href="/hscatter">Distribution</a>
     <a href="/spx">SPX Prices</a>
     <a href="/csv">CSV</a>
   </div>
 
-  <h1>History Scatter</h1>
+  <h1>Distribution</h1>
 
   <div class="card">
     <div class="toolbar">
       <label>Time slot:</label>
-      <select id="time-sel" onchange="loadScatter()">
+      <select id="time-sel" onchange="loadDistribution()">
         <option value="930">09:30</option>
         <option value="1000">10:00</option>
         <option value="1030">10:30</option>
@@ -51,82 +51,162 @@
         <option value="1500">15:00</option>
         <option value="1530">15:30</option>
       </select>
-      <label>X axis:</label>
-      <select id="x-sel" onchange="renderChart()">
-        <option value="call_gex">Call GEX</option>
-        <option value="put_gex">Put GEX</option>
+      <label>Metric:</label>
+      <select id="metric-sel" onchange="loadDistribution()">
+        <option value="net_gex">Net GEX</option>
+        <option value="total_call_gex">Total Call GEX</option>
+        <option value="total_put_gex">Total Put GEX</option>
         <option value="kcs">KCS</option>
         <option value="dominance">Dominance</option>
+        <option value="sentiment">Sentiment</option>
+        <option value="gex_ratio">GEX Ratio</option>
+        <option value="total_call_oi">Total Call OI</option>
+        <option value="total_put_oi">Total Put OI</option>
+        <option value="total_call_vol">Total Call Vol</option>
+        <option value="total_put_vol">Total Put Vol</option>
       </select>
-      <label>Y axis:</label>
-      <select id="y-sel" onchange="renderChart()">
-        <option value="put_gex">Put GEX</option>
-        <option value="call_gex">Call GEX</option>
-        <option value="call_vol">Call Vol</option>
-        <option value="put_vol">Put Vol</option>
-        <option value="kcs">KCS</option>
-      </select>
+      <label>Current snapshot:</label>
+      <input type="checkbox" id="use-latest" checked onchange="toggleCustomSnapshot()"> Use latest
+      <span id="custom-snapshot" style="display:none">
+        <select id="current-date-sel" onchange="loadDistribution()"></select>
+        <select id="current-time-sel" onchange="loadDistribution()"></select>
+      </span>
     </div>
-    <p id="scatter-status" class="loading">Loading...</p>
-    <div id="scatter-chart"></div>
+    <p id="status" class="loading">Loading...</p>
+    <div id="dist-chart"></div>
   </div>
 
   <script>
-    let chartData = null;
+    let distData = null;
+    let availableDates = [];
+    let availableTimes = {};
 
-    function fmtBig(n) {
-      if (!n) return '0';
-      const abs = Math.abs(n);
-      if (abs >= 1e9) return (n / 1e9).toFixed(2) + 'B';
-      if (abs >= 1e6) return (n / 1e6).toFixed(2) + 'M';
-      if (abs >= 1e3) return (n / 1e3).toFixed(2) + 'K';
-      return n.toFixed(2);
+    function toggleCustomSnapshot() {
+      const useLatest = document.getElementById('use-latest').checked;
+      const customSpan = document.getElementById('custom-snapshot');
+      customSpan.style.display = useLatest ? 'none' : 'inline';
+      if (!useLatest && availableDates.length === 0) {
+        loadAvailableDatesAndTimes();
+      }
+      loadDistribution();
     }
 
-    function renderChart() {
-      if (!chartData) return;
-      const xKey = document.getElementById('x-sel').value;
-      const yKey = document.getElementById('y-sel').value;
-      const d = chartData;
+    async function loadAvailableDatesAndTimes() {
+      try {
+        const r = await fetch('/api/dates');
+        availableDates = await r.json();
+        const dateSel = document.getElementById('current-date-sel');
+        dateSel.innerHTML = '';
+        [...availableDates].reverse().forEach(d => {
+          const o = document.createElement('option');
+          o.value = d; o.textContent = d;
+          dateSel.appendChild(o);
+        });
+        if (availableDates.length) loadTimesForDate(availableDates[availableDates.length - 1]);
+      } catch (e) {
+        console.error('Failed to load dates:', e);
+      }
+    }
 
-      const trace = {
-        x: d[xKey] || [],
-        y: d[yKey] || [],
-        text: d.dates || [],
-        mode: 'markers',
-        type: 'scatter',
-        marker: { size: 7, color: '#0d6efd', opacity: 0.7 },
-        hovertemplate: '<b>%{text}</b><br>X: %{x:.3s}<br>Y: %{y:.3s}<extra></extra>',
+    async function loadTimesForDate(date) {
+      try {
+        const r = await fetch(`/api/snapshots/summary?date=${date}`);
+        const d = await r.json();
+        const times = (d.rows || []).map(r => r.ntime).sort((a, b) => a - b);
+        availableTimes[date] = times;
+        const timeSel = document.getElementById('current-time-sel');
+        timeSel.innerHTML = '';
+        times.forEach(t => {
+          const o = document.createElement('option');
+          o.value = t;
+          const h = Math.floor(t / 100);
+          const m = t % 100;
+          o.textContent = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
+          timeSel.appendChild(o);
+        });
+      } catch (e) {
+        console.error('Failed to load times:', e);
+      }
+    }
+
+    function getUnit(metric) {
+      if (metric.includes('gex') && !metric.includes('ratio')) return 'B';
+      if (metric.includes('oi')) return 'K';
+      return '';
+    }
+
+    function renderDistribution() {
+      if (!distData) return;
+      const d = distData;
+      const metric = d.metric.replace(/_/g, ' ').toUpperCase();
+      const unit = getUnit(d.metric);
+
+      const histTrace = {
+        x: d.values,
+        type: 'histogram',
+        name: 'Historical',
+        marker: { color: '#0d6efd', opacity: 0.6, line: { color: '#0d6efd', width: 1 } },
+        xbins: { size: 'auto' },
       };
+
+      const shapes = [];
+      if (d.current_value !== null) {
+        shapes.push({
+          type: 'line',
+          x0: d.current_value,
+          x1: d.current_value,
+          y0: 0,
+          y1: 1,
+          yref: 'paper',
+          line: { color: '#dc3545', width: 3, dash: 'dash' },
+        });
+      }
+
+      const title = d.current_label
+        ? `${metric} Distribution (${d.current_label}: ${d.current_value}${unit}, Percentile: ${d.percentile}%)`
+        : `${metric} Distribution (Current: ${d.current_value}${unit}, Percentile: ${d.percentile}%)`;
 
       const layout = {
-        xaxis: { title: xKey.replace(/_/g, ' ').toUpperCase(), zeroline: true },
-        yaxis: { title: yKey.replace(/_/g, ' ').toUpperCase(), zeroline: true },
-        margin: { t: 20, l: 60, r: 20, b: 50 },
+        title: title,
+        xaxis: { title: `${metric} (${unit})`, zeroline: true, zerolinecolor: '#ccc', zerolinewidth: 1 },
+        yaxis: { title: 'Count' },
+        margin: { t: 50, l: 60, r: 20, b: 50 },
         plot_bgcolor: '#fff',
         paper_bgcolor: '#fff',
+        bargap: 0.1,
+        shapes,
       };
 
-      Plotly.react('scatter-chart', [trace], layout, { responsive: true });
+      Plotly.react('dist-chart', [histTrace], layout, { responsive: true });
     }
 
-    async function loadScatter() {
+    async function loadDistribution() {
       const time = document.getElementById('time-sel').value;
-      document.getElementById('scatter-status').textContent = 'Loading...';
+      const metric = document.getElementById('metric-sel').value;
+      const useLatest = document.getElementById('use-latest').checked;
+      let url = `/api/history/distribution?time=${time}&metric=${metric}`;
+      if (!useLatest) {
+        const date = document.getElementById('current-date-sel').value;
+        const customTime = document.getElementById('current-time-sel').value;
+        if (date && customTime) {
+          url += `&current_date=${date}&current_time=${customTime}`;
+        }
+      }
+      document.getElementById('status').textContent = 'Loading...';
       try {
-        const r = await fetch('/api/history?time=' + time);
+        const r = await fetch(url);
         if (!r.ok) throw new Error('HTTP ' + r.status);
-        chartData = await r.json();
-        const n = (chartData.dates || []).length;
-        document.getElementById('scatter-status').textContent = n + ' data points';
-        renderChart();
+        distData = await r.json();
+        if (distData.error) throw new Error(distData.error);
+        document.getElementById('status').textContent = `${distData.n_samples} samples`;
+        renderDistribution();
       } catch (e) {
-        document.getElementById('scatter-status').innerHTML = '<span class="error">Error: ' + e.message + '</span>';
+        document.getElementById('status').innerHTML = '<span class="error">Error: ' + e.message + '</span>';
         console.error(e);
       }
     }
 
-    loadScatter();
+    loadDistribution();
   </script>
 </body>
 </html>

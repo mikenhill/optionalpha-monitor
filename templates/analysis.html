@@ -37,6 +37,14 @@
     .action-btn { padding: 5px 12px; font-size: 12px; border: 1px solid #ced4da; border-radius: 4px; cursor: pointer; background: #fff; margin-right: 6px; }
     .action-btn:hover { background: #e9ecef; }
     .action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .pca-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 12px; }
+    .pca-card { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 10px 12px; }
+    .pca-title { font-size: 12px; font-weight: bold; color: #343a40; margin-bottom: 6px; }
+    .pca-bar-wrap { background: #e9ecef; border-radius: 3px; height: 8px; margin-bottom: 4px; }
+    .pca-bar { height: 8px; border-radius: 3px; background: #0d6efd; }
+    .pca-features { font-size: 11px; color: #495057; line-height: 1.5; }
+    .pca-features span { display: inline-block; margin-right: 8px; }
+    .pca-hmm { font-size: 12px; color: #6c757d; margin-top: 8px; }
   </style>
 </head>
 <body>
@@ -44,7 +52,7 @@
     <a href="/">Historical</a>
     <a href="/live">Live</a>
     <a class="active" href="/analysis">Analysis</a>
-    <a href="/hscatter">H. Scatter</a>
+    <a href="/hscatter">Distribution</a>
     <a href="/spx">SPX Prices</a>
     <a href="/csv">CSV</a>
   </div>
@@ -61,6 +69,10 @@
   </div>
 
   <div id="analysis-body" class="loading">Select a date...</div>
+  <div id="pca-card" class="card" style="display:none">
+    <h2>PCA / HMM Feature Dimensions</h2>
+    <div id="pca-body" class="loading">Loading PCA...</div>
+  </div>
   <div id="narrative-card" class="card" style="display:none">
     <h2>Trading Narrative
       <span style="float:right">
@@ -138,6 +150,45 @@
       btn.disabled = false;
     }
 
+    async function loadPca() {
+      const card = document.getElementById('pca-card');
+      const body = document.getElementById('pca-body');
+      card.style.display = 'block';
+      body.innerHTML = '<span class="loading">Loading PCA...</span>';
+      try {
+        const r = await fetch('/api/pca');
+        const d = await r.json();
+        if (d.status !== 'ok') {
+          body.innerHTML = '<span class="error">' + (d.reason || 'PCA unavailable') + '</span>';
+          return;
+        }
+        const evr = d.explained_variance_ratio || [];
+        const cum = d.cumulative_variance || [];
+        const components = d.components || [];
+        const hmm = d.hmm_features || [];
+        let html = '<div class="pca-grid">';
+        components.forEach((c, i) => {
+          const pct = (evr[i] * 100).toFixed(1);
+          const cumPct = (cum[i] * 100).toFixed(1);
+          const features = (c.top_features || []).map(f => {
+            const sign = f.loading > 0 ? '+' : '';
+            return '<span>' + f.feature + ' <strong>' + sign + f.loading.toFixed(2) + '</strong></span>';
+          }).join('');
+          html += `
+            <div class="pca-card">
+              <div class="pca-title">PC${c.pc} — ${pct}% variance (${cumPct}% cumulative)</div>
+              <div class="pca-bar-wrap"><div class="pca-bar" style="width:${pct}%"></div></div>
+              <div class="pca-features">${features}</div>
+            </div>`;
+        });
+        html += '</div>';
+        html += '<div class="pca-hmm">HMM features (one per independent PC): ' + hmm.join(', ') + '</div>';
+        body.innerHTML = html;
+      } catch (e) {
+        body.innerHTML = '<span class="error">Error: ' + e.message + '</span>';
+      }
+    }
+
     async function loadAnalysis() {
       const date = document.getElementById('date-sel').value;
       if (!date) return;
@@ -208,6 +259,7 @@
         sel.appendChild(o);
       });
       if (dates.length) loadAnalysis();
+      loadPca();
     }
     init();
   </script>
