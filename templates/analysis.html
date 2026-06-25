@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEX Analysis</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    .nav { background: #212529; padding: 10px 20px; margin: -20px -20px 20px -20px; display: flex; gap: 5px; }
+    .nav a { padding: 6px 14px; text-decoration: none; color: #adb5bd; border-radius: 4px; font-size: 14px; }
+    .nav a:hover { background: #343a40; color: #fff; }
+    .nav a.active { background: #0d6efd; color: #fff; }
+    .card { background: #fff; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
+    h1 { font-size: 20px; margin: 0 0 15px 0; }
+    h2 { font-size: 15px; margin: 0 0 8px 0; color: #343a40; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    .toolbar label { font-size: 13px; font-weight: bold; }
+    .toolbar select { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; }
+    .toolbar button { padding: 5px 12px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; background: #fff; cursor: pointer; }
+    .toolbar button:hover { background: #e9ecef; }
+    .loading { color: #6c757d; font-style: italic; }
+    .error { color: #dc3545; }
+    .kv-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; margin-bottom: 10px; }
+    .kv { background: #f8f9fa; border: 1px solid #dee2e6; border-radius: 6px; padding: 8px 12px; }
+    .kv-label { font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; }
+    .kv-value { font-size: 16px; font-weight: bold; margin-top: 2px; }
+    .neg { color: #dc3545; }
+    .pos { color: #198754; }
+    .thesis-box { background: #f8f9fa; border-left: 4px solid #0d6efd; padding: 12px 15px; border-radius: 0 6px 6px 0; font-size: 14px; line-height: 1.6; white-space: pre-wrap; }
+    .verdict-box { background: #f8f9fa; border-left: 4px solid #fd7e14; padding: 12px 15px; border-radius: 0 6px 6px 0; font-size: 14px; }
+    .ohlc-grid { display: flex; gap: 20px; }
+    .ohlc-item { display: flex; flex-direction: column; }
+    .ohlc-label { font-size: 11px; color: #6c757d; text-transform: uppercase; }
+    .ohlc-value { font-size: 16px; font-weight: bold; }
+    .narrative-box { font-size: 13px; line-height: 1.7; white-space: pre-wrap; background: #f8f9fa; border-radius: 6px; padding: 12px 15px; }
+    .narrative-box h1, .narrative-box h2, .narrative-box h3 { font-size: 14px; margin: 10px 0 4px 0; }
+    .action-btn { padding: 5px 12px; font-size: 12px; border: 1px solid #ced4da; border-radius: 4px; cursor: pointer; background: #fff; margin-right: 6px; }
+    .action-btn:hover { background: #e9ecef; }
+    .action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/">Historical</a>
+    <a href="/live">Live</a>
+    <a class="active" href="/analysis">Analysis</a>
+    <a href="/hscatter">H. Scatter</a>
+    <a href="/spx">SPX Prices</a>
+    <a href="/csv">CSV</a>
+  </div>
+
+  <h1>EOD Analysis</h1>
+
+  <div class="card">
+    <div class="toolbar">
+      <label>Date:</label>
+      <select id="date-sel" onchange="loadAnalysis()"></select>
+      <button onclick="prevDay()">&#8592; Prev</button>
+      <button onclick="nextDay()">Next &#8594;</button>
+    </div>
+  </div>
+
+  <div id="analysis-body" class="loading">Select a date...</div>
+  <div id="narrative-card" class="card" style="display:none">
+    <h2>Trading Narrative
+      <span style="float:right">
+        <button class="action-btn" onclick="regenNarrative()">&#8635; Regenerate</button>
+        <span id="narrative-status" style="font-size:12px;color:#6c757d"></span>
+      </span>
+    </h2>
+    <div id="narrative-body" class="narrative-box"></div>
+  </div>
+
+  <script>
+    let dates = [];
+
+    function fmtBig(n) {
+      if (n === null || n === undefined) return '--';
+      const abs = Math.abs(n);
+      const sign = n < 0 ? '-' : '';
+      if (abs >= 1e9) return sign + (abs / 1e9).toFixed(2) + 'B';
+      if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + 'M';
+      if (abs >= 1e3) return sign + (abs / 1e3).toFixed(2) + 'K';
+      return n.toFixed(2);
+    }
+    function fmtNum(n, dp) {
+      if (n === null || n === undefined) return '--';
+      return Number(n).toFixed(dp ?? 2);
+    }
+    function clsVal(n) { return n < 0 ? 'neg' : (n > 0 ? 'pos' : ''); }
+
+    function renderMarkdown(text) {
+      return text
+        .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+        .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.+?)\*/g, '<em>$1</em>');
+    }
+
+    async function loadNarrative(date) {
+      const card = document.getElementById('narrative-card');
+      const body = document.getElementById('narrative-body');
+      card.style.display = 'block';
+      body.innerHTML = '<span class="loading">Loading narrative...</span>';
+      try {
+        const r = await fetch('/api/narrative?date=' + date);
+        const d = await r.json();
+        if (d.narrative) {
+          body.innerHTML = renderMarkdown(d.narrative);
+        } else {
+          body.innerHTML = '<span style="color:#6c757d">No narrative available for this date.</span>';
+        }
+      } catch (e) {
+        body.innerHTML = '<span class="error">Error: ' + e.message + '</span>';
+      }
+    }
+
+    async function regenNarrative() {
+      const date = document.getElementById('date-sel').value;
+      if (!date) return;
+      const btn = event.target;
+      const status = document.getElementById('narrative-status');
+      btn.disabled = true;
+      status.textContent = 'Regenerating...';
+      try {
+        const r = await fetch('/api/narrative/regenerate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date }),
+        });
+        const d = await r.json();
+        status.textContent = '';
+        await loadNarrative(date);
+      } catch (e) {
+        status.textContent = 'Error: ' + e.message;
+      }
+      btn.disabled = false;
+    }
+
+    async function loadAnalysis() {
+      const date = document.getElementById('date-sel').value;
+      if (!date) return;
+      const body = document.getElementById('analysis-body');
+      body.innerHTML = '<p class="loading">Loading analysis for ' + date + '...</p>';
+      try {
+        const r = await fetch('/api/analysis?date=' + date);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        if (d.error) throw new Error(d.error);
+
+        const t = d.thesis || {};
+        const a = d.actuals || {};
+        const net = t.net_gex || 0;
+
+        body.innerHTML = `
+          <div class="card">
+            <h2>Morning Setup</h2>
+            <div class="kv-grid">
+              <div class="kv"><div class="kv-label">SPX Open</div><div class="kv-value">${fmtNum(t.uprice)}</div></div>
+              <div class="kv"><div class="kv-label">Net GEX</div><div class="kv-value ${clsVal(net)}">${fmtBig(net)}</div></div>
+              <div class="kv"><div class="kv-label">Wall</div><div class="kv-value">${t.wall ?? '--'}</div></div>
+              <div class="kv"><div class="kv-label">Flip</div><div class="kv-value">${fmtNum(t.flip, 0)}</div></div>
+              <div class="kv"><div class="kv-label">Regime</div><div class="kv-value">${t.regime || '--'}</div></div>
+            </div>
+          </div>
+          <div class="card">
+            <h2>Thesis</h2>
+            <div class="thesis-box">${t.thesis || 'No thesis available.'}</div>
+            ${t.divergence ? '<div style="margin-top:10px;color:#856404;font-size:13px;">&#9888; Divergence: ' + t.divergence + '</div>' : ''}
+          </div>
+          <div class="card">
+            <h2>Verdict</h2>
+            <div class="verdict-box">${d.verdict || '--'}</div>
+          </div>
+          <div class="card">
+            <h2>Actual Price Action</h2>
+            <div class="ohlc-grid">
+              <div class="ohlc-item"><div class="ohlc-label">Open</div><div class="ohlc-value">${fmtNum(a.open)}</div></div>
+              <div class="ohlc-item"><div class="ohlc-label">High</div><div class="ohlc-value pos">${fmtNum(a.high)}</div></div>
+              <div class="ohlc-item"><div class="ohlc-label">Low</div><div class="ohlc-value neg">${fmtNum(a.low)}</div></div>
+              <div class="ohlc-item"><div class="ohlc-label">Close</div><div class="ohlc-value">${fmtNum(a.close)}</div></div>
+            </div>
+          </div>`;
+        loadNarrative(date);
+      } catch (e) {
+        body.innerHTML = '<p class="error">Error: ' + e.message + '</p>';
+        console.error(e);
+      }
+    }
+
+    function prevDay() {
+      const sel = document.getElementById('date-sel');
+      if (sel.selectedIndex < sel.options.length - 1) { sel.selectedIndex++; loadAnalysis(); }
+    }
+    function nextDay() {
+      const sel = document.getElementById('date-sel');
+      if (sel.selectedIndex > 0) { sel.selectedIndex--; loadAnalysis(); }
+    }
+
+    async function init() {
+      const r = await fetch('/api/dates');
+      dates = await r.json();
+      const sel = document.getElementById('date-sel');
+      [...dates].reverse().forEach(d => {
+        const o = document.createElement('option');
+        o.value = d; o.textContent = d;
+        sel.appendChild(o);
+      });
+      if (dates.length) loadAnalysis();
+    }
+    init();
+  </script>
+</body>
+</html>

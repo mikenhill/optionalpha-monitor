@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>History Scatter</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    .nav { background: #212529; padding: 10px 20px; margin: -20px -20px 20px -20px; display: flex; gap: 5px; }
+    .nav a { padding: 6px 14px; text-decoration: none; color: #adb5bd; border-radius: 4px; font-size: 14px; }
+    .nav a:hover { background: #343a40; color: #fff; }
+    .nav a.active { background: #0d6efd; color: #fff; }
+    .card { background: #fff; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
+    h1 { font-size: 20px; margin: 0 0 15px 0; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 5px; }
+    .toolbar label { font-size: 13px; font-weight: bold; }
+    .toolbar select { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; }
+    .loading { color: #6c757d; font-style: italic; }
+    .error { color: #dc3545; }
+    #scatter-chart { width: 100%; height: 480px; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/">Historical</a>
+    <a href="/live">Live</a>
+    <a href="/analysis">Analysis</a>
+    <a class="active" href="/hscatter">H. Scatter</a>
+    <a href="/spx">SPX Prices</a>
+    <a href="/csv">CSV</a>
+  </div>
+
+  <h1>History Scatter</h1>
+
+  <div class="card">
+    <div class="toolbar">
+      <label>Time slot:</label>
+      <select id="time-sel" onchange="loadScatter()">
+        <option value="930">09:30</option>
+        <option value="1000">10:00</option>
+        <option value="1030">10:30</option>
+        <option value="1100">11:00</option>
+        <option value="1130">11:30</option>
+        <option value="1200">12:00</option>
+        <option value="1230">12:30</option>
+        <option value="1300">13:00</option>
+        <option value="1330">13:30</option>
+        <option value="1400">14:00</option>
+        <option value="1430">14:30</option>
+        <option value="1500">15:00</option>
+        <option value="1530">15:30</option>
+      </select>
+      <label>X axis:</label>
+      <select id="x-sel" onchange="renderChart()">
+        <option value="call_gex">Call GEX</option>
+        <option value="put_gex">Put GEX</option>
+        <option value="kcs">KCS</option>
+        <option value="dominance">Dominance</option>
+      </select>
+      <label>Y axis:</label>
+      <select id="y-sel" onchange="renderChart()">
+        <option value="put_gex">Put GEX</option>
+        <option value="call_gex">Call GEX</option>
+        <option value="call_vol">Call Vol</option>
+        <option value="put_vol">Put Vol</option>
+        <option value="kcs">KCS</option>
+      </select>
+    </div>
+    <p id="scatter-status" class="loading">Loading...</p>
+    <div id="scatter-chart"></div>
+  </div>
+
+  <script>
+    let chartData = null;
+
+    function fmtBig(n) {
+      if (!n) return '0';
+      const abs = Math.abs(n);
+      if (abs >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+      if (abs >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+      if (abs >= 1e3) return (n / 1e3).toFixed(2) + 'K';
+      return n.toFixed(2);
+    }
+
+    function renderChart() {
+      if (!chartData) return;
+      const xKey = document.getElementById('x-sel').value;
+      const yKey = document.getElementById('y-sel').value;
+      const d = chartData;
+
+      const trace = {
+        x: d[xKey] || [],
+        y: d[yKey] || [],
+        text: d.dates || [],
+        mode: 'markers',
+        type: 'scatter',
+        marker: { size: 7, color: '#0d6efd', opacity: 0.7 },
+        hovertemplate: '<b>%{text}</b><br>X: %{x:.3s}<br>Y: %{y:.3s}<extra></extra>',
+      };
+
+      const layout = {
+        xaxis: { title: xKey.replace(/_/g, ' ').toUpperCase(), zeroline: true },
+        yaxis: { title: yKey.replace(/_/g, ' ').toUpperCase(), zeroline: true },
+        margin: { t: 20, l: 60, r: 20, b: 50 },
+        plot_bgcolor: '#fff',
+        paper_bgcolor: '#fff',
+      };
+
+      Plotly.react('scatter-chart', [trace], layout, { responsive: true });
+    }
+
+    async function loadScatter() {
+      const time = document.getElementById('time-sel').value;
+      document.getElementById('scatter-status').textContent = 'Loading...';
+      try {
+        const r = await fetch('/api/history?time=' + time);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        chartData = await r.json();
+        const n = (chartData.dates || []).length;
+        document.getElementById('scatter-status').textContent = n + ' data points';
+        renderChart();
+      } catch (e) {
+        document.getElementById('scatter-status').innerHTML = '<span class="error">Error: ' + e.message + '</span>';
+        console.error(e);
+      }
+    }
+
+    loadScatter();
+  </script>
+</body>
+</html>

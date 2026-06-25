@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SPX Prices</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    .nav { background: #212529; padding: 10px 20px; margin: -20px -20px 20px -20px; display: flex; gap: 5px; }
+    .nav a { padding: 6px 14px; text-decoration: none; color: #adb5bd; border-radius: 4px; font-size: 14px; }
+    .nav a:hover { background: #343a40; color: #fff; }
+    .nav a.active { background: #0d6efd; color: #fff; }
+    .card { background: #fff; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
+    h1 { font-size: 20px; margin: 0 0 15px 0; }
+    .loading { color: #6c757d; font-style: italic; }
+    .error { color: #dc3545; }
+    #spx-chart { width: 100%; height: 480px; }
+    .stat-row { display: flex; gap: 30px; flex-wrap: wrap; font-size: 14px; margin-bottom: 10px; }
+    .stat-item { display: flex; flex-direction: column; }
+    .stat-label { font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; }
+    .stat-value { font-size: 18px; font-weight: bold; }
+    .pos { color: #198754; } .neg { color: #dc3545; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/">Historical</a>
+    <a href="/live">Live</a>
+    <a href="/analysis">Analysis</a>
+    <a href="/hscatter">H. Scatter</a>
+    <a class="active" href="/spx">SPX Prices</a>
+    <a href="/csv">CSV</a>
+  </div>
+
+  <h1>SPX Price History</h1>
+
+  <div class="card">
+    <div class="stat-row">
+      <div class="stat-item"><span class="stat-label">Data Points</span><span class="stat-value" id="stat-count">--</span></div>
+      <div class="stat-item"><span class="stat-label">From</span><span class="stat-value" id="stat-from">--</span></div>
+      <div class="stat-item"><span class="stat-label">To</span><span class="stat-value" id="stat-to">--</span></div>
+      <div class="stat-item"><span class="stat-label">Latest</span><span class="stat-value" id="stat-last">--</span></div>
+      <div class="stat-item"><span class="stat-label">Change (YTD)</span><span class="stat-value" id="stat-chg">--</span></div>
+    </div>
+    <p id="spx-status" class="loading">Loading...</p>
+    <div id="spx-chart"></div>
+  </div>
+
+  <script>
+    async function loadSPX() {
+      try {
+        const r = await fetch('/api/spx-prices?mode=eod');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        const prices = d.prices || [];
+
+        document.getElementById('spx-status').textContent = '';
+        document.getElementById('stat-count').textContent = prices.length;
+
+        if (!prices.length) {
+          document.getElementById('spx-status').textContent = 'No price data available.';
+          return;
+        }
+
+        const first = prices[0];
+        const last = prices[prices.length - 1];
+        const chg = last.uprice - first.uprice;
+        const chgPct = (chg / first.uprice * 100).toFixed(1);
+
+        document.getElementById('stat-from').textContent = first.date;
+        document.getElementById('stat-to').textContent = last.date;
+        document.getElementById('stat-last').textContent = last.uprice.toFixed(2);
+        const chgEl = document.getElementById('stat-chg');
+        chgEl.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + ' (' + (chg >= 0 ? '+' : '') + chgPct + '%)';
+        chgEl.className = 'stat-value ' + (chg >= 0 ? 'pos' : 'neg');
+
+        const dates = prices.map(p => p.date);
+        const vals = prices.map(p => p.uprice);
+
+        const trace = {
+          x: dates,
+          y: vals,
+          type: 'scatter',
+          mode: 'lines+markers',
+          marker: { size: 4, color: '#0d6efd' },
+          line: { color: '#0d6efd', width: 1.5 },
+          hovertemplate: '<b>%{x}</b><br>SPX: %{y:.2f}<extra></extra>',
+        };
+
+        const layout = {
+          xaxis: { title: 'Date', type: 'category', tickangle: -45, nticks: 20 },
+          yaxis: { title: 'SPX Price' },
+          margin: { t: 20, l: 65, r: 20, b: 80 },
+          plot_bgcolor: '#fff',
+          paper_bgcolor: '#fff',
+        };
+
+        Plotly.newPlot('spx-chart', [trace], layout, { responsive: true });
+      } catch (e) {
+        document.getElementById('spx-status').innerHTML = '<span class="error">Error: ' + e.message + '</span>';
+        console.error(e);
+      }
+    }
+
+    loadSPX();
+  </script>
+</body>
+</html>

@@ -32,6 +32,7 @@ refresh session.json. The cookies are valid for several hours.
 import argparse
 import csv
 import json
+import sqlite3
 import time
 from datetime import date, timedelta
 from pathlib import Path
@@ -42,6 +43,25 @@ from optionalpha_client import call_optionalpha_api, SESSION_FILE
 BASE_DIR   = Path(__file__).resolve().parent
 OUTPUT_DIR = BASE_DIR / "results" / "histgex"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH    = BASE_DIR / "gex.db"
+
+
+def _upsert_db(ndate: int, ntime: int, symbol: str, uprice: float, data: list):
+    """Write a snapshot to SQLite (INSERT OR IGNORE — file is source of truth)."""
+    if not DB_PATH.exists():
+        return
+    try:
+        con = sqlite3.connect(DB_PATH)
+        con.execute("PRAGMA journal_mode=WAL")
+        con.execute(
+            "INSERT OR IGNORE INTO gex_snapshots (ndate, ntime, symbol, uprice, data) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (ndate, ntime, symbol, uprice, json.dumps(data)),
+        )
+        con.commit()
+        con.close()
+    except Exception as e:
+        print(f"  [db] warn: {e}")
 
 # Default 30-min slots 09:30 – 15:30 ET (13 snapshots per day)
 DEFAULT_TIMES = [930, 1000, 1030, 1100, 1130, 1200, 1230,
@@ -215,6 +235,7 @@ def capture_day(symbol: str, ndate: int, times: list[int], force: bool = False):
                 time.sleep(SLEEP_BETWEEN_REQUESTS)
                 continue
             raw_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+            _upsert_db(ndate, ntime, symbol, data.get("uprice", 0), data.get("data") or [])
             print(f"saved  uprice={data.get('uprice')}  strikes={len(data.get('data') or [])}")
             time.sleep(SLEEP_BETWEEN_REQUESTS)
 

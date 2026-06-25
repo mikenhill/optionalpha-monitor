@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CSV Data</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    .nav { background: #212529; padding: 10px 20px; margin: -20px -20px 20px -20px; display: flex; gap: 5px; }
+    .nav a { padding: 6px 14px; text-decoration: none; color: #adb5bd; border-radius: 4px; font-size: 14px; }
+    .nav a:hover { background: #343a40; color: #fff; }
+    .nav a.active { background: #0d6efd; color: #fff; }
+    .card { background: #fff; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
+    h1 { font-size: 20px; margin: 0 0 15px 0; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    .toolbar label { font-size: 13px; font-weight: bold; }
+    .toolbar select { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; }
+    .toolbar input { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; width: 140px; }
+    .toolbar button { padding: 5px 12px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; background: #fff; cursor: pointer; }
+    .toolbar button:hover { background: #e9ecef; }
+    .loading { color: #6c757d; font-style: italic; }
+    .error { color: #dc3545; }
+    .tbl-wrap { overflow-x: auto; max-height: 600px; overflow-y: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th { background: #343a40; color: #fff; padding: 6px 8px; text-align: right; white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+    thead th:first-child, thead th:nth-child(2) { text-align: left; }
+    td { border-bottom: 1px solid #dee2e6; padding: 5px 8px; text-align: right; }
+    td:first-child, td:nth-child(2) { text-align: left; }
+    tr:hover td { background: #f0f4ff; }
+    .neg { color: #dc3545; } .pos { color: #198754; }
+    #row-count { font-size: 12px; color: #6c757d; margin-left: 10px; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/">Historical</a>
+    <a href="/live">Live</a>
+    <a href="/analysis">Analysis</a>
+    <a href="/hscatter">H. Scatter</a>
+    <a href="/spx">SPX Prices</a>
+    <a class="active" href="/csv">CSV</a>
+  </div>
+
+  <h1>CSV Summary Data</h1>
+
+  <div class="card">
+    <div class="toolbar">
+      <label>Time slot:</label>
+      <select id="time-sel" onchange="loadCSV()">
+        <option value="930">09:30</option>
+        <option value="1000">10:00</option>
+        <option value="1030">10:30</option>
+        <option value="1100">11:00</option>
+        <option value="1130">11:30</option>
+        <option value="1200">12:00</option>
+        <option value="1230">12:30</option>
+        <option value="1300">13:00</option>
+        <option value="1330">13:30</option>
+        <option value="1400">14:00</option>
+        <option value="1430">14:30</option>
+        <option value="1500">15:00</option>
+        <option value="1530">15:30</option>
+      </select>
+      <label>Filter:</label>
+      <input id="filter-input" type="text" placeholder="Search any column..." oninput="applyFilter()">
+      <button onclick="exportCSV()">&#8681; Export CSV</button>
+      <span id="row-count"></span>
+    </div>
+    <div class="tbl-wrap" id="tbl-wrap">
+      <p class="loading" id="csv-status">Loading...</p>
+    </div>
+  </div>
+
+  <script>
+    let allRows = [];
+    let columns = [];
+
+    function fmtCell(val) {
+      if (val === null || val === undefined || val === '') return '--';
+      if (typeof val === 'number') {
+        const abs = Math.abs(val);
+        if (abs >= 1e9) return (val / 1e9).toFixed(2) + 'B';
+        if (abs >= 1e6) return (val / 1e6).toFixed(2) + 'M';
+        if (abs >= 1e3) return (val / 1e3).toFixed(0) + 'K';
+        if (Number.isInteger(val)) return val.toString();
+        return val.toFixed(2);
+      }
+      return val;
+    }
+    function numClass(col, val) {
+      if (typeof val !== 'number') return '';
+      if (col.includes('net') || col.includes('gex')) return val < 0 ? ' class="neg"' : (val > 0 ? ' class="pos"' : '');
+      return '';
+    }
+
+    function buildTable(rows) {
+      if (!rows.length) return '<p>No data.</p>';
+      const head = '<thead><tr>' + columns.map(c => '<th>' + c + '</th>').join('') + '</tr></thead>';
+      const body = '<tbody>' + rows.map(row =>
+        '<tr>' + columns.map(c => '<td' + numClass(c, row[c]) + '>' + fmtCell(row[c]) + '</td>').join('') + '</tr>'
+      ).join('') + '</tbody>';
+      return '<table>' + head + body + '</table>';
+    }
+
+    function applyFilter() {
+      const q = document.getElementById('filter-input').value.toLowerCase();
+      const filtered = q ? allRows.filter(row =>
+        columns.some(c => String(row[c] ?? '').toLowerCase().includes(q))
+      ) : allRows;
+      document.getElementById('tbl-wrap').innerHTML = buildTable(filtered);
+      document.getElementById('row-count').textContent = filtered.length + ' rows';
+    }
+
+    function exportCSV() {
+      const q = document.getElementById('filter-input').value.toLowerCase();
+      const rows = q ? allRows.filter(row => columns.some(c => String(row[c] ?? '').toLowerCase().includes(q))) : allRows;
+      const lines = [columns.join(',')];
+      rows.forEach(row => lines.push(columns.map(c => JSON.stringify(row[c] ?? '')).join(',')));
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'gex_summary_' + document.getElementById('time-sel').value + '.csv';
+      a.click();
+    }
+
+    async function loadCSV() {
+      const time = document.getElementById('time-sel').value;
+      document.getElementById('tbl-wrap').innerHTML = '<p class="loading" id="csv-status">Loading...</p>';
+      document.getElementById('row-count').textContent = '';
+      try {
+        const r = await fetch('/api/csv-data?time=' + time);
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        columns = d.columns || [];
+        allRows = (d.rows || []).reverse();
+        document.getElementById('tbl-wrap').innerHTML = buildTable(allRows);
+        document.getElementById('row-count').textContent = allRows.length + ' rows';
+        document.getElementById('filter-input').value = '';
+      } catch (e) {
+        document.getElementById('tbl-wrap').innerHTML = '<p class="error">Error: ' + e.message + '</p>';
+        console.error(e);
+      }
+    }
+
+    loadCSV();
+  </script>
+</body>
+</html>

@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEX Viewer - Simple</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 20px; }
+    .tabs { display: flex; gap: 10px; margin-bottom: 20px; }
+    .tab-btn { padding: 10px 20px; cursor: pointer; border: 1px solid #ccc; background: #f0f0f0; }
+    .tab-btn.active { background: #007bff; color: white; border-color: #007bff; }
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+    .card { border: 1px solid #ccc; padding: 15px; margin-bottom: 15px; }
+    .stat-row { display: flex; gap: 20px; margin: 10px 0; }
+    .stat-label { font-weight: bold; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+    th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+    th { background: #f0f0f0; }
+  </style>
+</head>
+<body>
+  <h1>GEX Viewer (Simple)</h1>
+  
+  <div class="tabs">
+    <button class="tab-btn active" onclick="showTab('historical')">Historical</button>
+    <button class="tab-btn" onclick="showTab('live')">Live</button>
+  </div>
+
+  <div id="historical" class="tab-content active">
+    <div class="card">
+      <h2>Historical Data</h2>
+      <div class="stat-row">
+        <label>Date: <select id="date-sel" onchange="loadHistoricalDate()"></select></label>
+      </div>
+      <div id="hist-stats" class="stat-row"></div>
+      <div id="hist-snapshots"></div>
+    </div>
+  </div>
+
+  <div id="live" class="tab-content">
+    <div class="card">
+      <h2>Live Data</h2>
+      <div id="live-stats" class="stat-row"></div>
+      <div id="live-snapshots"></div>
+    </div>
+  </div>
+
+  <script>
+    // Tab switching
+    function showTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('active'));
+      document.getElementById(tabId).classList.add('active');
+      event.target.classList.add('active');
+      
+      if (tabId === 'live') loadLive();
+    }
+
+    // Load available dates
+    async function loadDates() {
+      const r = await fetch('/api/dates');
+      const d = await r.json();
+      const sel = document.getElementById('date-sel');
+      sel.innerHTML = d.dates.map(date => `<option value="${date}">${date}</option>`).join('');
+      if (d.dates.length) loadHistoricalDate();
+    }
+
+    // Load historical data for selected date
+    async function loadHistoricalDate() {
+      const date = document.getElementById('date-sel').value;
+      const r = await fetch('/api/snapshots/summary?date=' + date);
+      const d = await r.json();
+      
+      const statsDiv = document.getElementById('hist-stats');
+      statsDiv.innerHTML = `<span class="stat-label">Snapshots:</span> ${d.rows.length}`;
+      
+      const table = `<table>
+        <thead><tr><th>Time</th><th>SPX</th><th>Net GEX</th><th>Wall</th><th>Flip</th></tr></thead>
+        <tbody>${d.rows.map(row => `<tr><td>${row.ntime}</td><td>${row.uprice?.toFixed(2)}</td><td>${fmtBig(row.net_gex)}</td><td>${row.wall}</td><td>${row.flip?.toFixed(0)}</td></tr>`).join('')}</tbody>
+      </table>`;
+      document.getElementById('hist-snapshots').innerHTML = table;
+    }
+
+    // Load live data
+    async function loadLive() {
+      const r = await fetch('/api/live/snapshots');
+      const d = await r.json();
+      
+      const statsDiv = document.getElementById('live-stats');
+      statsDiv.innerHTML = `<span class="stat-label">Snapshots today:</span> ${d.times.length}`;
+      
+      if (d.times.length) {
+        let tableRows = '';
+        for (const time of d.times.sort((a, b) => b - a)) { // newest first
+          const sr = await fetch('/api/live/snapshot?time=' + time);
+          const snap = await sr.json();
+          const s = snap.summary || {};
+          tableRows += `<tr><td>${snap.ntime}</td><td>${s.uprice?.toFixed(2)}</td><td>${fmtBig(s.net_gex)}</td><td>${s.wall}</td><td>${s.flip?.toFixed(0)}</td></tr>`;
+        }
+        const table = `<table>
+          <thead><tr><th>Time</th><th>SPX</th><th>Net GEX</th><th>Wall</th><th>Flip</th></tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>`;
+        document.getElementById('live-snapshots').innerHTML = table;
+      } else {
+        document.getElementById('live-snapshots').innerHTML = '<p>No live snapshots today</p>';
+      }
+    }
+
+    function fmtBig(n) {
+      if (n === null || n === undefined) return '--';
+      const abs = Math.abs(n);
+      if (abs >= 1e9) return (n / 1e9).toFixed(2) + 'B';
+      if (abs >= 1e6) return (n / 1e6).toFixed(2) + 'M';
+      if (abs >= 1e3) return (n / 1e3).toFixed(2) + 'K';
+      return n.toFixed(2);
+    }
+
+    // Initialize
+    loadDates();
+  </script>
+</body>
+</html>

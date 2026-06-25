@@ -1,113 +1,103 @@
-import sqlite3
-import json
-from pathlib import Path
-import sys
+"""
+import_to_sqlite.py
+====================
+One-time migration: scan all histgex JSON files and load into gex.db.
 
-DB_FILE = "gex.db"
-RESULTS_DIR = Path("results")
+Schema (single table — fast point lookups, no joins):
+
+    gex_snapshots (ndate INTEGER, ntime INTEGER, symbol TEXT,
+                   uprice REAL, data TEXT,
+                   PRIMARY KEY (ndate, ntime, symbol))
+
+  data = JSON blob of the strike rows list (same as file["data"]).
+
+Safe to re-run — uses INSERT OR IGNORE so existing rows are not overwritten.
+"""
+
+import json
+import sqlite3
+import sys
+from pathlib import Path
+
+BASE_DIR    = Path(__file__).resolve().parent
+GEX_DIR     = BASE_DIR / "results" / "histgex"
+DB_PATH     = BASE_DIR / "gex.db"
+
+
+def get_connection(db_path: Path = DB_PATH) -> sqlite3.Connection:
+    con = sqlite3.connect(db_path)
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("PRAGMA synchronous=NORMAL")
+    return con
+
+
+def init_db(con: sqlite3.Connection):
+    con.execute("""
+        CREATE TABLE IF NOT EXISTS gex_snapshots (
+            ndate   INTEGER NOT NULL,
+            ntime   INTEGER NOT NULL,
+            symbol  TEXT    NOT NULL DEFAULT 'SPX',
+            uprice  REAL,
+            data    TEXT,
+            PRIMARY KEY (ndate, ntime, symbol)
+        )
+    """)
+    con.execute("""
+        CREATE INDEX IF NOT EXISTS idx_gex_ndate
+        ON gex_snapshots (ndate)
+    """)
+    con.commit()
+
+
+def import_histgex(con: sqlite3.Connection) -> tuple[int, int]:
+    """Scan results/histgex/**/*_histgex.json and INSERT OR IGNORE into gex_snapshots."""
+    files = sorted(GEX_DIR.glob("**/*_histgex.json"))
+    inserted = 0
+    skipped  = 0
+    for f in files:
+        try:
+            raw    = json.loads(f.read_text(encoding="utf-8"))
+            # Derive ndate/ntime from filename stem: YYYYMMDD_NNNN_SPX_histgex
+            parts  = f.stem.split("_")           # ['20260622', '1530', 'SPX', 'histgex']
+            ndate  = int(parts[0])
+            ntime  = int(parts[1])
+            symbol = parts[2] if len(parts) > 2 else "SPX"
+            uprice = raw.get("uprice", 0)
+            data   = raw.get("data") or []
+            if not data:
+                skipped += 1
+                continue
+            cur = con.execute(
+                "INSERT OR IGNORE INTO gex_snapshots (ndate, ntime, symbol, uprice, data) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (ndate, ntime, symbol, uprice, json.dumps(data)),
+            )
+            if cur.rowcount:
+                inserted += 1
+            else:
+                skipped += 1
+        except Exception as e:
+            print(f"  WARN: {f.name}: {e}")
+    con.commit()
+    return inserted, skipped
 
 
 def main():
-    """Migrate all histgex and livegex JSON files to a new SQLite database."""
-    db_path = Path(DB_FILE)
-    if db_path.exists():
-        print(f"Database '{DB_FILE}' already exists. Please remove it to re-import.")
-        return 1
+    print(f"Database: {DB_PATH}")
+    con = get_connection(DB_PATH)
+    init_db(con)
 
-    con = sqlite3.connect(DB_FILE)
-    cur = con.cursor()
+    print("Importing histgex snapshots...")
+    inserted, skipped = import_histgex(con)
+    print(f"  Inserted: {inserted}  Already present / empty: {skipped}")
 
-    # Create schema
-    cur.execute("""
-        CREATE TABLE snapshots (
-            id INTEGER PRIMARY KEY,
-            source TEXT NOT NULL, -- 'histgex' or 'livegex'
-            date TEXT NOT NULL,
-            ntime INTEGER NOT NULL,
-            uprice REAL,
-            created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE(source, date, ntime)
-        )
-    """)
-    cur.execute("""
-        CREATE TABLE gex_data (
-            snapshot_id INTEGER NOT NULL,
-            strike REAL NOT NULL,
-            cg REAL, -- call_gex
-            pg REAL, -- put_gex
-            net REAL, -- net_gex
-            coi REAL, -- call_oi
-            poi REAL, -- put_oi
-            cvol REAL, -- call_vol
-            pvol REAL, -- put_vol
-            FOREIGN KEY (snapshot_id) REFERENCES snapshots (id)
-        )
-    """)
-    print("Database schema created.")
-
-    # Import data
-    hist_count = import_source(cur, "histgex")
-    live_count = import_source(cur, "livegex")
-
-    con.commit()
+    total = con.execute("SELECT COUNT(*) FROM gex_snapshots").fetchone()[0]
+    dates = con.execute("SELECT COUNT(DISTINCT ndate) FROM gex_snapshots").fetchone()[0]
+    print(f"  Total rows in DB: {total}  ({dates} distinct dates)")
     con.close()
-
-    print("\nImport complete.")
-    print(f"  - Imported {hist_count} snapshots from histgex.")
-    print(f"  - Imported {live_count} snapshots from livegex.")
-    print(f"Database saved to '{DB_FILE}'.")
+    print("Done.")
     return 0
 
-def import_source(cur: sqlite3.Cursor, source: str) -> int:
-    """Scan a source directory and import all JSON files into the database."""
-    source_dir = RESULTS_DIR / source
-    if not source_dir.is_dir():
-        print(f"Source directory '{source_dir}' not found, skipping.")
-        return 0
-
-    print(f"\nImporting from '{source}'...")
-    count = 0
-    files = sorted(list(source_dir.glob("**/*.json")))
-    for i, f in enumerate(files):
-        try:
-            data = json.loads(f.read_text(encoding="utf-8"))
-            date_iso = f.parts[-2].replace("-", "")
-            ntime = int(f.stem.split("_")[1])
-            uprice = data.get("uprice")
-
-            # Insert snapshot record
-            cur.execute(
-                "INSERT INTO snapshots (source, date, ntime, uprice) VALUES (?, ?, ?, ?)",
-                (source, date_iso, ntime, uprice)
-            )
-            snapshot_id = cur.lastrowid
-
-            # Insert GEX data rows
-            rows_to_insert = []
-            for row in data.get("data", []):
-                if row.get("strike") is not None:
-                    rows_to_insert.append((
-                        snapshot_id,
-                        row["strike"],
-                        row.get("cg"),
-                        row.get("pg"),
-                        row.get("net"),
-                        row.get("coi"),
-                        row.get("poi"),
-                        row.get("cvol"),
-                        row.get("pvol"),
-                    ))
-            
-            cur.executemany(
-                "INSERT INTO gex_data VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                rows_to_insert
-            )
-            count += 1
-            print(f"  [{i+1}/{len(files)}] Imported {f.relative_to(RESULTS_DIR)}", end='\r')
-        except Exception as e:
-            print(f"\nError processing {f}: {e}")
-
-    return count
 
 if __name__ == "__main__":
     sys.exit(main())
