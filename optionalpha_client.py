@@ -57,7 +57,7 @@ def call_optionalpha_api(payload, session_file=SESSION_FILE):
         "Referer": REFERER,
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36",
     }
-    response = session.post(API_URL, headers=headers, json=payload, timeout=30)
+    response = session.post(API_URL, headers=headers, json=payload, timeout=90)
     response.raise_for_status()
     return response.json()
 

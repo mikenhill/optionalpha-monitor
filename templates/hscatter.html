@@ -131,7 +131,7 @@
     function formatValue(val, metric) {
       if (val === null || val === undefined) return '--';
       if (metric.includes('gex') && !metric.includes('ratio')) return (val / 1e9).toFixed(2) + 'B';
-      if (metric.includes('oi')) return (val / 1e3).toFixed(1) + 'K';
+      if (metric.includes('oi')) return (val / 1e3).toFixed(2) + 'K';
       if (metric === 'sentiment' || metric === 'dominance') return val.toFixed(0) + '%';
       if (metric === 'kcs' || metric === 'gex_ratio') return val.toFixed(2);
       return val.toFixed(0);
@@ -263,10 +263,10 @@
           <td>${snap.dominance ? snap.dominance.toFixed(1) + '%' : '--'}</td>
           <td>${snap.sentiment ? snap.sentiment.toFixed(0) + '%' : '--'}</td>
           <td>${snap.gex_ratio ? snap.gex_ratio.toFixed(2) : '--'}</td>
-          <td>${snap.total_call_oi ? (snap.total_call_oi / 1e3).toFixed(1) + 'K' : '--'}</td>
-          <td>${snap.total_put_oi ? (snap.total_put_oi / 1e3).toFixed(1) + 'K' : '--'}</td>
-          <td>${snap.total_call_vol ? (snap.total_call_vol / 1e3).toFixed(1) + 'K' : '--'}</td>
-          <td>${snap.total_put_vol ? (snap.total_put_vol / 1e3).toFixed(1) + 'K' : '--'}</td>
+          <td>${snap.total_call_oi ? (snap.total_call_oi / 1e3).toFixed(2) + 'K' : '--'}</td>
+          <td>${snap.total_put_oi ? (snap.total_put_oi / 1e3).toFixed(2) + 'K' : '--'}</td>
+          <td>${snap.total_call_vol ? (snap.total_call_vol / 1e3).toFixed(2) + 'K' : '--'}</td>
+          <td>${snap.total_put_vol ? (snap.total_put_vol / 1e3).toFixed(2) + 'K' : '--'}</td>
         `;
         tr.cells[0].appendChild(checkbox);
         tbody.appendChild(tr);

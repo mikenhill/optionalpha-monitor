@@ -553,6 +553,7 @@ GEX_SNAPSHOTS_SUMMARY_COLS = [
     ("flip", "REAL"),
     ("hmm_state", "INTEGER"),
     ("hmm_label", "TEXT"),
+    ("raw_json", "TEXT"),
 ]
 
 
@@ -598,7 +599,7 @@ def _backfill_gex_snapshots_summary(limit: int | None = None, force: bool = Fals
             total_call_oi=?, total_put_oi=?, key_call_oi=?, key_put_oi=?,
             total_call_vol=?, total_put_vol=?, key_call_vol=?, key_put_vol=?,
             key2_strike=?, key2_abs=?, key2_call_vol=?, key2_put_vol=?, flip=?,
-            hmm_state=?, hmm_label=?
+            hmm_state=?, hmm_label=?, raw_json=?
         WHERE ndate=? AND ntime=? AND symbol='SPX'
     """
 
@@ -620,7 +621,7 @@ def _backfill_gex_snapshots_summary(limit: int | None = None, force: bool = Fals
                     "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                     "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                     "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, "
-                    "hmm_state, hmm_label "
+                    "hmm_state, hmm_label, raw_json "
                     "FROM live_captures WHERE ndate=? AND ntime=?",
                     (ndate, ntime),
                 ).fetchone()
@@ -647,7 +648,7 @@ def _backfill_gex_snapshots_summary(limit: int | None = None, force: bool = Fals
                     snap.get("key_call_vol"), snap.get("key_put_vol"),
                     snap.get("key2_strike"), snap.get("key2_abs"),
                     snap.get("key2_call_vol"), snap.get("key2_put_vol"), snap.get("flip"),
-                    snap.get("hmm_state"), snap.get("hmm_label"), ndate, ntime,
+                    snap.get("hmm_state"), snap.get("hmm_label"), data_json, ndate, ntime,
                 ),
             )
         updated += 1
@@ -806,7 +807,7 @@ def _promote_live_to_historical() -> dict:
                 "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                 "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                 "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, "
-                "hmm_state, hmm_label "
+                "hmm_state, hmm_label, raw_json "
                 "FROM live_captures WHERE ndate < ? ORDER BY ndate, ntime",
                 (today_ndate,),
             ).fetchall()
@@ -816,7 +817,7 @@ def _promote_live_to_historical() -> dict:
              total_call_oi, total_put_oi, key_call_oi, key_put_oi,
              total_call_vol, total_put_vol, key_call_vol, key_put_vol,
              key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip,
-             hmm_state, hmm_label) = row
+             hmm_state, hmm_label, raw_json) = row
             with _db() as con:
                 exists = con.execute(
                     "SELECT 1 FROM gex_snapshots WHERE ndate=? AND ntime=? AND symbol='SPX'",
@@ -835,7 +836,7 @@ def _promote_live_to_historical() -> dict:
                     "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                     "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                     "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, "
-                    "hmm_state, hmm_label) "
+                    "hmm_state, hmm_label, raw_json) "
                     "VALUES (?, ?, 'SPX', ?, '[]', ?, 'live_promoted', "
                     "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (ndate, ntime, spx_last or 0, 1 if ntime < 930 else 0,
@@ -844,7 +845,7 @@ def _promote_live_to_historical() -> dict:
                      total_call_oi, total_put_oi, key_call_oi, key_put_oi,
                      total_call_vol, total_put_vol, key_call_vol, key_put_vol,
                      key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip,
-                     hmm_state, hmm_label),
+                     hmm_state, hmm_label, raw_json),
                 )
             promoted += 1
     except Exception as e:
@@ -1382,13 +1383,16 @@ def _ensure_live_captures_table() -> None:
                 key2_call_vol   INTEGER,
                 key2_put_vol   INTEGER,
                 flip            REAL,
-                is_premarket    INTEGER NOT NULL DEFAULT 0
+                is_premarket    INTEGER NOT NULL DEFAULT 0,
+                raw_json        TEXT
             )
         """)
-        # Migrate existing tables that may lack is_premarket
+        # Migrate existing tables that may lack is_premarket or raw_json
         cols = [r[1] for r in con.execute("PRAGMA table_info(live_captures)").fetchall()]
         if "is_premarket" not in cols:
             con.execute("ALTER TABLE live_captures ADD COLUMN is_premarket INTEGER NOT NULL DEFAULT 0")
+        if "raw_json" not in cols:
+            con.execute("ALTER TABLE live_captures ADD COLUMN raw_json TEXT")
 
 
 def _ensure_unified_snapshots_table() -> None:
@@ -4047,16 +4051,18 @@ def api_history_all_values():
             all_values.extend(h[cache_key])
 
     # Scale for display
-    if metric in ["gex_ratio", "sentiment", "dominance", "kcs"] or "vol" in metric:
+    if metric in ["gex_ratio", "sentiment", "dominance", "kcs"]:
         scale = 1
     elif "gex" in metric:
         scale = 1e9
-    elif "oi" in metric:
+    elif "oi" in metric or "vol" in metric:
         scale = 1e3
     else:
         scale = 1
 
-    scaled_values = [round(v / scale, 3) for v in all_values]
+    # Filter out None values before scaling
+    valid_values = [v for v in all_values if v is not None]
+    scaled_values = [round(v / scale, 3) for v in valid_values]
 
     return jsonify({
         "metric": metric,
@@ -4564,6 +4570,58 @@ def _api_live_fetch_inner():
     divergence = detect_volume_divergence(data)
     snap = summarise_snapshot(data)
 
+    # HMM regime prediction — save to live_captures with regime label
+    hmm = {}
+    if data["ntime"] >= 930:
+        with _db() as _hcon:
+            prior_rows = _hcon.execute(
+                "SELECT spx_last, net_gex, kcs, sentiment, key_strike, total_put_vol "
+                "FROM live_captures WHERE ndate=? AND ntime>=930 ORDER BY ntime",
+                (data["ndate"],)
+            ).fetchall()
+        prior_snaps = [
+            {"uprice": r[0], "net_gex": r[1], "kcs": r[2],
+             "sentiment_pct": r[3], "key_strike": r[4], "total_put_vol": r[5]}
+            for r in prior_rows
+        ]
+        all_snaps = prior_snaps + [snap]
+        seq_results = predict_hmm_sequence(all_snaps)
+        hmm = seq_results[-1] if seq_results else {}
+
+    # Persist to live_captures for regime tracking
+    from datetime import datetime, timezone
+    _ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    _is_premarket = 1 if data["ntime"] < RTH_OPEN else 0
+    with _db() as _con:
+        _con.execute("""
+            INSERT INTO live_captures (
+                capture_ts, ndate, ntime,
+                spx_last, sentiment, gex_ratio, net_gex, kcs, dominance,
+                total_call_gex, total_put_gex,
+                key_strike, key_call_gex, key_put_gex,
+                total_call_oi, total_put_oi, key_call_oi, key_put_oi,
+                total_call_vol, total_put_vol, key_call_vol, key_put_vol,
+                key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip,
+                is_premarket, hmm_state, hmm_label, raw_json
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, (
+            _ts, data["ndate"], data["ntime"],
+            snap.get("uprice"), snap.get("sentiment_pct"), snap.get("gex_ratio"),
+            snap.get("net_gex"), snap.get("kcs"), snap.get("key_dominance_pct"),
+            snap.get("call_gex"), snap.get("put_gex"),
+            snap.get("key_strike"), snap.get("key_call_gex"), snap.get("key_put_gex"),
+            snap.get("total_call_oi"), snap.get("total_put_oi"),
+            snap.get("key_call_oi"), snap.get("key_put_oi"),
+            snap.get("total_call_vol"), snap.get("total_put_vol"),
+            snap.get("key_call_vol"), snap.get("key_put_vol"),
+            snap.get("key2_strike"), snap.get("key2_abs"),
+            snap.get("key2_call_vol"), snap.get("key2_put_vol"),
+            snap.get("flip"),
+            _is_premarket,
+            hmm.get("state"), hmm.get("label"),
+            json.dumps(data),
+        ))
+
     uprice = snap.get("uprice", 0)
     all_rows = sorted(
         [r for r in (data.get("data") or []) if r.get("strike") is not None],
@@ -4668,8 +4726,8 @@ def _api_live_fetch_inner():
                 total_call_oi, total_put_oi, key_call_oi, key_put_oi,
                 total_call_vol, total_put_vol, key_call_vol, key_put_vol,
                 key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip,
-                is_premarket, hmm_state, hmm_label
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                is_premarket, hmm_state, hmm_label, raw_json
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             _ts, data["ndate"], data["ntime"],
             snap.get("uprice"), snap.get("sentiment_pct"), snap.get("gex_ratio"),
@@ -4685,6 +4743,7 @@ def _api_live_fetch_inner():
             snap.get("flip"),
             _is_premarket,
             hmm.get("state"), hmm.get("label"),
+            json.dumps(data),
         ))
 
     return jsonify({
@@ -5087,6 +5146,17 @@ def api_live_snapshot():
 
     is_pre = 1 if ntime < RTH_OPEN else 0
     snap["is_premarket"] = is_pre
+
+    # Fetch hmm_label from live_captures if available
+    ndate = int(date_iso.replace("-", ""))
+    with _db() as con:
+        live_row = con.execute(
+            "SELECT hmm_state, hmm_label FROM live_captures WHERE ndate=? AND ntime=?",
+            (ndate, ntime),
+        ).fetchone()
+    if live_row:
+        snap["hmm_state"] = live_row[0]
+        snap["hmm_label"] = live_row[1]
 
     return jsonify({
         "summary":        snap,

@@ -114,14 +114,28 @@
       const s = String(ntime).padStart(4, '0');
       return s.slice(0, 2) + ':' + s.slice(2);
     }
-    function fmtBig(n) {
+    function fmtBig(n, suffix) {
       if (n === null || n === undefined) return '--';
       const abs = Math.abs(n);
       const sign = n < 0 ? '-' : '';
-      if (abs >= 1e9) return sign + (abs / 1e9).toFixed(2) + 'B';
-      if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + 'M';
-      if (abs >= 1e3) return sign + (abs / 1e3).toFixed(2) + 'K';
+      if (suffix === 'B') return sign + (abs / 1e9).toFixed(2) + 'B';
+      if (suffix === 'M') return sign + (abs / 1e6).toFixed(2) + 'M';
+      if (suffix === 'K') return sign + (abs / 1e3).toFixed(2) + 'K';
       return n.toFixed(2);
+    }
+    function getSuffixForColumn(snaps, key) {
+      let maxAbs = 0;
+      for (const s of snaps) {
+        const val = s[key];
+        if (val !== null && val !== undefined) {
+          const abs = Math.abs(val);
+          if (abs > maxAbs) maxAbs = abs;
+        }
+      }
+      if (maxAbs >= 1e9) return 'B';
+      if (maxAbs >= 1e6) return 'M';
+      if (maxAbs >= 1e3) return 'K';
+      return '';
     }
     function fmtNum(n, dp) {
       if (n === null || n === undefined) return '--';
@@ -132,7 +146,7 @@
       return n < 0 ? ' class="neg"' : (n > 0 ? ' class="pos"' : '');
     }
 
-    function buildRow(s, ntime) {
+    function buildRow(s, ntime, suffixes) {
       const t = fmtTime(ntime);
       const pre = s.is_premarket ? ' <span class="badge badge-pre">PRE</span>' : '';
       const k = ' class="col-key"';
@@ -142,24 +156,24 @@
         '<td>' + fmtNum(s.uprice, 2) + '</td>' +
         '<td>' + fmtNum(s.sentiment_pct, 1) + '</td>' +
         '<td>' + fmtNum(s.gex_ratio, 1) + '</td>' +
-        '<td' + cls(s.net_gex) + '>' + fmtBig(s.net_gex) + '</td>' +
+        '<td' + cls(s.net_gex) + '>' + fmtBig(s.net_gex, suffixes.net_gex) + '</td>' +
         '<td>' + fmtNum(s.kcs, 1) + '</td>' +
         '<td>' + (s.hmm_label || '--') + '</td>' +
-        '<td' + cls(-s.put_gex) + '>' + fmtBig(s.put_gex) + '</td>' +
-        '<td>' + fmtBig(s.total_call_vol) + '</td>' +
-        '<td>' + fmtBig(s.total_put_vol) + '</td>' +
+        '<td' + cls(-s.put_gex) + '>' + fmtBig(s.put_gex, suffixes.put_gex) + '</td>' +
+        '<td>' + fmtBig(s.total_call_vol, suffixes.total_call_vol) + '</td>' +
+        '<td>' + fmtBig(s.total_put_vol, suffixes.total_put_vol) + '</td>' +
         '<td>' + fmtNum(s.flip, 0) + '</td>' +
         '<td' + k + '>' + (s.key_strike ?? '--') + '</td>' +
-        '<td class="col-key"' + cls(s.key_call_gex) + '>' + fmtBig(s.key_call_gex) + '</td>' +
-        '<td class="col-key"' + cls(-s.key_put_gex) + '>' + fmtBig(s.key_put_gex) + '</td>' +
-        '<td' + k + '>' + fmtBig(s.key_call_oi) + '</td>' +
-        '<td' + k + '>' + fmtBig(s.key_put_oi) + '</td>' +
-        '<td' + k + '>' + fmtBig(s.key_call_vol) + '</td>' +
-        '<td' + k + '>' + fmtBig(s.key_put_vol) + '</td>' +
+        '<td class="col-key"' + cls(s.key_call_gex) + '>' + fmtBig(s.key_call_gex, suffixes.key_call_gex) + '</td>' +
+        '<td class="col-key"' + cls(-s.key_put_gex) + '>' + fmtBig(s.key_put_gex, suffixes.key_put_gex) + '</td>' +
+        '<td' + k + '>' + fmtBig(s.key_call_oi, suffixes.key_call_oi) + '</td>' +
+        '<td' + k + '>' + fmtBig(s.key_put_oi, suffixes.key_put_oi) + '</td>' +
+        '<td' + k + '>' + fmtBig(s.key_call_vol, suffixes.key_call_vol) + '</td>' +
+        '<td' + k + '>' + fmtBig(s.key_put_vol, suffixes.key_put_vol) + '</td>' +
         '<td' + k2 + '>' + (s.key2_strike ?? '--') + '</td>' +
-        '<td' + k2 + '>' + fmtBig(s.key2_abs) + '</td>' +
-        '<td' + k2 + '>' + fmtBig(s.key2_call_vol) + '</td>' +
-        '<td' + k2 + '>' + fmtBig(s.key2_put_vol) + '</td>' +
+        '<td' + k2 + '>' + fmtBig(s.key2_abs, suffixes.key2_abs) + '</td>' +
+        '<td' + k2 + '>' + fmtBig(s.key2_call_vol, suffixes.key2_call_vol) + '</td>' +
+        '<td' + k2 + '>' + fmtBig(s.key2_put_vol, suffixes.key2_put_vol) + '</td>' +
       '</tr>';
     }
 
@@ -301,15 +315,34 @@
         // Populate header stats from latest
         const latest = snaps[0];
         const ls = latest.summary || {};
+        const summaries = snaps.map(s => s.summary || {});
         document.getElementById('stat-time').textContent = fmtTime(sorted[0]);
         document.getElementById('stat-spx').textContent = fmtNum(ls.uprice, 2);
-        document.getElementById('stat-net').textContent = fmtBig(ls.net_gex);
         document.getElementById('stat-wall').textContent = ls.wall ?? '--';
         document.getElementById('stat-flip').textContent = fmtNum(ls.flip, 0);
         document.getElementById('stat-regime').textContent = ls.hmm_label || '--';
 
+        // Calculate suffixes for each column based on max value
+        const suffixes = {
+          net_gex: getSuffixForColumn(summaries, 'net_gex'),
+          put_gex: getSuffixForColumn(summaries, 'put_gex'),
+          total_call_vol: getSuffixForColumn(summaries, 'total_call_vol'),
+          total_put_vol: getSuffixForColumn(summaries, 'total_put_vol'),
+          key_call_gex: getSuffixForColumn(summaries, 'key_call_gex'),
+          key_put_gex: getSuffixForColumn(summaries, 'key_put_gex'),
+          key_call_oi: getSuffixForColumn(summaries, 'key_call_oi'),
+          key_put_oi: getSuffixForColumn(summaries, 'key_put_oi'),
+          key_call_vol: getSuffixForColumn(summaries, 'key_call_vol'),
+          key_put_vol: getSuffixForColumn(summaries, 'key_put_vol'),
+          key2_abs: getSuffixForColumn(summaries, 'key2_abs'),
+          key2_call_vol: getSuffixForColumn(summaries, 'key2_call_vol'),
+          key2_put_vol: getSuffixForColumn(summaries, 'key2_put_vol'),
+        };
+
+        document.getElementById('stat-net').textContent = fmtBig(ls.net_gex, suffixes.net_gex);
+
         // Build table
-        const rows = snaps.map((snap, i) => buildRow(snap.summary || {}, sorted[i])).join('');
+        const rows = snaps.map((snap, i) => buildRow(snap.summary || {}, sorted[i], suffixes)).join('');
         document.getElementById('live-snapshots').innerHTML =
           '<table>' + buildHeader() + '<tbody>' + rows + '</tbody></table>';
 

@@ -128,14 +128,28 @@
       const s = String(ntime).padStart(4, '0');
       return s.slice(0, 2) + ':' + s.slice(2);
     }
-    function fmtBig(n) {
+    function fmtBig(n, suffix) {
       if (n === null || n === undefined) return '--';
       const abs = Math.abs(n);
       const sign = n < 0 ? '-' : '';
-      if (abs >= 1e9) return sign + (abs / 1e9).toFixed(2) + 'B';
-      if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + 'M';
-      if (abs >= 1e3) return sign + (abs / 1e3).toFixed(2) + 'K';
+      if (suffix === 'B') return sign + (abs / 1e9).toFixed(2) + 'B';
+      if (suffix === 'M') return sign + (abs / 1e6).toFixed(2) + 'M';
+      if (suffix === 'K') return sign + (abs / 1e3).toFixed(2) + 'K';
       return n.toFixed(2);
+    }
+    function getSuffixForColumn(rows, key) {
+      let maxAbs = 0;
+      for (const row of rows) {
+        const val = row[key];
+        if (val !== null && val !== undefined) {
+          const abs = Math.abs(val);
+          if (abs > maxAbs) maxAbs = abs;
+        }
+      }
+      if (maxAbs >= 1e9) return 'B';
+      if (maxAbs >= 1e6) return 'M';
+      if (maxAbs >= 1e3) return 'K';
+      return '';
     }
     function fmtNum(n, dp) {
       if (n === null || n === undefined) return '--';
@@ -191,7 +205,7 @@
       return 'hmm-neu';
     }
 
-    function buildRow(row) {
+    function buildRow(row, suffixes) {
       const pre = row.is_premarket ? ' <span class="badge badge-pre">PRE</span>' : '';
       const k = ' class="col-key"';
       const k2 = ' class="col-key2"';
@@ -201,24 +215,24 @@
         '<td>' + fmtNum(row.spx_last, 2) + '</td>' +
         '<td>' + fmtNum(row.sentiment, 1) + '</td>' +
         '<td>' + fmtNum(row.gex_ratio, 1) + '</td>' +
-        '<td' + cls(row.net_gex) + '>' + fmtBig(row.net_gex) + '</td>' +
+        '<td' + cls(row.net_gex) + '>' + fmtBig(row.net_gex, suffixes.net_gex) + '</td>' +
         '<td>' + fmtNum(row.kcs, 1) + '</td>' +
         '<td><span class="' + hc + '">' + (row.hmm_label || '--') + '</span></td>' +
-        '<td' + cls(-(row.total_put_gex || 0)) + '>' + fmtBig(row.total_put_gex) + '</td>' +
-        '<td>' + fmtBig(row.total_call_vol) + '</td>' +
-        '<td>' + fmtBig(row.total_put_vol) + '</td>' +
+        '<td' + cls(-(row.total_put_gex || 0)) + '>' + fmtBig(row.total_put_gex, suffixes.total_put_gex) + '</td>' +
+        '<td>' + fmtBig(row.total_call_vol, suffixes.total_call_vol) + '</td>' +
+        '<td>' + fmtBig(row.total_put_vol, suffixes.total_put_vol) + '</td>' +
         '<td>' + fmtNum(row.flip, 0) + '</td>' +
         '<td' + k + '>' + (row.key_strike ?? '--') + '</td>' +
-        '<td class="col-key"' + cls(row.key_call_gex) + '>' + fmtBig(row.key_call_gex) + '</td>' +
-        '<td class="col-key"' + cls(-(row.key_put_gex || 0)) + '>' + fmtBig(row.key_put_gex) + '</td>' +
-        '<td' + k + '>' + fmtBig(row.key_call_oi) + '</td>' +
-        '<td' + k + '>' + fmtBig(row.key_put_oi) + '</td>' +
-        '<td' + k + '>' + fmtBig(row.key_call_vol) + '</td>' +
-        '<td' + k + '>' + fmtBig(row.key_put_vol) + '</td>' +
+        '<td class="col-key"' + cls(row.key_call_gex) + '>' + fmtBig(row.key_call_gex, suffixes.key_call_gex) + '</td>' +
+        '<td class="col-key"' + cls(-(row.key_put_gex || 0)) + '>' + fmtBig(row.key_put_gex, suffixes.key_put_gex) + '</td>' +
+        '<td' + k + '>' + fmtBig(row.key_call_oi, suffixes.key_call_oi) + '</td>' +
+        '<td' + k + '>' + fmtBig(row.key_put_oi, suffixes.key_put_oi) + '</td>' +
+        '<td' + k + '>' + fmtBig(row.key_call_vol, suffixes.key_call_vol) + '</td>' +
+        '<td' + k + '>' + fmtBig(row.key_put_vol, suffixes.key_put_vol) + '</td>' +
         '<td' + k2 + '>' + (row.key2_strike ?? '--') + '</td>' +
-        '<td' + k2 + '>' + fmtBig(row.key2_abs) + '</td>' +
-        '<td' + k2 + '>' + fmtBig(row.key2_call_vol) + '</td>' +
-        '<td' + k2 + '>' + fmtBig(row.key2_put_vol) + '</td>' +
+        '<td' + k2 + '>' + fmtBig(row.key2_abs, suffixes.key2_abs) + '</td>' +
+        '<td' + k2 + '>' + fmtBig(row.key2_call_vol, suffixes.key2_call_vol) + '</td>' +
+        '<td' + k2 + '>' + fmtBig(row.key2_put_vol, suffixes.key2_put_vol) + '</td>' +
       '</tr>';
     }
 
@@ -247,11 +261,29 @@
         document.getElementById('stat-first').textContent = fmtTime(earliest.ntime);
         document.getElementById('stat-last').textContent = fmtTime(latest.ntime);
         document.getElementById('stat-spx').textContent = fmtNum(latest.spx_last, 2);
-        document.getElementById('stat-net').textContent = fmtBig(latest.net_gex);
         document.getElementById('stat-wall').textContent = latest.key_strike ?? '--';
         document.getElementById('stat-regime').textContent = latest.hmm_label || '--';
 
-        const tableRows = rows.map(buildRow).join('');
+        // Calculate suffixes for each column based on max value
+        const suffixes = {
+          net_gex: getSuffixForColumn(rows, 'net_gex'),
+          total_put_gex: getSuffixForColumn(rows, 'total_put_gex'),
+          total_call_vol: getSuffixForColumn(rows, 'total_call_vol'),
+          total_put_vol: getSuffixForColumn(rows, 'total_put_vol'),
+          key_call_gex: getSuffixForColumn(rows, 'key_call_gex'),
+          key_put_gex: getSuffixForColumn(rows, 'key_put_gex'),
+          key_call_oi: getSuffixForColumn(rows, 'key_call_oi'),
+          key_put_oi: getSuffixForColumn(rows, 'key_put_oi'),
+          key_call_vol: getSuffixForColumn(rows, 'key_call_vol'),
+          key_put_vol: getSuffixForColumn(rows, 'key_put_vol'),
+          key2_abs: getSuffixForColumn(rows, 'key2_abs'),
+          key2_call_vol: getSuffixForColumn(rows, 'key2_call_vol'),
+          key2_put_vol: getSuffixForColumn(rows, 'key2_put_vol'),
+        };
+
+        document.getElementById('stat-net').textContent = fmtBig(latest.net_gex, suffixes.net_gex);
+
+        const tableRows = rows.map(r => buildRow(r, suffixes)).join('');
         document.getElementById('hist-snapshots').innerHTML =
           '<table>' + buildHeader() + '<tbody>' + tableRows + '</tbody></table>';
 
@@ -456,7 +488,17 @@
         o.value = d; o.textContent = d;
         sel.appendChild(o);
       });
-      if (dates.length) loadDate();
+      if (dates.length) {
+        // Default to yesterday's date
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        // Find yesterday in the dropdown, or fall back to newest if not found
+        if (dates.includes(yesterdayStr)) {
+          sel.value = yesterdayStr;
+        }
+        loadDate();
+      }
     }
 
     init();
