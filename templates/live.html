@@ -149,7 +149,7 @@
         '<td>' + fmtBig(s.total_call_vol) + '</td>' +
         '<td>' + fmtBig(s.total_put_vol) + '</td>' +
         '<td>' + fmtNum(s.flip, 0) + '</td>' +
-        '<td' + k + '>' + (s.wall ?? '--') + '</td>' +
+        '<td' + k + '>' + (s.key_strike ?? '--') + '</td>' +
         '<td class="col-key"' + cls(s.key_call_gex) + '>' + fmtBig(s.key_call_gex) + '</td>' +
         '<td class="col-key"' + cls(-s.key_put_gex) + '>' + fmtBig(s.key_put_gex) + '</td>' +
         '<td' + k + '>' + fmtBig(s.key_call_oi) + '</td>' +

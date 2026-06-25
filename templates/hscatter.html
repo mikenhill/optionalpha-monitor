@@ -18,7 +18,19 @@
     .toolbar select { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; }
     .loading { color: #6c757d; font-style: italic; }
     .error { color: #dc3545; }
-    #scatter-chart { width: 100%; height: 480px; }
+    #dist-chart { width: 100%; height: 480px; }
+    .snapshots-table { width: 100%; border-collapse: collapse; font-size: 11px; white-space: nowrap; }
+    .snapshots-table th { background: #343a40; color: #fff; padding: 6px 8px; text-align: right; position: sticky; top: 0; }
+    .snapshots-table th:first-child { text-align: left; }
+    .snapshots-table td { border-bottom: 1px solid #dee2e6; padding: 4px 8px; text-align: right; }
+    .snapshots-table td:first-child { text-align: left; }
+    .snapshots-table tr:hover { background: #f0f4ff; }
+    .snapshots-table tr.selected { background: #e7f1ff; }
+    .snapshots-table input[type="checkbox"] { cursor: pointer; }
+    .table-container { max-height: 300px; overflow: auto; border: 1px solid #dee2e6; border-radius: 4px; }
+    .load-more-btn { padding: 8px 16px; background: #0d6efd; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px; }
+    .load-more-btn:hover { background: #0b5ed7; }
+    .load-more-btn:disabled { background: #6c757d; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -35,22 +47,6 @@
 
   <div class="card">
     <div class="toolbar">
-      <label>Time slot:</label>
-      <select id="time-sel" onchange="loadDistribution()">
-        <option value="930">09:30</option>
-        <option value="1000">10:00</option>
-        <option value="1030">10:30</option>
-        <option value="1100">11:00</option>
-        <option value="1130">11:30</option>
-        <option value="1200">12:00</option>
-        <option value="1230">12:30</option>
-        <option value="1300">13:00</option>
-        <option value="1330">13:30</option>
-        <option value="1400">14:00</option>
-        <option value="1430">14:30</option>
-        <option value="1500">15:00</option>
-        <option value="1530">15:30</option>
-      </select>
       <label>Metric:</label>
       <select id="metric-sel" onchange="loadDistribution()">
         <option value="net_gex">Net GEX</option>
@@ -65,69 +61,66 @@
         <option value="total_call_vol">Total Call Vol</option>
         <option value="total_put_vol">Total Put Vol</option>
       </select>
-      <label>Current snapshot:</label>
-      <input type="checkbox" id="use-latest" checked onchange="toggleCustomSnapshot()"> Use latest
-      <span id="custom-snapshot" style="display:none">
-        <select id="current-date-sel" onchange="loadDistribution()"></select>
-        <select id="current-time-sel" onchange="loadDistribution()"></select>
-      </span>
+      <label>Regime:</label>
+      <select id="regime-sel" onchange="loadSnapshots(0)">
+        <option value="pre">Pre-Market</option>
+        <option value="0930_1000" selected>09:30-10:00</option>
+        <option value="1001_1030">10:01-10:30</option>
+        <option value="1031_1100">10:31-11:00</option>
+        <option value="1101_1130">11:01-11:30</option>
+        <option value="1131_1200">11:31-12:00</option>
+        <option value="1201_1230">12:01-12:30</option>
+        <option value="1231_1300">12:31-13:00</option>
+        <option value="1301_1330">13:01-13:30</option>
+        <option value="1331_1400">13:31-14:00</option>
+        <option value="1401_1430">14:01-14:30</option>
+        <option value="1431_1500">14:31-15:00</option>
+        <option value="1501_1530">15:01-15:30</option>
+        <option value="1531_1600">15:31-16:00</option>
+      </select>
     </div>
     <p id="status" class="loading">Loading...</p>
     <div id="dist-chart"></div>
   </div>
 
+  <div class="card">
+    <h2>Snapshots</h2>
+    <p id="table-status" class="loading">Loading snapshots...</p>
+    <div class="table-container">
+      <table class="snapshots-table">
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>Date</th>
+            <th>Time</th>
+            <th>SPX</th>
+            <th>Net GEX</th>
+            <th>Call GEX</th>
+            <th>Put GEX</th>
+            <th>KCS</th>
+            <th>Dom</th>
+            <th>Senti%</th>
+            <th>Ratio</th>
+            <th>Call OI</th>
+            <th>Put OI</th>
+            <th>Call Vol</th>
+            <th>Put Vol</th>
+          </tr>
+        </thead>
+        <tbody id="snapshots-body"></tbody>
+      </table>
+    </div>
+    <button id="load-more-btn" class="load-more-btn" onclick="loadMoreSnapshots()">Load More</button>
+  </div>
+
   <script>
-    let distData = null;
-    let availableDates = [];
-    let availableTimes = {};
-
-    function toggleCustomSnapshot() {
-      const useLatest = document.getElementById('use-latest').checked;
-      const customSpan = document.getElementById('custom-snapshot');
-      customSpan.style.display = useLatest ? 'none' : 'inline';
-      if (!useLatest && availableDates.length === 0) {
-        loadAvailableDatesAndTimes();
-      }
-      loadDistribution();
-    }
-
-    async function loadAvailableDatesAndTimes() {
-      try {
-        const r = await fetch('/api/dates');
-        availableDates = await r.json();
-        const dateSel = document.getElementById('current-date-sel');
-        dateSel.innerHTML = '';
-        [...availableDates].reverse().forEach(d => {
-          const o = document.createElement('option');
-          o.value = d; o.textContent = d;
-          dateSel.appendChild(o);
-        });
-        if (availableDates.length) loadTimesForDate(availableDates[availableDates.length - 1]);
-      } catch (e) {
-        console.error('Failed to load dates:', e);
-      }
-    }
-
-    async function loadTimesForDate(date) {
-      try {
-        const r = await fetch(`/api/snapshots/summary?date=${date}`);
-        const d = await r.json();
-        const times = (d.rows || []).map(r => r.ntime).sort((a, b) => a - b);
-        availableTimes[date] = times;
-        const timeSel = document.getElementById('current-time-sel');
-        timeSel.innerHTML = '';
-        times.forEach(t => {
-          const o = document.createElement('option');
-          o.value = t;
-          const h = Math.floor(t / 100);
-          const m = t % 100;
-          o.textContent = `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}`;
-          timeSel.appendChild(o);
-        });
-      } catch (e) {
-        console.error('Failed to load times:', e);
-      }
-    }
+    let allSnapshots = [];
+    let selectedSnapshot = null;
+    let currentOffset = 0;
+    const PAGE_SIZE = 200;
+    let totalSnapshots = 0;
+    let hasMore = true;
+    let historicalValues = {}; // Cache historical values by metric
 
     function getUnit(metric) {
       if (metric.includes('gex') && !metric.includes('ratio')) return 'B';
@@ -135,26 +128,80 @@
       return '';
     }
 
-    function renderDistribution() {
-      if (!distData) return;
-      const d = distData;
-      const metric = d.metric.replace(/_/g, ' ').toUpperCase();
-      const unit = getUnit(d.metric);
+    function formatValue(val, metric) {
+      if (val === null || val === undefined) return '--';
+      if (metric.includes('gex') && !metric.includes('ratio')) return (val / 1e9).toFixed(2) + 'B';
+      if (metric.includes('oi')) return (val / 1e3).toFixed(1) + 'K';
+      if (metric === 'sentiment' || metric === 'dominance') return val.toFixed(0) + '%';
+      if (metric === 'kcs' || metric === 'gex_ratio') return val.toFixed(2);
+      return val.toFixed(0);
+    }
 
+    async function loadHistoricalValues(metric) {
+      const regime = document.getElementById('regime-sel').value;
+      const cacheKey = `${metric}_${regime}`;
+      if (historicalValues[cacheKey]) {
+        return historicalValues[cacheKey];
+      }
+      try {
+        const r = await fetch(`/api/history/all-values?metric=${metric}&regime=${regime}`);
+        const data = await r.json();
+        historicalValues[cacheKey] = data.values;
+        return data.values;
+      } catch (e) {
+        console.error('Failed to load historical values:', e);
+        return [];
+      }
+    }
+
+    async function renderDistribution() {
+      const metric = document.getElementById('metric-sel').value;
+      const metricDisplay = metric.replace(/_/g, ' ').toUpperCase();
+      const unit = getUnit(metric);
+
+      document.getElementById('status').textContent = 'Loading historical data...';
+
+      // Get all historical values from cache
+      const allValues = await loadHistoricalValues(metric);
+      
+      if (allValues.length === 0) {
+        document.getElementById('status').textContent = 'No data available';
+        return;
+      }
+
+      // Get selected snapshot value (scale to match historical values)
+      let selectedValue = null;
+      let selectedLabel = null;
+      if (selectedSnapshot) {
+        let rawValue = selectedSnapshot[metric];
+        if (rawValue !== null && rawValue !== undefined) {
+          // Scale to match historical values
+          if (metric.includes('gex') && !metric.includes('ratio')) {
+            selectedValue = rawValue / 1e9;
+          } else if (metric.includes('oi')) {
+            selectedValue = rawValue / 1e3;
+          } else {
+            selectedValue = rawValue;
+          }
+        }
+        selectedLabel = `${selectedSnapshot.date} @ ${selectedSnapshot.time}`;
+      }
+
+      // Calculate histogram from all historical values
       const histTrace = {
-        x: d.values,
+        x: allValues,
         type: 'histogram',
-        name: 'Historical',
+        name: 'Historical (All Time Slots)',
         marker: { color: '#0d6efd', opacity: 0.6, line: { color: '#0d6efd', width: 1 } },
         xbins: { size: 'auto' },
       };
 
       const shapes = [];
-      if (d.current_value !== null) {
+      if (selectedValue !== null && selectedValue !== undefined) {
         shapes.push({
           type: 'line',
-          x0: d.current_value,
-          x1: d.current_value,
+          x0: selectedValue,
+          x1: selectedValue,
           y0: 0,
           y1: 1,
           yref: 'paper',
@@ -162,13 +209,21 @@
         });
       }
 
-      const title = d.current_label
-        ? `${metric} Distribution (${d.current_label}: ${d.current_value}${unit}, Percentile: ${d.percentile}%)`
-        : `${metric} Distribution (Current: ${d.current_value}${unit}, Percentile: ${d.percentile}%)`;
+      // Calculate percentile
+      let percentile = null;
+      if (selectedValue !== null && selectedValue !== undefined) {
+        const sorted = [...allValues].sort((a, b) => a - b);
+        const rank = sorted.filter(v => v <= selectedValue).length;
+        percentile = Math.round(rank / sorted.length * 1000) / 10;
+      }
+
+      const title = selectedLabel
+        ? `${metricDisplay} Distribution (${selectedLabel}: ${formatValue(selectedValue, metric)}, Percentile: ${percentile}%)`
+        : `${metricDisplay} Distribution (Select a snapshot to compare)`;
 
       const layout = {
         title: title,
-        xaxis: { title: `${metric} (${unit})`, zeroline: true, zerolinecolor: '#ccc', zerolinewidth: 1 },
+        xaxis: { title: `${metricDisplay} (${unit})`, zeroline: true, zerolinecolor: '#ccc', zerolinewidth: 1 },
         yaxis: { title: 'Count' },
         margin: { t: 50, l: 60, r: 20, b: 50 },
         plot_bgcolor: '#fff',
@@ -178,35 +233,112 @@
       };
 
       Plotly.react('dist-chart', [histTrace], layout, { responsive: true });
+      document.getElementById('status').textContent = `${allValues.length} historical samples`;
     }
 
-    async function loadDistribution() {
-      const time = document.getElementById('time-sel').value;
-      const metric = document.getElementById('metric-sel').value;
-      const useLatest = document.getElementById('use-latest').checked;
-      let url = `/api/history/distribution?time=${time}&metric=${metric}`;
-      if (!useLatest) {
-        const date = document.getElementById('current-date-sel').value;
-        const customTime = document.getElementById('current-time-sel').value;
-        if (date && customTime) {
-          url += `&current_date=${date}&current_time=${customTime}`;
+    function renderSnapshotsTable() {
+      const tbody = document.getElementById('snapshots-body');
+      tbody.innerHTML = '';
+
+      allSnapshots.forEach((snap, idx) => {
+        const tr = document.createElement('tr');
+        if (selectedSnapshot && selectedSnapshot.ndate === snap.ndate && selectedSnapshot.ntime === snap.ntime) {
+          tr.classList.add('selected');
         }
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = selectedSnapshot && selectedSnapshot.ndate === snap.ndate && selectedSnapshot.ntime === snap.ntime;
+        checkbox.onchange = () => selectSnapshot(snap, checkbox);
+
+        tr.innerHTML = `
+          <td></td>
+          <td>${snap.date}</td>
+          <td>${snap.time}</td>
+          <td>${snap.uprice ? snap.uprice.toFixed(2) : '--'}</td>
+          <td>${snap.net_gex ? (snap.net_gex / 1e9).toFixed(2) + 'B' : '--'}</td>
+          <td>${snap.total_call_gex ? (snap.total_call_gex / 1e9).toFixed(2) + 'B' : '--'}</td>
+          <td>${snap.total_put_gex ? (snap.total_put_gex / 1e9).toFixed(2) + 'B' : '--'}</td>
+          <td>${snap.kcs ? snap.kcs.toFixed(2) : '--'}</td>
+          <td>${snap.dominance ? snap.dominance.toFixed(1) + '%' : '--'}</td>
+          <td>${snap.sentiment ? snap.sentiment.toFixed(0) + '%' : '--'}</td>
+          <td>${snap.gex_ratio ? snap.gex_ratio.toFixed(2) : '--'}</td>
+          <td>${snap.total_call_oi ? (snap.total_call_oi / 1e3).toFixed(1) + 'K' : '--'}</td>
+          <td>${snap.total_put_oi ? (snap.total_put_oi / 1e3).toFixed(1) + 'K' : '--'}</td>
+          <td>${snap.total_call_vol ? (snap.total_call_vol / 1e3).toFixed(1) + 'K' : '--'}</td>
+          <td>${snap.total_put_vol ? (snap.total_put_vol / 1e3).toFixed(1) + 'K' : '--'}</td>
+        `;
+        tr.cells[0].appendChild(checkbox);
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('table-status').textContent = `Showing ${allSnapshots.length} of ${totalSnapshots} snapshots`;
+      document.getElementById('load-more-btn').disabled = !hasMore;
+    }
+
+    function selectSnapshot(snap, checkbox) {
+      // Uncheck all other checkboxes
+      document.querySelectorAll('#snapshots-body input[type="checkbox"]').forEach(cb => {
+        if (cb !== checkbox) cb.checked = false;
+      });
+
+      // Update selected
+      if (checkbox.checked) {
+        selectedSnapshot = snap;
+      } else {
+        selectedSnapshot = null;
       }
-      document.getElementById('status').textContent = 'Loading...';
+
+      // Re-render table to update selected row styling
+      renderSnapshotsTable();
+
+      // Update chart
+      loadDistribution();
+    }
+
+    async function loadSnapshots(offset = 0) {
       try {
-        const r = await fetch(url);
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        distData = await r.json();
-        if (distData.error) throw new Error(distData.error);
-        document.getElementById('status').textContent = `${distData.n_samples} samples`;
-        renderDistribution();
+        const regime = document.getElementById('regime-sel').value;
+        const r = await fetch(`/api/snapshots/all?offset=${offset}&limit=${PAGE_SIZE}&regime=${regime}`);
+        const data = await r.json();
+
+        if (offset === 0) {
+          allSnapshots = data.snapshots;
+          currentOffset = PAGE_SIZE;
+          // Reset selected snapshot when regime changes - auto-select most recent (first)
+          selectedSnapshot = allSnapshots.length > 0 ? allSnapshots[0] : null;
+        } else {
+          allSnapshots = allSnapshots.concat(data.snapshots);
+          currentOffset += PAGE_SIZE;
+        }
+
+        totalSnapshots = data.total;
+        hasMore = data.has_more;
+
+        renderSnapshotsTable();
+
+        // Load distribution with selected snapshot
+        if (selectedSnapshot) {
+          loadDistribution();
+        }
       } catch (e) {
-        document.getElementById('status').innerHTML = '<span class="error">Error: ' + e.message + '</span>';
+        document.getElementById('table-status').innerHTML = '<span class="error">Error: ' + e.message + '</span>';
         console.error(e);
       }
     }
 
-    loadDistribution();
+    function loadMoreSnapshots() {
+      if (hasMore) {
+        loadSnapshots(currentOffset);
+      }
+    }
+
+    async function loadDistribution() {
+      await renderDistribution();
+    }
+
+    // Initial load
+    loadSnapshots(0);
   </script>
 </body>
 </html>
