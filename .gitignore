@@ -5,7 +5,3 @@ captures/
 results/
 __pycache__/
 .venv/
-*.db
-*.db-shm
-*.db-wal
-*.gsheet
