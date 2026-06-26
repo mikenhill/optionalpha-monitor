@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Panel</title>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    .nav { background: #212529; padding: 10px 20px; margin: -20px -20px 20px -20px; display: flex; gap: 5px; }
+    .nav a { padding: 6px 14px; text-decoration: none; color: #adb5bd; border-radius: 4px; font-size: 14px; }
+    .nav a:hover { background: #343a40; color: #fff; }
+    .nav a.active { background: #0d6efd; color: #fff; }
+    .card { background: #fff; border: 1px solid #dee2e6; padding: 20px; margin-bottom: 20px; border-radius: 8px; }
+    h1 { font-size: 24px; margin: 0 0 20px 0; }
+    h2 { font-size: 18px; margin: 0 0 15px 0; color: #343a40; }
+    .btn { padding: 10px 20px; border: 1px solid #ced4da; border-radius: 4px; font-size: 14px; background: #fff; cursor: pointer; margin-right: 10px; }
+    .btn:hover { background: #e9ecef; }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .btn-primary { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+    .btn-primary:hover { background: #0b5ed7; }
+    .btn-warning { background: #ffc107; color: #000; border-color: #ffc107; }
+    .btn-warning:hover { background: #ffca2c; }
+    .log-area { 
+      background: #1e1e1e; 
+      color: #d4d4d4; 
+      border: 1px solid #333; 
+      border-radius: 6px; 
+      padding: 15px; 
+      font-family: 'Consolas', 'Monaco', monospace; 
+      font-size: 13px; 
+      line-height: 1.5; 
+      min-height: 300px; 
+      max-height: 600px; 
+      overflow-y: auto; 
+      white-space: pre-wrap;
+    }
+    .log-area.success { border-left: 4px solid #198754; }
+    .log-area.error { border-left: 4px solid #dc3545; }
+    .log-area.running { border-left: 4px solid #ffc107; }
+    .status { font-size: 14px; margin-bottom: 10px; }
+    .status.running { color: #ffc107; }
+    .status.success { color: #198754; }
+    .status.error { color: #dc3545; }
+    .info-box { background: #f8f9fa; border-left: 4px solid #0d6efd; padding: 12px 15px; border-radius: 0 6px 6px 0; font-size: 14px; margin-bottom: 15px; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/">Historical</a>
+    <a href="/live">Live</a>
+    <a href="/analysis">Analysis</a>
+    <a href="/hscatter">Distribution</a>
+    <a href="/spx">SPX Prices</a>
+    <a href="/csv">CSV</a>
+    <a class="active" href="/admin">Admin</a>
+  </div>
+
+  <h1>Admin Panel</h1>
+
+  <div class="card">
+    <h2>Data Cleaning Workflow</h2>
+    <div class="info-box">
+      <strong>When data is corrected, follow this order:</strong>
+      <ol style="margin: 10px 0 0 20px; padding: 0;">
+        <li>Fix Data Issues (run backfill scripts manually)</li>
+        <li>Verify Data Integrity (button below)</li>
+        <li>Regenerate Trade Signals (button below)</li>
+        <li>Retrain RF Model (button below)</li>
+        <li>Retrain HMM Model (button below)</li>
+        <li>Hard Restart Server (Stop-Process + python gex_viewer.py)</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="info-box">
+    <strong>RF Retraining Schedule:</strong> Recommended weekly (every Friday after market close). 
+    Current model has 1,049 labelled samples with 66.2% test accuracy.
+  </div>
+
+  <div class="card">
+    <h2>Data Verification</h2>
+    <div class="toolbar">
+      <button id="btn-verify" class="btn" onclick="verifyData()">Verify Data Integrity</button>
+      <span id="verify-status" class="status"></span>
+    </div>
+    <div id="verify-log" class="log-area">Click "Verify Data Integrity" to check source, raw_json, and recalculate values...</div>
+  </div>
+
+  <div class="card">
+    <h2>Daily Tasks</h2>
+    <div class="toolbar">
+      <button id="btn-daily" class="btn" onclick="runDaily()">Run optionalpha_daily.py</button>
+      <button id="btn-summary" class="btn" onclick="runSummary()">Run optionalpha_daily-summary.py</button>
+      <button id="btn-report" class="btn btn-warning" onclick="runReport()">Generate GEX Report (LLM)</button>
+      <button id="btn-signals" class="btn" onclick="regenerateSignals()">Regenerate Trade Signals</button>
+      <span id="daily-status" class="status"></span>
+    </div>
+    <div id="daily-log" class="log-area">Select a daily task to run...</div>
+  </div>
+
+  <div class="card">
+    <h2>Random Forest Model Retraining</h2>
+    <div class="toolbar">
+      <button id="btn-rf-train" class="btn btn-primary" onclick="trainRF()">Retrain RF Model</button>
+      <span id="rf-status" class="status"></span>
+    </div>
+    <div id="rf-log" class="log-area">Click "Retrain RF Model" to start training...</div>
+  </div>
+
+  <div class="card">
+    <h2>HMM Model Retraining</h2>
+    <div class="toolbar">
+      <button id="btn-hmm-train" class="btn btn-warning" onclick="trainHMM()">Retrain HMM Model</button>
+      <span id="hmm-status" class="status"></span>
+    </div>
+    <div id="hmm-log" class="log-area">Click "Retrain HMM Model" to start training...</div>
+  </div>
+
+  <div class="card">
+    <h2>Capture Session</h2>
+    <div class="toolbar">
+      <button id="btn-capture" class="btn btn-primary" onclick="runCapture()">&#128274; Capture Session</button>
+      <span id="capture-status" class="status"></span>
+    </div>
+    <div id="capture-log" class="log-area">Click "Capture Session" to refresh live data...</div>
+  </div>
+
+  <script>
+    async function runCapture() {
+      const btn = document.getElementById('btn-capture');
+      const status = document.getElementById('capture-status');
+      const log = document.getElementById('capture-log');
+      
+      btn.disabled = true;
+      status.textContent = 'Capturing...';
+      status.className = 'status running';
+      log.className = 'log-area running';
+      log.textContent = 'Starting capture session...\n';
+      
+      try {
+        const response = await fetch('/api/live/capture');
+        const result = await response.json();
+        
+        log.textContent = JSON.stringify(result, null, 2);
+        
+        if (result.ok) {
+          status.textContent = 'Capture completed successfully!';
+          status.className = 'status success';
+          log.className = 'log-area success';
+        } else {
+          status.textContent = 'Capture failed';
+          status.className = 'status error';
+          log.className = 'log-area error';
+        }
+      } catch (error) {
+        log.textContent += '\nError: ' + error.message;
+        status.textContent = 'Capture failed with error';
+        status.className = 'status error';
+        log.className = 'log-area error';
+      }
+      
+      btn.disabled = false;
+    }
+
+    async function runDaily() {
+      const btn = document.getElementById('btn-daily');
+      const status = document.getElementById('daily-status');
+      const log = document.getElementById('daily-log');
+      
+      btn.disabled = true;
+      status.textContent = 'Running...';
+      status.className = 'status running';
+      log.className = 'log-area running';
+      log.textContent = 'Starting optionalpha_daily.py...\n';
+      
+      try {
+        const response = await fetch('/api/admin/run-daily', { method: 'POST' });
+        const result = await response.json();
+        
+        log.textContent = result.stdout + (result.stderr ? '\n' + result.stderr : '');
+        
+        if (result.success) {
+          status.textContent = 'Completed successfully!';
+          status.className = 'status success';
+          log.className = 'log-area success';
+        } else {
+          status.textContent = 'Failed (exit code: ' + result.returncode + ')';
+          status.className = 'status error';
+          log.className = 'log-area error';
+        }
+      } catch (error) {
+        log.textContent += '\nError: ' + error.message;
+        status.textContent = 'Failed with error';
+        status.className = 'status error';
+        log.className = 'log-area error';
+      }
+      
+      btn.disabled = false;
+    }
+
+    async function runSummary() {
+      const btn = document.getElementById('btn-summary');
+      const status = document.getElementById('daily-status');
+      const log = document.getElementById('daily-log');
+      
+      btn.disabled = true;
+      status.textContent = 'Running...';
+      status.className = 'status running';
+      log.className = 'log-area running';
+      log.textContent = 'Starting optionalpha_daily-summary.py...\n';
+      
+      try {
+        const response = await fetch('/api/admin/run-summary', { method: 'POST' });
+        const result = await response.json();
+        
+        log.textContent = result.stdout + (result.stderr ? '\n' + result.stderr : '');
+        
+        if (result.success) {
+          status.textContent = 'Completed successfully!';
+          status.className = 'status success';
+          log.className = 'log-area success';
+        } else {
+          status.textContent = 'Failed (exit code: ' + result.returncode + ')';
+          status.className = 'status error';
+          log.className = 'log-area error';
+        }
+      } catch (error) {
+        log.textContent += '\nError: ' + error.message;
+        status.textContent = 'Failed with error';
+        status.className = 'status error';
+        log.className = 'log-area error';
+      }
+      
+      btn.disabled = false;
+    }
+
+    async function runReport() {
+      const btn = document.getElementById('btn-report');
+      const status = document.getElementById('daily-status');
+      const log = document.getElementById('daily-log');
+      
+      btn.disabled = true;
+      status.textContent = 'Generating...';
+      status.className = 'status running';
+      log.className = 'log-area running';
+      log.textContent = 'Generating GEX report using LLM...\n';
+      
+      try {
+        const response = await fetch('/api/admin/generate-report', { method: 'POST' });
+        const result = await response.json();
+        
+        log.textContent = result.report || result.error;
+        
+        if (result.success) {
+          status.textContent = 'Report generated successfully!';
+          status.className = 'status success';
+          log.className = 'log-area success';
+        } else {
+          status.textContent = 'Failed';
+          status.className = 'status error';
+          log.className = 'log-area error';
+        }
+      } catch (error) {
+        log.textContent += '\nError: ' + error.message;
+        status.textContent = 'Failed with error';
+        status.className = 'status error';
+        log.className = 'log-area error';
+      }
+      
+      btn.disabled = false;
+    }
+
+    async function regenerateSignals() {
+      const btn = document.getElementById('btn-signals');
+      const status = document.getElementById('daily-status');
+      const log = document.getElementById('daily-log');
+      
+      btn.disabled = true;
+      status.textContent = 'Regenerating...';
+      status.className = 'status running';
+      log.className = 'log-area running';
+      log.textContent = 'Regenerating trade signals from corrected data...\n';
+      
+      try {
+        const response = await fetch('/api/admin/regenerate-signals', { method: 'POST' });
+        const result = await response.json();
+        
+        log.textContent = result.stdout + (result.stderr ? '\n' + result.stderr : '');
+        
+        if (result.success) {
+          status.textContent = 'Signals regenerated successfully!';
+          status.className = 'status success';
+          log.className = 'log-area success';
+        } else {
+          status.textContent = 'Failed (exit code: ' + result.returncode + ')';
+          status.className = 'status error';
+          log.className = 'log-area error';
+        }
+      } catch (error) {
+        log.textContent += '\nError: ' + error.message;
+        status.textContent = 'Failed with error';
+        status.className = 'status error';
+        log.className = 'log-area error';
+      }
+      
+      btn.disabled = false;
+    }
+
+    async function trainRF() {
+      const btn = document.getElementById('btn-rf-train');
+      const status = document.getElementById('rf-status');
+      const log = document.getElementById('rf-log');
+      
+      btn.disabled = true;
+      status.textContent = 'Training in progress...';
+      status.className = 'status running';
+      log.className = 'log-area running';
+      log.textContent = 'Starting RF model training...\n';
+      
+      try {
+        const response = await fetch('/api/rf/train', { method: 'POST' });
+        const result = await response.json();
+        
+        log.textContent = result.stdout + (result.stderr ? '\n' + result.stderr : '');
+        
+        if (result.success) {
+          status.textContent = 'Training completed successfully!';
+          status.className = 'status success';
+          log.className = 'log-area success';
+        } else {
+          status.textContent = 'Training failed (exit code: ' + result.returncode + ')';
+          status.className = 'status error';
+          log.className = 'log-area error';
+        }
+      } catch (error) {
+        log.textContent += '\nError: ' + error.message;
+        status.textContent = 'Training failed with error';
+        status.className = 'status error';
+        log.className = 'log-area error';
+      }
+      
+      btn.disabled = false;
+    }
+
+    async function trainHMM() {
+      const btn = document.getElementById('btn-hmm-train');
+      const status = document.getElementById('hmm-status');
+      const log = document.getElementById('hmm-log');
+      
+      btn.disabled = true;
+      status.textContent = 'Training in progress...';
+      status.className = 'status running';
+      log.className = 'log-area running';
+      log.textContent = 'Starting HMM model training...\n';
+      
+      try {
+        const response = await fetch('/api/hmm/train', { method: 'POST' });
+        const result = await response.json();
+        
+        log.textContent = JSON.stringify(result, null, 2);
+        
+        if (result.success !== false) {
+          status.textContent = 'Training completed successfully!';
+          status.className = 'status success';
+          log.className = 'log-area success';
+        } else {
+          status.textContent = 'Training failed';
+          status.className = 'status error';
+          log.className = 'log-area error';
+        }
+      } catch (error) {
+        log.textContent += '\nError: ' + error.message;
+        status.textContent = 'Training failed with error';
+        status.className = 'status error';
+        log.className = 'log-area error';
+      }
+      
+      btn.disabled = false;
+    }
+
+    async function verifyData() {
+      const btn = document.getElementById('btn-verify');
+      const status = document.getElementById('verify-status');
+      const log = document.getElementById('verify-log');
+      
+      btn.disabled = true;
+      status.textContent = 'Verifying...';
+      status.className = 'status running';
+      log.className = 'log-area running';
+      log.textContent = 'Starting data verification...\n';
+      
+      try {
+        const response = await fetch('/api/admin/verify-data', { method: 'POST' });
+        const result = await response.json();
+        
+        if (result.success) {
+          const r = result.results;
+          const summary = r.summary;
+          let output = '=== Data Verification Results ===\n\n';
+          output += `Timestamp: ${r.timestamp}\n`;
+          output += `Total Snapshots: ${summary.total_snapshots}\n`;
+          output += `Valid Snapshots: ${summary.valid_snapshots}\n`;
+          output += `Known Missing JSON: ${summary.known_missing_json}\n\n`;
+          output += `--- Errors ---\n`;
+          output += `Table Source Errors: ${summary.table_source_errors}\n`;
+          output += `Source Errors: ${summary.source_errors}\n`;
+          output += `Raw JSON Errors: ${summary.raw_json_errors}\n`;
+          output += `Calculation Errors: ${summary.calculation_errors}\n\n`;
+          
+          if (r.table_source_errors.length > 0) {
+            output += '--- Table Source Error Details ---\n';
+            r.table_source_errors.slice(0, 10).forEach(e => {
+              output += `  ${e.table}: ${e.ndate} ${e.ntime} - ${e.error}\n`;
+            });
+            if (r.table_source_errors.length > 10) {
+              output += `  ... and ${r.table_source_errors.length - 10} more\n`;
+            }
+            output += '\n';
+          }
+          
+          if (r.source_errors.length > 0) {
+            output += '--- Source Error Details ---\n';
+            r.source_errors.slice(0, 10).forEach(e => {
+              output += `  ${e.ndate} ${e.ntime}: ${e.error}\n`;
+            });
+            if (r.source_errors.length > 10) {
+              output += `  ... and ${r.source_errors.length - 10} more\n`;
+            }
+            output += '\n';
+          }
+          
+          if (r.raw_json_errors.length > 0) {
+            output += '--- Raw JSON Error Details ---\n';
+            r.raw_json_errors.slice(0, 10).forEach(e => {
+              output += `  ${e.ndate} ${e.ntime} (${e.source}): ${e.error}\n`;
+            });
+            if (r.raw_json_errors.length > 10) {
+              output += `  ... and ${r.raw_json_errors.length - 10} more\n`;
+            }
+            output += '\n';
+          }
+          
+          if (r.calculation_errors.length > 0) {
+            output += '--- Calculation Error Details ---\n';
+            r.calculation_errors.slice(0, 10).forEach(e => {
+              if (e.error) {
+                output += `  ${e.ndate} ${e.ntime}: ${e.error}\n`;
+              } else {
+                output += `  ${e.ndate} ${e.ntime} ${e.field}: db=${e.db_value}, calc=${e.calc_value}\n`;
+              }
+            });
+            if (r.calculation_errors.length > 10) {
+              output += `  ... and ${r.calculation_errors.length - 10} more\n`;
+            }
+          }
+          
+          log.textContent = output;
+          
+          if (summary.source_errors === 0 && summary.raw_json_errors === 0 && summary.calculation_errors === 0) {
+            status.textContent = 'All data verified successfully!';
+            status.className = 'status success';
+            log.className = 'log-area success';
+          } else {
+            status.textContent = 'Verification completed with errors';
+            status.className = 'status error';
+            log.className = 'log-area error';
+          }
+        } else {
+          log.textContent = 'Error: ' + result.error;
+          status.textContent = 'Verification failed';
+          status.className = 'status error';
+          log.className = 'log-area error';
+        }
+      } catch (error) {
+        log.textContent += '\nError: ' + error.message;
+        status.textContent = 'Verification failed with error';
+        status.className = 'status error';
+        log.className = 'log-area error';
+      }
+      
+      btn.disabled = false;
+    }
+  </script>
+</body>
+</html>

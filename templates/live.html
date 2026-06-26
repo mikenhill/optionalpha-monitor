@@ -54,6 +54,37 @@
     .action-btn.primary { background: #0d6efd; color: #fff; border-color: #0d6efd; }
     .action-btn.primary:hover { background: #0b5ed7; }
     .action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .trade-cards { display: flex; flex-direction: column; gap: 10px; margin-top: 14px; }
+    .trade-card { border: 1px solid #dee2e6; border-radius: 6px; overflow: hidden; font-size: 13px; }
+    .trade-card-header { display: flex; align-items: center; gap: 10px; padding: 7px 12px; cursor: pointer; background: #f8f9fa; border-bottom: 1px solid #dee2e6; user-select: none; }
+    .trade-card-header:hover { background: #e9ecef; }
+    .trade-card-time { font-weight: 700; color: #495057; min-width: 48px; }
+    .trade-card-badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .badge-pin       { background: #cfe2ff; color: #0a3875; }
+    .badge-put_pillar { background: #d1e7dd; color: #0a3622; }
+    .badge-call_wall  { background: #fff3cd; color: #664d03; }
+    .badge-neg_gamma  { background: #f8d7da; color: #58151c; }
+    .badge-gex_slide  { background: #e2e3e5; color: #41464b; }
+    .badge-pos_gamma  { background: #d1e7dd; color: #0a3622; }
+    .badge-stay_out   { background: #e2e3e5; color: #41464b; }
+    .trade-card-action { font-weight: 600; color: #212529; }
+    .trade-card-spx { color: #6c757d; font-size: 12px; }
+    .trade-card-body { padding: 10px 14px; background: #fff; }
+    .trade-card-body.collapsed { display: none; }
+    .trade-card-section { margin-bottom: 8px; }
+    .trade-card-section b { color: #495057; }
+    .prev-outcome { background: #fff8e1; border-left: 3px solid #ffc107; padding: 6px 10px; border-radius: 0 4px 4px 0; margin-bottom: 8px; font-size: 12px; }
+    .prev-outcome.good { background: #d1e7dd; border-color: #198754; }
+    .prev-outcome.bad  { background: #f8d7da; border-color: #dc3545; }
+    .strikes-row { display: flex; gap: 16px; flex-wrap: wrap; margin-top: 4px; }
+    .strike-chip { background: #e7f1ff; color: #084298; border-radius: 4px; padding: 2px 8px; font-size: 12px; font-weight: 600; }
+    .outcome-badge { padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .outcome-win { background: #d1e7dd; color: #0a3622; }
+    .outcome-loss { background: #f8d7da; color: #58151c; }
+    .outcome-partial { background: #fff3cd; color: #664d03; }
+    .outcome-missed { background: #f8d7da; color: #58151c; }
+    .outcome-correct { background: #d1e7dd; color: #0a3622; }
+    .outcome-neutral { background: #e2e3e5; color: #41464b; }
   </style>
 </head>
 <body>
@@ -64,6 +95,7 @@
     <a href="/hscatter">Distribution</a>
     <a href="/spx">SPX Prices</a>
     <a href="/csv">CSV</a>
+    <a href="/admin">Admin</a>
   </div>
 
   <h1>Live GEX &mdash; <span id="live-date">Today</span></h1>
@@ -93,6 +125,11 @@
     <div class="tbl-wrap">
       <div id="live-snapshots" class="loading">Loading snapshots...</div>
     </div>
+  </div>
+
+  <div class="card" id="signals-card" style="display:none">
+    <h2>Trade Signals <span style="cursor:help;color:#0d6efd;margin-left:8px;font-size:16px" onclick="showSignalsInfo()" title="Click for info">ℹ️</span> <button class="action-btn" id="gen-signals-btn" onclick="generateSignals()" style="font-size:12px;padding:3px 10px;margin-left:8px">&#9654; Generate Signals</button></h2>
+    <div id="trade-cards-wrap"><span class="loading">No signals yet — click Generate Signals.</span></div>
   </div>
 
   <div class="card" id="charts-card" style="display:none">
@@ -358,11 +395,137 @@
         document.getElementById('charts-card').style.display = 'block';
         renderCharts(sorted[0]);
 
+        // Load trade signals for today
+        document.getElementById('signals-card').style.display = 'block';
+        loadSignals();
+
       } catch (e) {
         document.getElementById('live-snapshots').innerHTML =
           '<p class="error">Error loading data: ' + e.message + '</p>';
         console.error(e);
       }
+    }
+
+    async function loadSignals() {
+      const today = new Date().toISOString().slice(0, 10);
+      const r = await fetch('/api/trade-signals?date=' + today);
+      const d = await r.json();
+      renderSignals(d.signals || []);
+    }
+
+    function showSignalsInfo() {
+      const info = `Trade Signals Explanation:
+
+Trade Signals (rule-based):
+- Generated from GEX metrics (gex_ratio, net_gex, kcs, sentiment_pct)
+- Shows as trade cards with actions: SHORT_PUT_SPREAD, SHORT_CALL_SPREAD, IRON_BUTTERFLY, STAY_OUT
+- Independent of RF/HMM - these are rule-based only
+
+RF Model (after signals):
+- Trained on historical signals + outcomes
+- Adds RF prediction (WIN/LOSS probability) to trade cards
+- Hybrid decision: If RF predicts LOSS, it overrides the rule-based action to STAY_OUT
+- Affects the final action you see in the trade card
+
+HMM Model (independent):
+- Trained on GEX metrics (net_gex, kcs, sentiment_pct, dist_to_key, total_put_vol)
+- Adds regime label (Positive/Negative/Volatile/Neutral) to snapshot table
+- Color-coded labels (green/red/amber/grey)
+- Does NOT affect trade signals - purely for regime analysis
+
+Workflow order:
+1. Signals first - Rule-based signals generated from corrected data
+2. RF second - Trained on corrected signals, then adds predictions/overrides
+3. HMM third - Trained on corrected snapshot data, adds regime labels
+
+What you see depends on when RF/HMM are retrained:
+- If RF is NOT retrained after signal regeneration → Old RF predictions with new signals (stale)
+- If RF IS retrained → New RF predictions trained on corrected signals
+- If HMM is NOT retrained → Old HMM labels with new data (stale)
+- If HMM IS retrained → New HMM labels trained on corrected data`;
+      alert(info);
+    }
+
+    async function generateSignals() {
+      const today = new Date().toISOString().slice(0, 10);
+      const btn = document.getElementById('gen-signals-btn');
+      btn.disabled = true; btn.textContent = 'Generating...';
+      try {
+        await fetch('/api/trade-signals/generate', {
+          method: 'POST',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({date: today})
+        });
+        await loadSignals();
+      } finally {
+        btn.disabled = false; btn.innerHTML = '&#9654; Generate Signals';
+      }
+    }
+
+    const SETUP_LABELS = {
+      PIN: 'Pin', PUT_PILLAR: 'Put Pillar', CALL_WALL: 'Call Wall',
+      NEG_GAMMA: 'Neg Gamma', GEX_SLIDE: 'GEX Slide', POS_GAMMA: 'Pos Gamma', STAY_OUT: 'Stay Out'
+    };
+
+    function prevOutcomeCls(text) {
+      if (!text) return '';
+      if (text.includes('held') || text.includes('pinning') || text.includes('performing')) return ' good';
+      if (text.includes('BROKE') || text.includes('max loss') || text.includes('at risk') || text.includes('missed opportunity')) return ' bad';
+      return '';
+    }
+
+    function buildTradeCard(sig, idx) {
+      const setupKey = (sig.setup_type || 'STAY_OUT').toLowerCase();
+      const badgeCls = 'trade-card-badge badge-' + setupKey;
+      const label = SETUP_LABELS[sig.setup_type] || sig.setup_type;
+      const timeLabel = fmtTime(sig.ntime);
+      const strikesHtml = (sig.action !== 'STAY_OUT' && sig.short_strike)
+        ? '<div class="strikes-row">' +
+          (sig.structure ? '<span class="strike-chip">' + sig.structure + '</span>' : '') +
+          (sig.short_strike ? '<span class="strike-chip">Short: ' + sig.short_strike + '</span>' : '') +
+          (sig.wing_strike  ? '<span class="strike-chip">Wing: ' + sig.wing_strike + '</span>' : '') +
+          (sig.short_strike2 && sig.short_strike2 !== sig.short_strike ? '<span class="strike-chip">Short2: ' + sig.short_strike2 + '</span>' : '') +
+          (sig.wing_strike2  ? '<span class="strike-chip">Wing2: ' + sig.wing_strike2 + '</span>' : '') +
+          '</div>' : '';
+      const prevHtml = sig.prev_outcome
+        ? '<div class="prev-outcome' + prevOutcomeCls(sig.prev_outcome) + '">&#128203; ' + sig.prev_outcome + '</div>'
+        : '';
+      const outcomeHtml = sig.outcome
+        ? '<div class="trade-card-section"><b>Outcome:</b> <span class="outcome-badge outcome-' + sig.outcome.toLowerCase() + '">' + sig.outcome + '</span>' +
+          (sig.next_spx ? ' (Next SPX: ' + sig.next_spx.toFixed(0) + ' at ' + fmtTime(sig.next_ntime) + ')' : '') +
+          (sig.outcome_points !== null && sig.outcome_points !== undefined ? ' — ' + sig.outcome_points.toFixed(1) + ' pts' : '') + '</div>'
+        : '';
+      const id = 'tc-' + idx;
+      return '<div class="trade-card">' +
+        '<div class="trade-card-header" onclick="toggleCard(\'' + id + '\')">' +
+          '<span class="trade-card-time">' + timeLabel + '</span>' +
+          '<span class="' + badgeCls + '">' + label + '</span>' +
+          '<span class="trade-card-action">' + (sig.action || '') + '</span>' +
+          (sig.regime ? '<span class="trade-card-spx">' + sig.regime + '</span>' : '') +
+        '</div>' +
+        '<div class="trade-card-body collapsed" id="' + id + '">' +
+          prevHtml +
+          outcomeHtml +
+          strikesHtml +
+          (sig.rationale ? '<div class="trade-card-section"><b>Rationale:</b> ' + sig.rationale + '</div>' : '') +
+          (sig.invalidation && sig.invalidation !== 'N/A' && sig.invalidation !== 'N/A — no trade.' ? '<div class="trade-card-section"><b>Invalidation:</b> ' + sig.invalidation + '</div>' : '') +
+          (sig.caution ? '<div class="trade-card-section"><b>Caution:</b> ' + sig.caution + '</div>' : '') +
+        '</div>' +
+      '</div>';
+    }
+
+    function renderSignals(signals) {
+      const wrap = document.getElementById('trade-cards-wrap');
+      if (!signals.length) {
+        wrap.innerHTML = '<span style="color:#6c757d;font-size:13px">No signals yet — click Generate Signals.</span>';
+        return;
+      }
+      wrap.innerHTML = '<div class="trade-cards">' + signals.map(buildTradeCard).join('') + '</div>';
+    }
+
+    function toggleCard(id) {
+      const el = document.getElementById(id);
+      if (el) el.classList.toggle('collapsed');
     }
 
     async function runCapture() {

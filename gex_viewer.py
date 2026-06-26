@@ -19,6 +19,8 @@ import subprocess
 from datetime import datetime
 from pathlib import Path
 
+import joblib
+import numpy as np
 import pandas as pd
 from flask import Flask, jsonify, render_template, request
 
@@ -27,6 +29,99 @@ app = Flask(__name__)
 BASE_DIR  = Path(__file__).resolve().parent
 GEX_DIR   = BASE_DIR / "results" / "histgex"
 DB_PATH   = BASE_DIR / "gex.db"
+MODEL_PATH = BASE_DIR / "trade_rf_model.pkl"
+SCALER_PATH = BASE_DIR / "trade_rf_scaler.pkl"
+
+# Global cache for RF model and scaler
+_rf_model = None
+_rf_scaler = None
+
+
+def _load_rf_model():
+    """Load the Random Forest model and scaler (cached)."""
+    global _rf_model, _rf_scaler
+    if _rf_model is None and MODEL_PATH.exists() and SCALER_PATH.exists():
+        _rf_model = joblib.load(MODEL_PATH)
+        _rf_scaler = joblib.load(SCALER_PATH)
+    return _rf_model, _rf_scaler
+
+
+def _prepare_rf_features(snap: dict) -> np.ndarray:
+    """Prepare features for RF prediction (matching training script)."""
+    # Base features
+    features = {
+        'uprice': snap.get('uprice', 0) or 0,
+        'net_gex': snap.get('net_gex', 0) or 0,
+        'sentiment': snap.get('sentiment', snap.get('sentiment_pct', 50)) or 50,
+        'gex_ratio': snap.get('gex_ratio', 1) or 1,
+        'kcs': snap.get('kcs', 0) or 0,
+        'dominance': snap.get('dominance', snap.get('key_dominance_pct', 0)) or 0,
+        'total_call_gex': snap.get('total_call_gex', 0) or 0,
+        'total_put_gex': snap.get('total_put_gex', 0) or 0,
+        'total_call_oi': snap.get('total_call_oi', 0) or 0,
+        'total_put_oi': snap.get('total_put_oi', 0) or 0,
+        'total_call_vol': snap.get('total_call_vol', 0) or 0,
+        'total_put_vol': snap.get('total_put_vol', 0) or 0,
+        'key_strike': snap.get('key_strike', 0) or 0,
+        'key_call_gex': snap.get('key_call_gex', 0) or 0,
+        'key_put_gex': snap.get('key_put_gex', 0) or 0,
+        'key_call_oi': snap.get('key_call_oi', 0) or 0,
+        'key_put_oi': snap.get('key_put_oi', 0) or 0,
+        'key_call_vol': snap.get('key_call_vol', 0) or 0,
+        'key_put_vol': snap.get('key_put_vol', 0) or 0,
+        'key2_strike': snap.get('key2_strike', 0) or 0,
+        'key2_abs': snap.get('key2_abs', 0) or 0,
+        'key2_call_vol': snap.get('key2_call_vol', 0) or 0,
+        'key2_put_vol': snap.get('key2_put_vol', 0) or 0,
+        'flip': snap.get('flip', 0) or 0,
+        'hmm_state': 0  # Simplified for prediction
+    }
+    
+    # Derived features
+    features['net_oi'] = features['total_call_oi'] - features['total_put_oi']
+    features['net_vol'] = features['total_call_vol'] - features['total_put_vol']
+    features['key_net_gex'] = features['key_call_gex'] - features['key_put_gex']
+    features['key_net_oi'] = features['key_call_oi'] - features['key_put_oi']
+    features['dist_to_key'] = abs(features['uprice'] - features['key_strike'])
+    features['dist_to_flip'] = abs(features['uprice'] - features['flip']) if features['flip'] else 0
+    
+    # Feature order must match training
+    feature_cols = [
+        'uprice', 'net_gex', 'sentiment', 'gex_ratio', 
+        'kcs', 'dominance', 'total_call_gex', 'total_put_gex',
+        'total_call_oi', 'total_put_oi', 'total_call_vol', 'total_put_vol',
+        'key_strike', 'key_call_gex', 'key_put_gex',
+        'key_call_oi', 'key_put_oi', 'key_call_vol', 'key_put_vol',
+        'key2_strike', 'key2_abs', 'key2_call_vol', 'key2_put_vol',
+        'flip', 'hmm_state',
+        'net_oi', 'net_vol', 'key_net_gex', 'key_net_oi', 'dist_to_key', 'dist_to_flip'
+    ]
+    
+    X = np.array([[features[col] for col in feature_cols]])
+    return X
+
+
+def _predict_rf_outcome(snap: dict) -> dict:
+    """Predict trade outcome using Random Forest model.
+    
+    Returns dict with 'probability' (0-1) and 'prediction' (WIN/LOSS).
+    """
+    model, scaler = _load_rf_model()
+    if model is None or scaler is None:
+        return {'probability': 0.5, 'prediction': 'NEUTRAL', 'available': False}
+    
+    X = _prepare_rf_features(snap)
+    X_scaled = scaler.transform(X)
+    
+    # Get probability of class 1 (WIN)
+    proba = model.predict_proba(X_scaled)[0, 1]
+    prediction = 'WIN' if proba > 0.5 else 'LOSS'
+    
+    return {
+        'probability': float(proba),
+        'prediction': prediction,
+        'available': True
+    }
 
 
 def _db() -> sqlite3.Connection:
@@ -97,7 +192,7 @@ def _ensure_live_analysis_table() -> None:
 
 
 def _ensure_narratives_table() -> None:
-    """Create the daily_narratives table for storing trading narratives."""
+    """Create the daily_narratives and trade_signals tables."""
     with _db() as con:
         con.execute("""
             CREATE TABLE IF NOT EXISTS daily_narratives (
@@ -112,6 +207,332 @@ def _ensure_narratives_table() -> None:
         con.execute(
             "CREATE INDEX IF NOT EXISTS ix_daily_narratives_date "
             "ON daily_narratives (ndate)"
+        )
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS trade_signals (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                ndate           INTEGER NOT NULL,
+                ntime           INTEGER NOT NULL,
+                symbol          TEXT NOT NULL DEFAULT 'SPX',
+                generated_ts    TEXT NOT NULL,
+                regime          TEXT,
+                setup_type      TEXT,
+                action          TEXT,
+                short_strike    REAL,
+                wing_strike     REAL,
+                short_strike2   REAL,
+                wing_strike2    REAL,
+                structure       TEXT,
+                rationale       TEXT,
+                invalidation    TEXT,
+                caution         TEXT,
+                prev_outcome    TEXT,
+                next_spx        REAL,
+                next_ntime      INTEGER,
+                outcome         TEXT,
+                outcome_points  REAL,
+                is_llm_enhanced INTEGER NOT NULL DEFAULT 0,
+                UNIQUE(ndate, ntime, symbol)
+            )
+        """)
+        con.execute(
+            "CREATE INDEX IF NOT EXISTS ix_trade_signals_date "
+            "ON trade_signals (ndate, ntime)"
+        )
+
+        # Migration: add outcome columns if they don't exist
+        cursor = con.execute("PRAGMA table_info(trade_signals)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+        new_cols = [
+            ("next_spx", "REAL"),
+            ("next_ntime", "INTEGER"),
+            ("outcome", "TEXT"),
+            ("outcome_points", "REAL")
+        ]
+        for col_name, col_type in new_cols:
+            if col_name not in existing_cols:
+                con.execute(f"ALTER TABLE trade_signals ADD COLUMN {col_name} {col_type}")
+                print(f"Added column {col_name} to trade_signals table")
+
+
+def _classify_gex_setup(snap: dict) -> str:
+    """Classify the GEX setup type for a snapshot using teaching material rules.
+
+    Returns one of: PIN, PUT_PILLAR, CALL_WALL, NEG_GAMMA, POS_GAMMA, GEX_SLIDE, STAY_OUT
+    """
+    net_gex        = snap.get("net_gex", 0) or 0
+    key_call_gex   = snap.get("key_call_gex", 0) or 0
+    key_put_gex    = snap.get("key_put_gex", 0) or 0
+    key_call_oi    = snap.get("key_call_oi", 0) or 0
+    key_put_oi     = snap.get("key_put_oi", 0) or 0
+    key_dominance  = snap.get("key_dominance_pct", snap.get("dominance", 0)) or 0
+    sentiment      = snap.get("sentiment_pct", snap.get("sentiment", 50)) or 50
+    kcs            = snap.get("kcs", 0) or 0
+    key2_abs       = snap.get("key2_abs", 0) or 0
+    key_abs        = abs(key_call_gex) + abs(key_put_gex)
+    uprice         = snap.get("uprice", 0) or 0
+    key_strike     = snap.get("key_strike") or 0
+    flip           = snap.get("flip")
+    hmm_label      = snap.get("hmm_label", "") or ""
+
+    # STAY_OUT: pre-market or very low conviction
+    if snap.get("is_premarket", 0):
+        return "STAY_OUT"
+
+    # NEG_GAMMA: strongly negative net GEX — acceleration risk, no premium selling
+    if net_gex < -5_000_000_000:
+        return "NEG_GAMMA"
+
+    # GEX_SLIDE: low concentration, distributed gamma
+    if key_dominance < 10 or kcs < 5:
+        return "GEX_SLIDE"
+
+    # PIN: balanced call & put at key strike, both large
+    if key_abs > 0:
+        call_ratio = abs(key_call_gex) / key_abs
+        if 0.35 <= call_ratio <= 0.65 and kcs >= 12:
+            return "PIN"
+
+    # PUT_PILLAR: put-heavy at key strike acting as support
+    if abs(key_put_gex) > abs(key_call_gex) * 1.5 and key_put_oi > key_call_oi:
+        return "PUT_PILLAR"
+
+    # CALL_WALL: call-heavy at key strike acting as resistance
+    if abs(key_call_gex) > abs(key_put_gex) * 1.5 and key_call_oi > key_put_oi:
+        return "CALL_WALL"
+
+    # POS_GAMMA: positive/stable gamma environment
+    if net_gex > 0 and sentiment > 55:
+        return "POS_GAMMA"
+
+    return "STAY_OUT"
+
+
+def _generate_trade_signal(snap: dict, prev_snap: dict | None, prev_signal: dict | None) -> dict:
+    """Generate a structured trade signal for one snapshot using GEX teaching rules.
+
+    Returns a dict with: setup_type, action, structure, short_strike, wing_strike,
+    short_strike2, wing_strike2, rationale, invalidation, caution, prev_outcome
+    """
+    setup_type  = _classify_gex_setup(snap)
+    net_gex     = snap.get("net_gex", 0) or 0
+    key_strike  = snap.get("key_strike") or 0
+    key2_strike = snap.get("key2_strike") or 0
+    uprice      = snap.get("uprice", 0) or 0
+    flip        = snap.get("flip")
+    kcs         = snap.get("kcs", 0) or 0
+    sentiment   = snap.get("sentiment_pct", snap.get("sentiment", 50)) or 50
+    hmm_label   = snap.get("hmm_label", "") or ""
+    key_dominance = snap.get("key_dominance_pct", snap.get("dominance", 0)) or 0
+
+    WING = 10  # default wing width in SPX points
+
+    action = "STAY_OUT"
+    structure = None
+    short_strike = None
+    wing_strike = None
+    short_strike2 = None
+    wing_strike2 = None
+    rationale = ""
+    invalidation = ""
+    caution = ""
+
+    if setup_type == "PIN":
+        action = "IRON_BUTTERFLY"
+        structure = "Short Iron Butterfly"
+        short_strike = key_strike
+        wing_strike = key_strike + WING
+        short_strike2 = key_strike
+        wing_strike2 = key_strike - WING
+        rationale = (
+            f"PIN setup: balanced call/put GEX at {key_strike} with KCS={kcs:.1f}. "
+            f"Price ({uprice:.0f}) near key strike. Iron butterfly profits if price pins at {key_strike} at expiry. "
+            f"Entry: wait for price to stretch slightly beyond {key_strike} then enter on reversion."
+        )
+        invalidation = (
+            f"Thesis fails if price breaks and holds beyond {key_strike + WING} (call side) or "
+            f"{key_strike - WING} (put side) with momentum. Also fails if KCS drops sharply intraday."
+        )
+        caution = (
+            f"Check tomorrow's GEX — pin thesis only valid if key_strike is the same tomorrow. "
+            f"Charm decay accelerates after midday. Regime: {hmm_label}."
+        )
+
+    elif setup_type == "PUT_PILLAR":
+        action = "SHORT_PUT_SPREAD"
+        structure = "Short Put Spread"
+        short_strike = key_strike
+        wing_strike = key_strike - WING
+        rationale = (
+            f"PUT_PILLAR: Put-heavy GEX at {key_strike} with strong put OI. "
+            f"Level may act as support. Sell put spread at/just below pillar. "
+            f"Entry: wait for price to touch or briefly break below {key_strike} then enter on rebound."
+        )
+        invalidation = (
+            f"Pillar fails if price breaks {key_strike} with momentum and closes below. "
+            f"Negative gamma acceleration below {key2_strike if key2_strike else key_strike - 20} would signal cascade risk."
+        )
+        caution = f"OI alone cannot confirm direction. Volume at {key_strike} must confirm. Regime: {hmm_label}."
+
+    elif setup_type == "CALL_WALL":
+        action = "SHORT_CALL_SPREAD"
+        structure = "Short Call Spread"
+        short_strike = key_strike
+        wing_strike = key_strike + WING
+        rationale = (
+            f"CALL_WALL: Call-heavy GEX at {key_strike} may act as resistance. "
+            f"Sell call spread at/just above wall. "
+            f"Entry: wait for price to touch or briefly break above {key_strike} then enter on rejection."
+        )
+        invalidation = (
+            f"Wall fails if price breaks {key_strike} on strong volume and holds above. "
+            f"Sentiment > 70 would suggest directional breakout rather than rejection."
+        )
+        caution = f"Call wall can break on macro catalyst. Check economic calendar. Regime: {hmm_label}."
+
+    elif setup_type == "NEG_GAMMA":
+        action = "STAY_OUT"
+        structure = "No Trade"
+        rationale = (
+            f"NEG_GAMMA: Net GEX = {net_gex/1e9:.2f}B — strongly negative. "
+            f"Market maker hedging may amplify moves. Do not sell premium into negative gamma. "
+            f"Risk of cascade below {f'{flip:.0f}' if flip else 'flip point'}."
+        )
+        invalidation = "N/A — no trade."
+        caution = "Avoid all short premium strategies until GEX turns positive or neutral."
+
+    elif setup_type == "GEX_SLIDE":
+        action = "STAY_OUT"
+        structure = "No Trade"
+        rationale = (
+            f"GEX_SLIDE: Low key dominance ({key_dominance:.0f}%) and KCS={kcs:.1f}. "
+            f"Gamma spread across many strikes. No clean anchor level. Movement may be fast and disjointed."
+        )
+        invalidation = "N/A — no trade."
+        caution = "Wait for KCS > 12 and dominance > 10% before considering entries."
+
+    elif setup_type == "POS_GAMMA":
+        action = "STAY_OUT"
+        structure = "Observe / Iron Condor"
+        rationale = (
+            f"POS_GAMMA: Net GEX = {net_gex/1e9:.2f}B positive, sentiment {sentiment:.0f}%. "
+            f"Stabilising environment. Wider iron condor possible if key strike is clear, "
+            f"but no strong single-level signal. Key strike: {key_strike}."
+        )
+        invalidation = f"Fails if net GEX turns negative or sentiment drops below 45%."
+        caution = f"Positive gamma dampens moves — set tighter profit targets. Regime: {hmm_label}."
+
+    else:  # STAY_OUT default
+        action = "STAY_OUT"
+        structure = "No Trade"
+        rationale = "Insufficient GEX conviction or pre-market snapshot. No trade recommended."
+        invalidation = "N/A"
+        caution = "Wait for RTH open and clearer GEX setup."
+
+    # Assess previous signal outcome
+    prev_outcome = None
+    if prev_signal and prev_snap:
+        prev_action = prev_signal.get("action", "STAY_OUT")
+        prev_short  = prev_signal.get("short_strike")
+        prev_struct = prev_signal.get("structure", "No Trade")
+        curr_uprice = uprice
+        prev_uprice = prev_snap.get("uprice", uprice) or uprice
+
+        if prev_action == "STAY_OUT":
+            # Assess whether staying out was correct
+            move = abs(curr_uprice - prev_uprice)
+            if move > 15:
+                prev_outcome = f"Previous signal: STAY_OUT — price moved {move:.0f}pts ({prev_uprice:.0f}→{curr_uprice:.0f}). Staying out avoided a {move:.0f}pt move."
+            elif move < 5:
+                prev_outcome = f"Previous signal: STAY_OUT — price was flat ({prev_uprice:.0f}→{curr_uprice:.0f}, {move:.0f}pts). Missed opportunity: iron condor/butterfly would have profited."
+            else:
+                prev_outcome = f"Previous signal: STAY_OUT — price moved {move:.0f}pts ({prev_uprice:.0f}→{curr_uprice:.0f}). Ambiguous — directional move but modest."
+        elif prev_short:
+            move_toward = None
+            if prev_action == "SHORT_PUT_SPREAD":
+                # Pillar held if price stayed above short_strike
+                if curr_uprice >= prev_short:
+                    prev_outcome = f"Previous PUT_PILLAR at {prev_short:.0f}: pillar held — price is {curr_uprice:.0f} (above {prev_short:.0f}). Spread likely profitable."
+                else:
+                    prev_outcome = f"Previous PUT_PILLAR at {prev_short:.0f}: pillar BROKE — price is {curr_uprice:.0f} (below {prev_short:.0f}). Spread at risk."
+            elif prev_action == "SHORT_CALL_SPREAD":
+                if curr_uprice <= prev_short:
+                    prev_outcome = f"Previous CALL_WALL at {prev_short:.0f}: wall held — price is {curr_uprice:.0f} (below {prev_short:.0f}). Spread likely profitable."
+                else:
+                    prev_outcome = f"Previous CALL_WALL at {prev_short:.0f}: wall BROKE — price is {curr_uprice:.0f} (above {prev_short:.0f}). Spread at risk."
+            elif prev_action == "IRON_BUTTERFLY":
+                dist = abs(curr_uprice - prev_short)
+                if dist <= 5:
+                    prev_outcome = f"Previous PIN at {prev_short:.0f}: price pinning ({curr_uprice:.0f}, {dist:.0f}pts away). Iron butterfly performing well."
+                elif dist <= WING:
+                    prev_outcome = f"Previous PIN at {prev_short:.0f}: price drifted {dist:.0f}pts from pin ({curr_uprice:.0f}). Butterfly still intact but margin reduced."
+                else:
+                    prev_outcome = f"Previous PIN at {prev_short:.0f}: price moved {dist:.0f}pts away ({curr_uprice:.0f}). Butterfly likely at or near max loss."
+            else:
+                prev_outcome = f"Previous signal: {prev_struct} — price moved {prev_uprice:.0f}→{curr_uprice:.0f}."
+
+    # Get RF prediction
+    rf_pred = _predict_rf_outcome(snap)
+    
+    # Hybrid decision: override rule-based action if RF predicts LOSS
+    rule_based_action = action
+    rule_based_structure = structure
+    rf_override = False
+    
+    if rf_pred.get('available') and action != "STAY_OUT":
+        if rf_pred['prediction'] == "LOSS":
+            # Override to STAY_OUT when RF predicts loss
+            action = "STAY_OUT"
+            structure = "No Trade (RF Override)"
+            rf_override = True
+            # Update rationale to explain override
+            original_rationale = rationale
+            rationale = (
+                f"RF Override: Rule-based signal was {rule_based_action} ({rule_based_structure}), "
+                f"but Random Forest predicts LOSS (probability {rf_pred['probability']:.2%}). "
+                f"Skipping trade to avoid predicted loss."
+            )
+            invalidation = "N/A — trade skipped due to RF override."
+            caution = f"Original rule-based rationale: {original_rationale}"
+
+    return {
+        "setup_type":    setup_type,
+        "action":        action,
+        "structure":     structure,
+        "short_strike":  short_strike,
+        "wing_strike":   wing_strike,
+        "short_strike2": short_strike2,
+        "wing_strike2":  wing_strike2,
+        "rationale":     rationale,
+        "invalidation":  invalidation,
+        "caution":       caution,
+        "prev_outcome":  prev_outcome,
+        "regime":        hmm_label,
+        "rf_prediction": rf_pred,
+        "rf_override":   rf_override,
+        "rule_based_action": rule_based_action,
+    }
+
+
+def _persist_trade_signal(ndate: int, ntime: int, signal: dict, next_spx: float = None, next_ntime: int = None, outcome: str = None, outcome_points: float = None) -> None:
+    """Save a trade signal to the trade_signals table."""
+    from datetime import datetime
+    ts = datetime.utcnow().isoformat()
+    with _db() as con:
+        con.execute(
+            "INSERT OR REPLACE INTO trade_signals "
+            "(ndate, ntime, symbol, generated_ts, regime, setup_type, action, "
+            "short_strike, wing_strike, short_strike2, wing_strike2, "
+            "structure, rationale, invalidation, caution, prev_outcome, "
+            "is_llm_enhanced, next_spx, next_ntime, outcome, outcome_points) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (ndate, ntime, "SPX", ts,
+             signal.get("regime"), signal.get("setup_type"), signal.get("action"),
+             signal.get("short_strike"), signal.get("wing_strike"),
+             signal.get("short_strike2"), signal.get("wing_strike2"),
+             signal.get("structure"), signal.get("rationale"),
+             signal.get("invalidation"), signal.get("caution"),
+             signal.get("prev_outcome"), 0, next_spx, next_ntime, outcome, outcome_points)
         )
 
 
@@ -613,7 +1034,7 @@ def _backfill_gex_snapshots_summary(limit: int | None = None, force: bool = Fals
                 snap = _compute_flat_summary({"uprice": uprice, "data": data_list})
             except Exception:
                 snap = None
-        elif source == "live_promoted":
+        elif source == "gex":
             with _db() as con:
                 live = con.execute(
                     "SELECT spx_last, sentiment, gex_ratio, net_gex, kcs, dominance, "
@@ -837,7 +1258,7 @@ def _promote_live_to_historical() -> dict:
                     "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                     "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, "
                     "hmm_state, hmm_label, raw_json) "
-                    "VALUES (?, ?, 'SPX', ?, '[]', ?, 'live_promoted', "
+                    "VALUES (?, ?, 'SPX', ?, '[]', ?, 'gex', "
                     "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (ndate, ntime, spx_last or 0, 1 if ntime < 930 else 0,
                      sentiment, gex_ratio, net_gex, kcs, dominance,
@@ -1248,6 +1669,210 @@ def api_hmm_train():
     return jsonify(result)
 
 
+@app.route("/api/rf/train", methods=["POST"])
+def api_rf_train():
+    """Retrain the Random Forest model on all available labelled trade signals."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    # Run the training script
+    script_path = Path(__file__).parent / "train_trade_classifier.py"
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+        
+        return jsonify({
+            "success": result.returncode == 0,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            "success": False,
+            "stdout": "",
+            "stderr": "Training timed out after 5 minutes",
+            "returncode": -1
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "stdout": "",
+            "stderr": str(e),
+            "returncode": -1
+        }), 500
+
+
+@app.route("/api/admin/run-daily", methods=["POST"])
+def api_admin_run_daily():
+    """Run optionalpha_daily.py script."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    script_path = Path(__file__).parent / "optionalpha_daily.py"
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script_path), "--symbol", "SPX"],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        
+        return jsonify({
+            "success": result.returncode == 0,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            "success": False,
+            "stdout": "",
+            "stderr": "Script timed out after 5 minutes",
+            "returncode": -1
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "stdout": "",
+            "stderr": str(e),
+            "returncode": -1
+        }), 500
+
+
+@app.route("/api/admin/run-summary", methods=["POST"])
+def api_admin_run_summary():
+    """Run optionalpha_daily-summary.py script."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    script_path = Path(__file__).parent / "optionalpha_daily-summary.py"
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+        
+        return jsonify({
+            "success": result.returncode == 0,
+            "stdout": result.stdout,
+            "stderr": result.stderr,
+            "returncode": result.returncode
+        })
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            "success": False,
+            "stdout": "",
+            "stderr": "Script timed out after 5 minutes",
+            "returncode": -1
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "stdout": "",
+            "stderr": str(e),
+            "returncode": -1
+        }), 500
+
+
+@app.route("/api/admin/generate-report", methods=["POST"])
+def api_admin_generate_report():
+    """Generate GEX report using OpenAI API."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    import os
+    
+    # Read the prompt
+    prompt_path = Path(__file__).parent / "GEX_REPORT_PROMPT.md"
+    if not prompt_path.exists():
+        return jsonify({
+            "success": False,
+            "error": "GEX_REPORT_PROMPT.md not found"
+        }), 404
+    
+    with open(prompt_path, 'r', encoding='utf-8') as f:
+        prompt = f.read()
+    
+    # For now, return the prompt as the report (user will need to manually run through LLM)
+    # This is a placeholder - full implementation would require OpenAI API integration
+    report_text = "GEX Report Generation\n\n" + "="*50 + "\n\n" + \
+                 "Note: Full LLM integration requires OpenAI API key configuration.\n\n" + \
+                 "Current prompt instructions:\n\n" + prompt + \
+                 "\n\nTo implement full automation:\n" + \
+                 "1. Add OPENAI_API_KEY to environment variables\n" + \
+                 "2. Implement OpenAI API call in this endpoint\n" + \
+                 "3. Execute the prompt steps programmatically\n" + \
+                 "\n\nCurrent status: Placeholder implementation"
+    return jsonify({
+        "success": True,
+        "report": report_text
+    }), 200
+
+
+@app.route("/api/admin/verify-data", methods=["POST"])
+def api_admin_verify_data():
+    """Verify data integrity across gex_snapshots table."""
+    try:
+        results = _verify_data()
+        return jsonify({
+            "success": True,
+            "results": results
+        }), 200
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
+@app.route("/api/admin/regenerate-signals", methods=["POST"])
+def api_admin_regenerate_signals():
+    """Regenerate trade signals from corrected data."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    
+    script_path = Path(__file__).parent / "backfill_trade_signals.py"
+    
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script_path)],
+            capture_output=True,
+            text=True,
+            timeout=600  # 10 minute timeout
+        )
+        
+        return jsonify({
+            "success": result.returncode == 0,
+            "returncode": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr
+        }), 200
+    except subprocess.TimeoutExpired:
+        return jsonify({
+            "success": False,
+            "error": "Script timed out after 10 minutes"
+        }), 500
+    except Exception as e:
+        return jsonify({
+            "success": False,
+            "error": str(e)
+        }), 500
+
+
 @app.route("/api/metric/history")
 def api_metric_history():
     """Return historical EOD values for a metric and current value context."""
@@ -1384,7 +2009,8 @@ def _ensure_live_captures_table() -> None:
                 key2_put_vol   INTEGER,
                 flip            REAL,
                 is_premarket    INTEGER NOT NULL DEFAULT 0,
-                raw_json        TEXT
+                raw_json        TEXT,
+                UNIQUE(ndate, ntime)
             )
         """)
         # Migrate existing tables that may lack is_premarket or raw_json
@@ -1393,6 +2019,22 @@ def _ensure_live_captures_table() -> None:
             con.execute("ALTER TABLE live_captures ADD COLUMN is_premarket INTEGER NOT NULL DEFAULT 0")
         if "raw_json" not in cols:
             con.execute("ALTER TABLE live_captures ADD COLUMN raw_json TEXT")
+        
+        # Migration: add UNIQUE constraint on (ndate, ntime) if not present
+        # SQLite doesn't support ALTER TABLE ADD CONSTRAINT, so we need to recreate
+        indexes = [r[1] for r in con.execute("PRAGMA index_list(live_captures)").fetchall()]
+        has_unique = any("live_captures_ndate_ntime" in idx for idx in indexes)
+        if not has_unique:
+            # Remove duplicates first
+            con.execute("""
+                DELETE FROM live_captures 
+                WHERE id NOT IN (
+                    SELECT MIN(id) FROM live_captures 
+                    GROUP BY ndate, ntime
+                )
+            """)
+            # Create unique index
+            con.execute("CREATE UNIQUE INDEX live_captures_ndate_ntime ON live_captures(ndate, ntime)")
 
 
 def _ensure_unified_snapshots_table() -> None:
@@ -1667,11 +2309,16 @@ def available_dates() -> list:
 
 
 def load_gex_snapshot(date_iso: str, ntime: int, symbol: str = "SPX") -> dict | None:
-    """Load a single GEX snapshot from SQLite."""
+    """Load a single GEX snapshot from SQLite (historical only)."""
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         row = con.execute(
-            "SELECT uprice, data FROM gex_snapshots "
+            "SELECT uprice, data, sentiment, gex_ratio, net_gex, kcs, dominance, "
+            "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
+            "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
+            "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
+            "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, hmm_state, hmm_label "
+            "FROM gex_snapshots "
             "WHERE ndate=? AND ntime=? AND symbol=?",
             (ndate, ntime, symbol),
         ).fetchone()
@@ -1679,11 +2326,131 @@ def load_gex_snapshot(date_iso: str, ntime: int, symbol: str = "SPX") -> dict | 
         parsed = json.loads(row[1])
         # The DB stores the full JSON dict with 'data' key; extract the inner data list
         data_list = parsed.get("data") if isinstance(parsed, dict) else parsed
-        return {"uprice": row[0], "data": data_list}
+        return {
+            "uprice": row[0],
+            "data": data_list,
+            "sentiment": row[2],
+            "gex_ratio": row[3],
+            "net_gex": row[4],
+            "kcs": row[5],
+            "dominance": row[6],
+            "total_call_gex": row[7],
+            "total_put_gex": row[8],
+            "key_strike": row[9],
+            "key_call_gex": row[10],
+            "key_put_gex": row[11],
+            "total_call_oi": row[12],
+            "total_put_oi": row[13],
+            "key_call_oi": row[14],
+            "key_put_oi": row[15],
+            "total_call_vol": row[16],
+            "total_put_vol": row[17],
+            "key_call_vol": row[18],
+            "key_put_vol": row[19],
+            "key2_strike": row[20],
+            "key2_abs": row[21],
+            "key2_call_vol": row[22],
+            "key2_put_vol": row[23],
+            "flip": row[24],
+            "hmm_state": row[25],
+            "hmm_label": row[26],
+        }
+    return None
+
+
+def load_live_snapshot(date_iso: str, ntime: int) -> dict | None:
+    """Load a single live snapshot from live_captures table."""
+    ndate = int(date_iso.replace("-", ""))
+    with _db() as con:
+        row = con.execute(
+            "SELECT spx_last, raw_json, sentiment, gex_ratio, net_gex, kcs, dominance, "
+            "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
+            "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
+            "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
+            "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, hmm_state, hmm_label "
+            "FROM live_captures "
+            "WHERE ndate=? AND ntime=?",
+            (ndate, ntime),
+        ).fetchone()
+    if row:
+        parsed = json.loads(row[1]) if row[1] else {"data": []}
+        # The DB stores the full JSON dict with 'data' key; extract the inner data list
+        data_list = parsed.get("data") if isinstance(parsed, dict) else parsed
+        return {
+            "uprice": row[0],
+            "data": data_list,
+            "sentiment": row[2],
+            "gex_ratio": row[3],
+            "net_gex": row[4],
+            "kcs": row[5],
+            "dominance": row[6],
+            "total_call_gex": row[7],
+            "total_put_gex": row[8],
+            "key_strike": row[9],
+            "key_call_gex": row[10],
+            "key_put_gex": row[11],
+            "total_call_oi": row[12],
+            "total_put_oi": row[13],
+            "key_call_oi": row[14],
+            "key_put_oi": row[15],
+            "total_call_vol": row[16],
+            "total_put_vol": row[17],
+            "key_call_vol": row[18],
+            "key_put_vol": row[19],
+            "key2_strike": row[20],
+            "key2_abs": row[21],
+            "key2_call_vol": row[22],
+            "key2_put_vol": row[23],
+            "flip": row[24],
+            "hmm_state": row[25],
+            "hmm_label": row[26],
+        }
     return None
 
 
 def summarise_snapshot(data: dict) -> dict:
+    """Summarise snapshot data. If flat columns are present, use them directly."""
+    # If flat columns are already computed, return them
+    if "net_gex" in data and data["net_gex"] is not None:
+        key_call_gex = data.get("key_call_gex") or 0
+        key_put_gex = data.get("key_put_gex") or 0
+        key_call_oi = data.get("key_call_oi") or 0
+        key_put_oi = data.get("key_put_oi") or 0
+        key_call_vol = data.get("key_call_vol") or 0
+        key_put_vol = data.get("key_put_vol") or 0
+        return {
+            "uprice": data.get("uprice", 0),
+            "net_gex": data.get("net_gex", 0),
+            "call_gex": data.get("total_call_gex", 0),
+            "put_gex": data.get("total_put_gex", 0),
+            "sentiment_pct": data.get("sentiment", 50),
+            "gex_ratio": data.get("gex_ratio", 0),
+            "kcs": data.get("kcs", 0),
+            "dominance": data.get("dominance", 0),
+            "key_strike": data.get("key_strike", 0),
+            "key_call_gex": key_call_gex,
+            "key_put_gex": key_put_gex,
+            "key_net_gex": key_call_gex - key_put_gex,
+            "total_call_oi": data.get("total_call_oi", 0),
+            "total_put_oi": data.get("total_put_oi", 0),
+            "key_call_oi": key_call_oi,
+            "key_put_oi": key_put_oi,
+            "key_net_oi": key_call_oi - key_put_oi,
+            "total_call_vol": data.get("total_call_vol", 0),
+            "total_put_vol": data.get("total_put_vol", 0),
+            "key_call_vol": key_call_vol,
+            "key_put_vol": key_put_vol,
+            "key_vol_net": key_call_vol - key_put_vol,
+            "key2_strike": data.get("key2_strike", 0),
+            "key2_abs": data.get("key2_abs", 0),
+            "key2_call_vol": data.get("key2_call_vol", 0),
+            "key2_put_vol": data.get("key2_put_vol", 0),
+            "flip": data.get("flip", 0),
+            "hmm_state": data.get("hmm_state", 0),
+            "hmm_label": data.get("hmm_label", None)
+        }
+    
+    # Fallback: calculate from raw data
     rows   = data.get("data") or []
     uprice = data.get("uprice", 0)
     if not rows:
@@ -1810,8 +2577,15 @@ def _compute_flat_summary(data: dict) -> dict:
     This matches the calculation used for live_captures so that historical and
     live rows share identical numeric values.
     """
-    rows = data.get("data") or []
-    uprice = data.get("uprice", 0)
+    # Handle both dict with 'data' key and direct list
+    if isinstance(data, dict):
+        rows = data.get("data") or []
+    elif isinstance(data, list):
+        rows = data
+    else:
+        rows = []
+    
+    uprice = data.get("uprice", 0) if isinstance(data, dict) else 0
     if not rows:
         return {"uprice": uprice}
 
@@ -3160,6 +3934,11 @@ def hscatter():
     from time import time
     return render_template("hscatter.html", cache_bust=int(time()))
 
+@app.route("/admin")
+def admin():
+    from time import time
+    return render_template("admin.html", cache_bust=int(time()))
+
 @app.route("/spx")
 def spx():
     from time import time
@@ -3338,9 +4117,12 @@ def api_snapshot():
     # Net GEX = sum of all net within the window
     net_g = sum(net_gex)
 
-    snap["sentiment_pct"]  = sentiment_pct
-    snap["gex_ratio"]      = gex_ratio
-    snap["net_gex"]        = net_g
+    # NOTE: Do NOT overwrite snap values from summarise_snapshot
+    # summarise_snapshot already reads flat columns from database
+    # These recalculations are for chart data only, not the summary response
+    # snap["sentiment_pct"]  = sentiment_pct
+    # snap["gex_ratio"]      = gex_ratio
+    # snap["net_gex"]        = net_g
     snap["total_call_oi"]  = int(total_call_oi)
     snap["total_put_oi"]   = int(total_put_oi)
     snap["total_call_vol"] = int(total_call_vol)
@@ -3707,6 +4489,158 @@ def api_narrative_regenerate():
         "narrative": narrative,
         "is_llm_enhanced": False
     })
+
+
+@app.route("/api/trade-signals")
+def api_trade_signals():
+    """Return all persisted trade signals for a date."""
+    date_iso = request.args.get("date")
+    if not date_iso:
+        return jsonify({"error": "date required"}), 400
+    ndate = int(date_iso.replace("-", ""))
+    with _db() as con:
+        rows = con.execute(
+            "SELECT ntime, regime, setup_type, action, short_strike, wing_strike, "
+            "short_strike2, wing_strike2, structure, rationale, invalidation, caution, "
+            "prev_outcome, next_spx, next_ntime, outcome, outcome_points, generated_ts, is_llm_enhanced "
+            "FROM trade_signals WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
+            (ndate,)
+        ).fetchall()
+    cols = ["ntime", "regime", "setup_type", "action", "short_strike", "wing_strike",
+            "short_strike2", "wing_strike2", "structure", "rationale", "invalidation",
+            "caution", "prev_outcome", "next_spx", "next_ntime", "outcome", "outcome_points",
+            "generated_ts", "is_llm_enhanced"]
+    return jsonify({"date": date_iso, "signals": [dict(zip(cols, r)) for r in rows]})
+
+
+@app.route("/api/trade-signals/generate", methods=["POST"])
+def api_trade_signals_generate():
+    """Generate and persist trade signals for all snapshots on a date."""
+    body = request.get_json(force=True) or {}
+    date_iso = body.get("date")
+    if not date_iso:
+        et_now = get_et_now()
+        date_iso = et_now.strftime("%Y-%m-%d")
+    ndate = int(date_iso.replace("-", ""))
+
+    # Load all snapshots for the date in time order
+    # For today's date, use live_captures; for historical dates, use gex_snapshots
+    from datetime import datetime, timedelta, timezone
+    et_now = get_et_now()
+    today_ndate = int(et_now.strftime("%Y%m%d"))
+    use_live = (ndate == today_ndate)
+
+    with _db() as con:
+        if use_live:
+            snap_rows = con.execute(
+                "SELECT ntime, spx_last, net_gex, sentiment, gex_ratio, kcs, dominance, "
+                "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
+                "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
+                "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
+                "key2_strike, key2_abs, flip, hmm_label, 0 as is_premarket "
+                "FROM live_captures WHERE ndate=? ORDER BY ntime",
+                (ndate,)
+            ).fetchall()
+        else:
+            snap_rows = con.execute(
+                "SELECT ntime, uprice, net_gex, sentiment, gex_ratio, kcs, dominance, "
+                "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
+                "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
+                "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
+                "key2_strike, key2_abs, flip, hmm_label, is_premarket "
+                "FROM gex_snapshots WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
+                (ndate,)
+            ).fetchall()
+
+    if not snap_rows:
+        return jsonify({"error": "No snapshots found for date"}), 404
+
+    snap_cols = ["ntime", "uprice", "net_gex", "sentiment_pct", "gex_ratio", "kcs",
+                 "key_dominance_pct", "total_call_gex", "total_put_gex", "key_strike",
+                 "key_call_gex", "key_put_gex", "total_call_oi", "total_put_oi",
+                 "key_call_oi", "key_put_oi", "total_call_vol", "total_put_vol",
+                 "key_call_vol", "key_put_vol", "key2_strike", "key2_abs", "flip",
+                 "hmm_label", "is_premarket"]
+    snaps = [dict(zip(snap_cols, r)) for r in snap_rows]
+
+    # Load existing signals for prev_outcome chain
+    with _db() as con:
+        existing = con.execute(
+            "SELECT ntime, action, short_strike, structure FROM trade_signals "
+            "WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
+            (ndate,)
+        ).fetchall()
+    sig_by_time = {r[0]: {"action": r[1], "short_strike": r[2], "structure": r[3]}
+                   for r in existing}
+
+    generated = 0
+    for i, snap in enumerate(snaps):
+        ntime = snap["ntime"]
+        prev_snap = snaps[i - 1] if i > 0 else None
+        prev_sig = sig_by_time.get(snaps[i - 1]["ntime"]) if i > 0 else None
+        signal = _generate_trade_signal(snap, prev_snap, prev_sig)
+
+        # Calculate intraday outcome based on next snapshot
+        next_spx = None
+        next_ntime = None
+        outcome = None
+        outcome_points = None
+
+        if i < len(snaps) - 1:  # Has next snapshot
+            next_snap = snaps[i + 1]
+            next_spx = next_snap.get("uprice")
+            next_ntime = next_snap.get("ntime")
+            curr_spx = snap.get("uprice")
+            action = signal.get("action")
+            short_strike = signal.get("short_strike")
+            wing_strike = signal.get("wing_strike")
+            WING = 10
+
+            if action == "STAY_OUT":
+                move = abs(next_spx - curr_spx) if next_spx and curr_spx else 0
+                if move < 5:
+                    outcome = "MISSED"
+                    outcome_points = 0  # Could have profited from iron condor
+                elif move > 15:
+                    outcome = "CORRECT"
+                    outcome_points = move  # Avoided adverse move
+                else:
+                    outcome = "NEUTRAL"
+                    outcome_points = 0
+            elif action == "SHORT_PUT_SPREAD" and short_strike:
+                if next_spx >= short_strike:
+                    outcome = "WIN"
+                    outcome_points = next_spx - curr_spx
+                else:
+                    outcome = "LOSS"
+                    outcome_points = curr_spx - next_spx
+            elif action == "SHORT_CALL_SPREAD" and short_strike:
+                if next_spx <= short_strike:
+                    outcome = "WIN"
+                    outcome_points = curr_spx - next_spx
+                else:
+                    outcome = "LOSS"
+                    outcome_points = next_spx - curr_spx
+            elif action == "IRON_BUTTERFLY" and short_strike:
+                dist = abs(next_spx - short_strike)
+                if dist <= 5:
+                    outcome = "WIN"
+                    outcome_points = 5 - dist
+                elif dist <= WING:
+                    outcome = "PARTIAL"
+                    outcome_points = WING - dist
+                else:
+                    outcome = "LOSS"
+                    outcome_points = -(dist - WING)
+            else:
+                outcome = "NEUTRAL"
+                outcome_points = 0
+
+        _persist_trade_signal(ndate, ntime, signal, next_spx, next_ntime, outcome, outcome_points)
+        sig_by_time[ntime] = signal
+        generated += 1
+
+    return jsonify({"date": date_iso, "generated": generated})
 
 
 @app.route("/api/history")
@@ -4235,14 +5169,14 @@ def _migrate_histgex_to_db(symbol: str = "SPX") -> dict:
                 with _db() as con:
                     con.execute(
                         "INSERT OR IGNORE INTO gex_snapshots "
-                        "(ndate, ntime, symbol, uprice, data, is_premarket, "
+                        "(ndate, ntime, symbol, uprice, data, is_premarket, source, raw_json, "
                         "sentiment, gex_ratio, net_gex, kcs, dominance, "
                         "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
                         "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                         "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                         "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (ndate, ntime, symbol, uprice, json.dumps(data), is_pre,
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (ndate, ntime, symbol, uprice, json.dumps(data), is_pre, 'histgex', json.dumps(data),
                          snap.get("sentiment_pct"), snap.get("gex_ratio"), snap.get("net_gex"), snap.get("kcs"), snap.get("key_dominance_pct"),
                          snap.get("total_call_gex"), snap.get("total_put_gex"), snap.get("key_strike"), snap.get("key_call_gex"), snap.get("key_put_gex"),
                          snap.get("total_call_oi"), snap.get("total_put_oi"), snap.get("key_call_oi"), snap.get("key_put_oi"),
@@ -4312,14 +5246,14 @@ def _migrate_live_snapshots_to_history(symbol: str = "SPX") -> dict:
                 with _db() as con:
                     con.execute(
                         "INSERT OR IGNORE INTO gex_snapshots "
-                        "(ndate, ntime, symbol, uprice, data, is_premarket, "
+                        "(ndate, ntime, symbol, uprice, data, is_premarket, source, raw_json, "
                         "sentiment, gex_ratio, net_gex, kcs, dominance, "
                         "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
                         "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                         "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                         "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (ndate, ntime, symbol, uprice, json.dumps(data), is_pre,
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (ndate, ntime, symbol, uprice, json.dumps(data), is_pre, 'gex', json.dumps(data),
                          snap.get("sentiment_pct"), snap.get("gex_ratio"), snap.get("net_gex"), snap.get("kcs"), snap.get("key_dominance_pct"),
                          snap.get("total_call_gex"), snap.get("total_put_gex"), snap.get("key_strike"), snap.get("key_call_gex"), snap.get("key_put_gex"),
                          snap.get("total_call_oi"), snap.get("total_put_oi"), snap.get("key_call_oi"), snap.get("key_put_oi"),
@@ -4393,14 +5327,14 @@ def sync_historical(symbol: str = "SPX", max_days: int = 30) -> dict:
                 with _db() as con:
                     con.execute(
                         "INSERT OR IGNORE INTO gex_snapshots "
-                        "(ndate, ntime, symbol, uprice, data, is_premarket, "
+                        "(ndate, ntime, symbol, uprice, data, is_premarket, source, raw_json, "
                         "sentiment, gex_ratio, net_gex, kcs, dominance, "
                         "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
                         "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                         "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                         "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (ndate, ntime, symbol, uprice, json.dumps(rows), 1 if ntime < RTH_OPEN else 0,
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (ndate, ntime, symbol, uprice, json.dumps(rows), 1 if ntime < RTH_OPEN else 0, 'histgex', json.dumps(data),
                          snap.get("sentiment_pct"), snap.get("gex_ratio"), snap.get("net_gex"), snap.get("kcs"), snap.get("key_dominance_pct"),
                          snap.get("total_call_gex"), snap.get("total_put_gex"), snap.get("key_strike"), snap.get("key_call_gex"), snap.get("key_put_gex"),
                          snap.get("total_call_oi"), snap.get("total_put_oi"), snap.get("key_call_oi"), snap.get("key_put_oi"),
@@ -4594,7 +5528,7 @@ def _api_live_fetch_inner():
     _is_premarket = 1 if data["ntime"] < RTH_OPEN else 0
     with _db() as _con:
         _con.execute("""
-            INSERT INTO live_captures (
+            INSERT OR REPLACE INTO live_captures (
                 capture_ts, ndate, ntime,
                 spx_last, sentiment, gex_ratio, net_gex, kcs, dominance,
                 total_call_gex, total_put_gex,
@@ -4718,7 +5652,7 @@ def _api_live_fetch_inner():
     _is_premarket = 1 if data["ntime"] < RTH_OPEN else 0
     with _db() as _con:
         _con.execute("""
-            INSERT INTO live_captures (
+            INSERT OR REPLACE INTO live_captures (
                 capture_ts, ndate, ntime,
                 spx_last, sentiment, gex_ratio, net_gex, kcs, dominance,
                 total_call_gex, total_put_gex,
@@ -4966,13 +5900,13 @@ def load_live_snapshots(date_iso: str) -> list:
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         rows = con.execute(
-            "SELECT ntime, uprice, data FROM gex_snapshots WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
+            "SELECT ntime, spx_last, raw_json FROM live_captures WHERE ndate=? ORDER BY ntime",
             (ndate,)
         ).fetchall()
     snapshots = []
-    for ntime, uprice, data_json in rows:
+    for ntime, uprice, raw_json in rows:
         try:
-            d = json.loads(data_json)
+            d = json.loads(raw_json) if raw_json else []
             snapshots.append({"ndate": ndate, "ntime": ntime, "uprice": uprice, "data": d})
         except Exception:
             continue
@@ -5079,9 +6013,12 @@ def api_live_snapshot():
     if not date_iso:
         et_now = get_et_now()
         date_iso = et_now.strftime("%Y-%m-%d")
+    
+    print(f"[DEBUG] api_live_snapshot: date_iso={date_iso}, ntime={ntime}")
 
     try:
-        data = load_gex_snapshot(date_iso, ntime)
+        data = load_live_snapshot(date_iso, ntime)
+        print(f"[DEBUG] load_live_snapshot returned: {data is not None}")
         if not data:
             return jsonify({"error": "Snapshot not found"}), 404
 
@@ -5466,6 +6403,182 @@ loadDates();
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _verify_data() -> dict:
+    """Verify data integrity across gex_snapshots and live_captures tables.
+    
+    Checks:
+    1. Table source integrity: live_captures should only have today's data, gex_snapshots should only have histgex
+    2. Source field is 'gex' or 'histgex'
+    3. Raw JSON presence (excludes known-missing gex snapshots from dates 20260622-20260626)
+    4. Deep verification: recalculate from raw data and compare to persisted values
+    
+    Returns dict with verification results.
+    """
+    import json
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    
+    results = {
+        "timestamp": datetime.now().isoformat(),
+        "total_snapshots": 0,
+        "table_source_errors": [],
+        "source_errors": [],
+        "raw_json_errors": [],
+        "calculation_errors": [],
+        "known_missing_json": 0,
+        "summary": {}
+    }
+    
+    # Known-missing JSON: source='gex' snapshots from 20260622-20260626
+    known_missing_dates = [20260622, 20260623, 20260624, 20260625, 20260626]
+    
+    # Get today's date in ET
+    today_ndate = int(datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d"))
+    
+    with _db() as con:
+        # Check 1: Table source integrity
+        # live_captures should only have today's data (source='gex' implied)
+        cursor = con.execute('''
+            SELECT ndate, ntime
+            FROM live_captures
+            WHERE ndate < ?
+        ''', (today_ndate,))
+        for row in cursor.fetchall():
+            results["table_source_errors"].append({
+                "table": "live_captures",
+                "ndate": row[0],
+                "ntime": row[1],
+                "error": f"live_captures contains prior-day data (ndate={row[0]} < today={today_ndate}). Should be promoted to gex_snapshots."
+            })
+        
+        # gex_snapshots should only have source='histgex' (historical data)
+        # source='gex' in gex_snapshots is incorrect - should be in live_captures
+        cursor = con.execute('''
+            SELECT ndate, ntime, source
+            FROM gex_snapshots
+            WHERE symbol='SPX' AND source='gex'
+        ''')
+        for row in cursor.fetchall():
+            results["table_source_errors"].append({
+                "table": "gex_snapshots",
+                "ndate": row[0],
+                "ntime": row[1],
+                "source": row[2],
+                "error": f"gex_snapshots contains source='gex' data. Live data should be in live_captures table."
+            })
+        
+        # Get all SPX snapshots from gex_snapshots
+        cursor = con.execute('''
+            SELECT ndate, ntime, symbol, source, raw_json, data,
+                   net_gex, total_call_gex, total_put_gex, sentiment, gex_ratio,
+                   kcs, key_strike, key_call_gex, key_put_gex
+            FROM gex_snapshots 
+            WHERE symbol='SPX'
+            ORDER BY ndate, ntime
+        ''')
+        rows = cursor.fetchall()
+        results["total_snapshots"] = len(rows)
+        
+        for row in rows:
+            (ndate, ntime, symbol, source, raw_json, data,
+             db_net_gex, db_total_call_gex, db_total_put_gex, db_sentiment, db_gex_ratio,
+             db_kcs, db_key_strike, db_key_call_gex, db_key_put_gex) = row
+            
+            # Check 1: Source field
+            if source not in ['gex', 'histgex']:
+                results["source_errors"].append({
+                    "ndate": ndate,
+                    "ntime": ntime,
+                    "error": f"Invalid source: {source}"
+                })
+            
+            # Check 2: Raw JSON (exclude known-missing gex snapshots)
+            if raw_json is None:
+                if source == 'gex' and ndate in known_missing_dates:
+                    results["known_missing_json"] += 1
+                else:
+                    results["raw_json_errors"].append({
+                        "ndate": ndate,
+                        "ntime": ntime,
+                        "source": source,
+                        "error": "Missing raw_json"
+                    })
+            
+            # Check 3: Deep verification (recalculate from raw data)
+            if raw_json is not None:
+                try:
+                    raw_data = json.loads(raw_json)
+                    recalculated = _compute_flat_summary(raw_data)
+                    
+                    # Compare key fields (allow small floating point differences)
+                    tolerance = 0.01
+                    
+                    if abs(recalculated.get("net_gex", 0) - db_net_gex) > tolerance:
+                        results["calculation_errors"].append({
+                            "ndate": ndate,
+                            "ntime": ntime,
+                            "field": "net_gex",
+                            "db_value": db_net_gex,
+                            "calc_value": recalculated.get("net_gex", 0)
+                        })
+                    
+                    if abs(recalculated.get("total_call_gex", 0) - db_total_call_gex) > tolerance:
+                        results["calculation_errors"].append({
+                            "ndate": ndate,
+                            "ntime": ntime,
+                            "field": "total_call_gex",
+                            "db_value": db_total_call_gex,
+                            "calc_value": recalculated.get("total_call_gex", 0)
+                        })
+                    
+                    if abs(recalculated.get("total_put_gex", 0) - db_total_put_gex) > tolerance:
+                        results["calculation_errors"].append({
+                            "ndate": ndate,
+                            "ntime": ntime,
+                            "field": "total_put_gex",
+                            "db_value": db_total_put_gex,
+                            "calc_value": recalculated.get("total_put_gex", 0)
+                        })
+                    
+                    if abs(recalculated.get("gex_ratio", 0) - db_gex_ratio) > tolerance:
+                        results["calculation_errors"].append({
+                            "ndate": ndate,
+                            "ntime": ntime,
+                            "field": "gex_ratio",
+                            "db_value": db_gex_ratio,
+                            "calc_value": recalculated.get("gex_ratio", 0)
+                        })
+                    
+                    if abs(recalculated.get("kcs", 0) - db_kcs) > tolerance:
+                        results["calculation_errors"].append({
+                            "ndate": ndate,
+                            "ntime": ntime,
+                            "field": "kcs",
+                            "db_value": db_kcs,
+                            "calc_value": recalculated.get("kcs", 0)
+                        })
+                    
+                except Exception as e:
+                    results["calculation_errors"].append({
+                        "ndate": ndate,
+                        "ntime": ntime,
+                        "error": f"Recalculation failed: {str(e)[:100]}"
+                    })
+    
+    # Summary
+    results["summary"] = {
+        "total_snapshots": results["total_snapshots"],
+        "table_source_errors": len(results["table_source_errors"]),
+        "source_errors": len(results["source_errors"]),
+        "raw_json_errors": len(results["raw_json_errors"]),
+        "calculation_errors": len(results["calculation_errors"]),
+        "known_missing_json": results["known_missing_json"],
+        "valid_snapshots": results["total_snapshots"] - len(results["source_errors"]) - len(results["raw_json_errors"]) - len(results["calculation_errors"])
+    }
+    
+    return results
+
+
 if __name__ == "__main__":
     import argparse, webbrowser, threading
 
@@ -5483,14 +6596,14 @@ if __name__ == "__main__":
     _backfill_live_captures_nulls()  # set default values for null computed columns in live_captures
     _backfill_gex_snapshots_nulls()  # set default values for null computed columns in gex_snapshots
     _promote_live_to_historical()  # auto-promote prior-day live snapshots on every startup
-    _backfill_gex_snapshots_summary(force=True)  # re-backfill all rows with corrected gex_ratio formula
+    # _backfill_gex_snapshots_summary(force=True)  # re-backfill all rows with corrected gex_ratio formula - DISABLED: run manually when calculation logic changes
     _HISTORY_CACHE.clear()  # clear cache after backfill to rebuild with new values
-    _populate_metric_history()  # populate EOD metric values from histograms
+    # _populate_metric_history()  # populate EOD metric values from histograms - DISABLED TEMPORARILY
     _ensure_percentile_history_table()
-    _populate_percentile_history()  # populate time-slot percentiles for rankings
+    # _populate_percentile_history()  # populate time-slot percentiles for rankings - DISABLED TEMPORARILY
     _ensure_narratives_table()
-    _train_hmm()  # train on startup if model is missing or >7 days old; also backfills HMM labels
-    _backfill_hmm_labels_for_gex_snapshots(only_null=True)  # fill labels for any newly added snapshots
+    # _train_hmm()  # train on startup if model is missing or >7 days old; also backfills HMM labels - DISABLED TEMPORARILY
+    # _backfill_hmm_labels_for_gex_snapshots(only_null=True)  # fill labels for any newly added snapshots - DISABLED TEMPORARILY
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=5050)
