@@ -442,44 +442,6 @@ Rules:
 | `ohlc_close` | float | SPX daily close. |
 | `source_file` | path | Path to the raw JSON result file used for this summary.
 
-## KCS Calculation Detail
-
-**KCS (Key Strike Confluence Score)** measures how concentrated GEX, OI, and volume are at the key strike relative to the 40-strike window.
-
-**Formula:**
-```
-KCS = (0.5 * gex_share + 0.3 * oi_share + 0.2 * vol_share) * proximity_factor * 100
-```
-
-**Where all shares are calculated from the KEY STRIKE specifically:**
-- **gex_share** = key_strike's absolute GEX / total absolute GEX across 40-strike window
-- **oi_share** = key_strike's total OI (call + put) / total OI across 40-strike window
-- **vol_share** = key_strike's total volume (call + put) / total volume across 40-strike window
-- **proximity_factor** = exp(-distance/25), where distance = |key_strike - uprice|
-
-**Interpretation:**
-- Higher KCS = more confluence (GEX, OI, and volume all concentrated at key strike)
-- Weights: GEX (50%), OI (30%), Volume (20%)
-- Proximity factor discounts strikes far from underlying price
-- Typical range: 3–25
-
-## CRITICAL RULE: Two API Data Structures
-
-When processing GEX data, always handle both JSON structures:
-
-- **market.gex (live):** Has `last` field (underlying price), NO `uprice`
-- **market.histgex (historical):** Has `uprice` field, NO `last`
-
-**Classification:**
-- `source='gex'` → Live (market.gex)
-- `source='histgex'` → Historical (market.histgex)
-
-**Time-based classification:**
-- Half-hour boundary (00 or 30 minutes) = Historical
-- Otherwise = Live
-- Before 09:30 = Pre-Market
-- 09:30 or later = In-Market
-
 ## If the daily run fails with 401, 403, or Cloudflare/login errors
 
 This usually means the saved cookies in `session.json` have expired.
