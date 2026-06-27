@@ -4267,61 +4267,8 @@ def api_snapshots():
 
 @app.route("/api/snapshots/summary")
 def api_snapshots_summary():
-    """Return a compact summary row for every available time-slot on a date.
-
-    Sourced from the unified snapshot table.
-    Columns match the snapshot table schema so both tabs can share the
-    same frontend table renderer.
-    """
-    date_iso = request.args.get("date")
-    if not date_iso:
-        return jsonify({"date": date_iso, "rows": []})
-    ndate = int(date_iso.replace("-", ""))
-    fields = [
-        "ntime", "uprice", "sentiment", "gex_ratio", "net_gex", "kcs", "dominance",
-        "total_call_gex", "total_put_gex", "key_strike", "key_call_gex", "key_put_gex",
-        "total_call_oi", "total_put_oi", "key_call_oi", "key_put_oi",
-        "total_call_vol", "total_put_vol", "key_call_vol", "key_put_vol",
-        "key2_strike", "key2_abs", "key2_call_vol", "key2_put_vol", "flip",
-        "hmm_state", "hmm_label", "is_premarket",
-    ]
-    sql = f"SELECT {', '.join(fields)} FROM snapshot WHERE ndate=? AND symbol='SPX' ORDER BY ntime DESC"
-    with _db() as con:
-        rows = con.execute(sql, (ndate,)).fetchall()
-
-    result = []
-    for r in rows:
-        result.append({
-            "ntime":          r[0],
-            "spx_last":       r[1],
-            "sentiment":      r[2],
-            "gex_ratio":      r[3],
-            "net_gex":        r[4],
-            "kcs":            r[5],
-            "dominance":      r[6],
-            "total_call_gex": r[7],
-            "total_put_gex":  r[8],
-            "key_strike":     r[9],
-            "key_call_gex":   r[10],
-            "key_put_gex":    r[11],
-            "total_call_oi":  r[12],
-            "total_put_oi":   r[13],
-            "key_call_oi":    r[14],
-            "key_put_oi":     r[15],
-            "total_call_vol": r[16],
-            "total_put_vol":  r[17],
-            "key_call_vol":   r[18],
-            "key_put_vol":    r[19],
-            "key2_strike":    r[20],
-            "key2_abs":       r[21],
-            "key2_call_vol":  r[22],
-            "key2_put_vol":   r[23],
-            "flip":           r[24],
-            "hmm_state":      r[25],
-            "hmm_label":      r[26],
-            "is_premarket":   r[27] if r[27] is not None else (1 if r[0] < RTH_OPEN else 0),
-        })
-    return jsonify({"date": date_iso, "rows": result})
+    """Route now delegates to SnapshotController (Phase 5 migration)."""
+    return SnapshotController.get_snapshots_summary()
 
 
 @app.route("/api/analysis")
