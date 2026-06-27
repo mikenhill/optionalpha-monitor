@@ -30,6 +30,7 @@ app = Flask(__name__)
 from controllers.dates_controller import DatesController
 from controllers.snapshot_controller import SnapshotController
 from controllers.admin_controller import AdminController
+from controllers.percentiles_controller import PercentilesController
 
 BASE_DIR  = Path(__file__).resolve().parent
 GEX_DIR   = BASE_DIR / "results" / "histgex"
@@ -4114,6 +4115,13 @@ def mvc_api_admin_snapshot_json():
 def mvc_api_admin_rebuild_snapshot():
     """Rebuild snapshot flat columns from raw JSON data blob."""
     return AdminController.rebuild_snapshot_from_json()
+
+
+# MVC percentiles route
+@app.route("/mvc/api/percentiles")
+def mvc_api_percentiles():
+    """MVC version of /api/percentiles using PercentilesController."""
+    return PercentilesController.get_percentiles()
 
 
 CSV_SUMMARY = BASE_DIR / "results" / "daily_gex_summary-concise.csv"

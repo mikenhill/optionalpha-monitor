@@ -701,6 +701,144 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Percentiles API",
+      "item": [
+        {
+          "name": "Get Percentiles - MVC",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/mvc/api/percentiles?date=2026-06-26&time=1117&test_mode=1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["mvc", "api", "percentiles"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "2026-06-26",
+                  "description": "ISO date string"
+                },
+                {
+                  "key": "time",
+                  "value": "1117",
+                  "description": "Time in HHMM format"
+                },
+                {
+                  "key": "test_mode",
+                  "value": "1",
+                  "description": "Enable test mode"
+                }
+              ]
+            },
+            "description": "Get percentile ranks for all metrics (MVC version)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect([200, 404]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"Response has success field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData).to.have.property('success');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has sample_size field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.data).to.have.property('sample_size');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has net_gex field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.data).to.have.property('net_gex');",
+                  "        pm.expect(jsonData.data.net_gex).to.have.property('value');",
+                  "        pm.expect(jsonData.data.net_gex).to.have.property('bearish_pct');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has size metrics\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.data).to.have.property('call_gex');",
+                  "        pm.expect(jsonData.data).to.have.property('put_gex');",
+                  "        pm.expect(jsonData.data).to.have.property('call_oi');",
+                  "        pm.expect(jsonData.data).to.have.property('put_oi');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Test metadata present\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData).to.have.property('test_metadata');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Percentiles - Original",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/api/percentiles?date=2026-06-26&time=1117",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["api", "percentiles"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "2026-06-26",
+                  "description": "ISO date string"
+                },
+                {
+                  "key": "time",
+                  "value": "1117",
+                  "description": "Time in HHMM format"
+                }
+              ]
+            },
+            "description": "Get percentile ranks for all metrics (original for comparison)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect([200, 404]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"Response has sample_size field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData).to.have.property('sample_size');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has net_gex field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData).to.have.property('net_gex');",
+                  "        pm.expect(jsonData.net_gex).to.have.property('value');",
+                  "        pm.expect(jsonData.net_gex).to.have.property('bearish_pct');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
