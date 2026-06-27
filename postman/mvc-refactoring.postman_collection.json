@@ -368,6 +368,141 @@
               }
             }
           ]
+        },
+        {
+          "name": "Get All Snapshots (Paginated) - MVC",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/mvc/api/snapshots/all?offset=0&limit=10&regime=0930_1000&test_mode=1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["mvc", "api", "snapshots", "all"],
+              "query": [
+                {
+                  "key": "offset",
+                  "value": "0",
+                  "description": "Pagination offset"
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Rows per page"
+                },
+                {
+                  "key": "regime",
+                  "value": "0930_1000",
+                  "description": "Time regime filter"
+                },
+                {
+                  "key": "test_mode",
+                  "value": "1",
+                  "description": "Enable test mode"
+                }
+              ]
+            },
+            "description": "Get all snapshots with pagination (MVC version)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has success field\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success');",
+                  "});",
+                  "",
+                  "pm.test(\"Response has snapshots array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('snapshots');",
+                  "    pm.expect(jsonData.data.snapshots).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test(\"Response has pagination metadata\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('total');",
+                  "    pm.expect(jsonData.data).to.have.property('offset');",
+                  "    pm.expect(jsonData.data).to.have.property('limit');",
+                  "    pm.expect(jsonData.data).to.have.property('regime');",
+                  "});",
+                  "",
+                  "pm.test(\"Test metadata present\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('test_metadata');",
+                  "    pm.expect(jsonData.test_metadata).to.have.property('row_count');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get All Snapshots (Paginated) - Original",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/api/snapshots/all?offset=0&limit=10&regime=0930_1000",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["api", "snapshots", "all"],
+              "query": [
+                {
+                  "key": "offset",
+                  "value": "0",
+                  "description": "Pagination offset"
+                },
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Rows per page"
+                },
+                {
+                  "key": "regime",
+                  "value": "0930_1000",
+                  "description": "Time regime filter"
+                }
+              ]
+            },
+            "description": "Get all snapshots with pagination (original for comparison)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has snapshots array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('snapshots');",
+                  "    pm.expect(jsonData.snapshots).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test(\"Response has pagination metadata\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('total');",
+                  "    pm.expect(jsonData).to.have.property('offset');",
+                  "    pm.expect(jsonData).to.have.property('limit');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     }

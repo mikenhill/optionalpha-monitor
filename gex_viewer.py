@@ -4090,6 +4090,12 @@ def mvc_api_snapshots_summary():
     return SnapshotController.get_snapshots_summary()
 
 
+@app.route("/mvc/api/snapshots/all")
+def mvc_api_snapshots_all():
+    """MVC version of /api/snapshots/all using SnapshotController."""
+    return SnapshotController.get_snapshots_all()
+
+
 CSV_SUMMARY = BASE_DIR / "results" / "daily_gex_summary-concise.csv"
 
 
