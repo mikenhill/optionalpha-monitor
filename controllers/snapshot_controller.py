@@ -1,5 +1,7 @@
 """Controller for snapshot API endpoints."""
 
+import json
+import math
 import time
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -8,6 +10,11 @@ from controllers.base_controller import BaseController
 from dao.database import get_connection
 from dao.snapshot_dao import SnapshotDAO
 from middleware.test_mode import with_test_metadata
+
+
+# Constants
+RTH_OPEN = 930  # Regular Trading Hours start (ET)
+TIMES = [930, 1000, 1030, 1100, 1130, 1200, 1230, 1300, 1330, 1400, 1430, 1500, 1530, 1600]
 
 
 # Time regimes for filtering snapshots
@@ -62,7 +69,7 @@ class SnapshotController(BaseController):
             ndate = int(date_iso.replace("-", ""))
             with get_connection() as con:
                 cursor = con.execute(
-                    "SELECT DISTINCT ntime FROM snapshot WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
+                    "SELECT DISTINCT ntime FROM snapshot WHERE ndate=? AND symbol='SPX' ORDER BY ntime DESC",
                     (ndate,)
                 )
                 times = [row[0] for row in cursor.fetchall()]
@@ -88,7 +95,7 @@ class SnapshotController(BaseController):
     @staticmethod
     @with_test_metadata(dao_name="SnapshotController")
     def get_snapshot():
-        """Get a single snapshot by date and time.
+        """Get a single snapshot by date and time with chart data.
         
         Query params:
             date: ISO date string (YYYY-MM-DD)
@@ -96,7 +103,7 @@ class SnapshotController(BaseController):
             prev_time: optional previous time for comparison
             
         Returns:
-            JSON response with snapshot data
+            JSON response with snapshot data including chart arrays
         """
         date_iso = request.args.get("date")
         ntime = int(request.args.get("time", 930))
@@ -109,29 +116,97 @@ class SnapshotController(BaseController):
             )
         
         try:
-            ndate = int(date_iso.replace("-", ""))
-            
-            # Find snapshot using DAO
-            snapshot = SnapshotDAO.find_by_date_time(ndate, ntime, 'SPX')
-            
-            if not snapshot:
+            # Load snapshot data
+            data = SnapshotController._load_snapshot(date_iso, ntime)
+            if data is None:
                 return BaseController.json_response(
                     BaseController.error_response("No GEX data for this date/time"),
                     404
                 )
             
-            # Convert to JSON
-            data = snapshot.toJson()
+            # Summarize snapshot
+            snap = SnapshotController._summarise_snapshot(data)
             
-            # Add previous snapshot if requested
+            # Load previous snapshot if requested
+            prev_snap = None
             if prev_t:
-                prev_snapshot = SnapshotDAO.find_by_date_time(ndate, int(prev_t), 'SPX')
-                if prev_snapshot:
-                    data['prev_snapshot'] = prev_snapshot.toJson()
+                prev_data = SnapshotController._load_snapshot(date_iso, int(prev_t))
+                if prev_data:
+                    prev_snap = SnapshotController._summarise_snapshot(prev_data)
+            
+            # Compute strike data for charts (20 strikes below + 20 above underlying)
+            uprice = snap.get("uprice", 0)
+            all_rows = sorted(
+                [r for r in (data.get("data") or []) if r.get("strike") is not None],
+                key=lambda r: r["strike"]
+            )
+            below = [r for r in all_rows if r["strike"] < uprice]
+            above = [r for r in all_rows if r["strike"] >= uprice]
+            rows = below[-20:] + above[:20]
+            
+            strikes   = [r["strike"] for r in rows]
+            call_gex  = [r.get("cg",   0) or 0 for r in rows]
+            put_gex   = [r.get("pg",   0) or 0 for r in rows]
+            net_gex   = [r.get("net",  0) or 0 for r in rows]
+            call_oi   = [r.get("coi",  0) or 0 for r in rows]
+            put_oi    = [-(r.get("poi", 0) or 0) for r in rows]
+            call_vol  = [r.get("cvol", 0) or 0 for r in rows]
+            put_vol   = [-(r.get("pvol", 0) or 0) for r in rows]
+            
+            # Cumulative net GEX from left to right
+            cumulative_gex = []
+            running = 0.0
+            for v in net_gex:
+                running += v
+                cumulative_gex.append(round(running, 2))
+            
+            # Summary stats from 40-strike window
+            total_call_oi  = sum(r.get("coi", 0) or 0 for r in rows)
+            total_put_oi   = sum(r.get("poi", 0) or 0 for r in rows)
+            total_call_vol = sum(r.get("cvol", 0) or 0 for r in rows)
+            total_put_vol  = sum(r.get("pvol", 0) or 0 for r in rows)
+            
+            snap["total_call_oi"]  = int(total_call_oi)
+            snap["total_put_oi"]   = int(total_put_oi)
+            snap["total_call_vol"] = int(total_call_vol)
+            snap["total_put_vol"]  = int(total_put_vol)
+            snap.update(SnapshotController._compute_key_strike_stats(rows, uprice))
+            
+            # SPX price data up to current time
+            spx_bars = SnapshotController._get_spx_bars_from_db(date_iso, ntime)
+            
+            # Teaching points
+            points = SnapshotController._teaching_points(snap, prev_snap, spx_bars)
+            
+            # Day classification
+            day_type = SnapshotController._classify_gex_day(date_iso)
+            
+            is_pre = 1 if ntime < RTH_OPEN else 0
+            snap["is_premarket"] = is_pre
+            
+            # Build response
+            response_data = {
+                "summary":        snap,
+                "day_type":       day_type,
+                "strikes":        strikes,
+                "call_gex":       call_gex,
+                "put_gex":        put_gex,
+                "net_gex":        net_gex,
+                "cumulative_gex": cumulative_gex,
+                "call_oi":        call_oi,
+                "put_oi":         put_oi,
+                "call_vol":       call_vol,
+                "put_vol":        put_vol,
+                "spx_bars":       spx_bars,
+                "points":         points,
+                "times":          TIMES,
+                "ntime":          ntime,
+                "is_premarket":   is_pre,
+            }
             
             # Return plain data for backward compatibility with original /api/snapshot
             if request.args.get('test_mode') == '1':
-                response = BaseController.success_response(data=data)
+                response = BaseController.success_response(data=response_data)
                 response['test_metadata'] = {
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'test_mode': True,
@@ -141,7 +216,7 @@ class SnapshotController(BaseController):
                 }
                 return BaseController.json_response(response)
             else:
-                return BaseController.json_response(data)
+                return BaseController.json_response(response_data)
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))
@@ -382,3 +457,309 @@ class SnapshotController(BaseController):
             return BaseController.json_response(
                 BaseController.error_response(str(e))
             )
+    
+    # -------------------------------------------------------------------------
+    # Helper methods for chart data computation
+    # -------------------------------------------------------------------------
+    
+    @staticmethod
+    def _load_snapshot(date_iso: str, ntime: int, symbol: str = "SPX") -> dict | None:
+        """Load a single snapshot from the unified snapshot table."""
+        ndate = int(date_iso.replace("-", ""))
+        with get_connection() as con:
+            row = con.execute(
+                "SELECT uprice, raw_json, sentiment, gex_ratio, net_gex, kcs, dominance, "
+                "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
+                "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
+                "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
+                "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, hmm_state, hmm_label "
+                "FROM snapshot "
+                "WHERE ndate=? AND ntime=? AND symbol=?",
+                (ndate, ntime, symbol),
+            ).fetchone()
+        if row:
+            parsed = json.loads(row[1]) if row[1] else {"data": []}
+            data_list = parsed.get("data") if isinstance(parsed, dict) else parsed
+            return {
+                "uprice": row[0],
+                "data": data_list,
+                "sentiment": row[2],
+                "gex_ratio": row[3],
+                "net_gex": row[4],
+                "kcs": row[5],
+                "dominance": row[6],
+                "total_call_gex": row[7],
+                "total_put_gex": row[8],
+                "key_strike": row[9],
+                "key_call_gex": row[10],
+                "key_put_gex": row[11],
+                "total_call_oi": row[12],
+                "total_put_oi": row[13],
+                "key_call_oi": row[14],
+                "key_put_oi": row[15],
+                "total_call_vol": row[16],
+                "total_put_vol": row[17],
+                "key_call_vol": row[18],
+                "key_put_vol": row[19],
+                "key2_strike": row[20],
+                "key2_abs": row[21],
+                "key2_call_vol": row[22],
+                "key2_put_vol": row[23],
+                "flip": row[24],
+                "hmm_state": row[25],
+                "hmm_label": row[26],
+            }
+        return None
+    
+    @staticmethod
+    def _summarise_snapshot(data: dict) -> dict:
+        """Summarise snapshot data. If flat columns are present, use them directly."""
+        if "net_gex" in data and data["net_gex"] is not None:
+            key_call_gex = data.get("key_call_gex") or 0
+            key_put_gex = data.get("key_put_gex") or 0
+            key_call_oi = data.get("key_call_oi") or 0
+            key_put_oi = data.get("key_put_oi") or 0
+            key_call_vol = data.get("key_call_vol") or 0
+            key_put_vol = data.get("key_put_vol") or 0
+            return {
+                "uprice": data.get("uprice", 0),
+                "net_gex": data.get("net_gex", 0),
+                "call_gex": data.get("total_call_gex", 0),
+                "put_gex": data.get("total_put_gex", 0),
+                "sentiment_pct": data.get("sentiment", 50),
+                "gex_ratio": data.get("gex_ratio", 0),
+                "kcs": data.get("kcs", 0),
+                "dominance": data.get("dominance", 0),
+                "key_strike": data.get("key_strike", 0),
+                "key_call_gex": key_call_gex,
+                "key_put_gex": key_put_gex,
+                "key_net_gex": key_call_gex - key_put_gex,
+                "total_call_oi": data.get("total_call_oi", 0),
+                "total_put_oi": data.get("total_put_oi", 0),
+                "key_call_oi": key_call_oi,
+                "key_put_oi": key_put_oi,
+                "key_net_oi": key_call_oi - key_put_oi,
+                "total_call_vol": data.get("total_call_vol", 0),
+                "total_put_vol": data.get("total_put_vol", 0),
+                "key_call_vol": key_call_vol,
+                "key_put_vol": key_put_vol,
+                "key_net_vol": key_call_vol - key_put_vol,
+                "key2_strike": data.get("key2_strike"),
+                "key2_abs": data.get("key2_abs"),
+                "key2_call_vol": data.get("key2_call_vol"),
+                "key2_put_vol": data.get("key2_put_vol"),
+                "flip": data.get("flip"),
+                "hmm_state": data.get("hmm_state"),
+                "hmm_label": data.get("hmm_label"),
+            }
+        
+        rows = data.get("data", [])
+        if not rows:
+            return {"uprice": 0, "net_gex": 0, "call_gex": 0, "put_gex": 0}
+        
+        uprice = data.get("uprice", 0)
+        all_rows = sorted([r for r in rows if r.get("strike") is not None], key=lambda r: r["strike"])
+        below = [r for r in all_rows if r["strike"] < uprice]
+        above = [r for r in all_rows if r["strike"] >= uprice]
+        rows = below[-20:] + above[:20]
+        
+        call_gex = sum(r.get("cg", 0) or 0 for r in rows)
+        put_gex = sum(r.get("pg", 0) or 0 for r in rows)
+        net_gex = call_gex - put_gex
+        
+        pos_bars = sum(1 for r in rows if (r.get("net", 0) or 0) > 0)
+        sentiment_pct = round(pos_bars / len(rows) * 100) if rows else 50
+        
+        if call_gex > put_gex:
+            gex_ratio = round(call_gex / put_gex, 1) if put_gex else 0
+        else:
+            gex_ratio = round(-put_gex / call_gex, 1) if call_gex else 0
+        
+        return {
+            "uprice": uprice,
+            "net_gex": net_gex,
+            "call_gex": call_gex,
+            "put_gex": put_gex,
+            "sentiment_pct": sentiment_pct,
+            "gex_ratio": gex_ratio,
+        }
+    
+    @staticmethod
+    def _compute_key_strike_stats(rows: list, uprice: float) -> dict:
+        """Compute key-strike dominance and KCS from the 40-strike window rows."""
+        if not rows:
+            return {}
+        total_abs = sum(abs(r.get("abs", 0) or 0) for r in rows)
+        total_oi  = sum((r.get("coi", 0) or 0) + (r.get("poi", 0) or 0) for r in rows)
+        total_vol = sum((r.get("cvol", 0) or 0) + (r.get("pvol", 0) or 0) for r in rows)
+
+        key_row    = max(rows, key=lambda r: abs(r.get("abs", 0) or 0)
+                                     * math.exp(-abs(r["strike"] - uprice) / 25.0))
+        key_strike = key_row["strike"]
+        key_abs    = abs(key_row.get("abs", 0) or 0)
+        key_cg     = key_row.get("cg", 0) or 0
+        key_pg     = key_row.get("pg", 0) or 0
+        key_coi    = key_row.get("coi",  0) or 0
+        key_poi    = key_row.get("poi",  0) or 0
+        key_cvol   = key_row.get("cvol", 0) or 0
+        key_pvol   = key_row.get("pvol", 0) or 0
+
+        key_dominance_pct = round(key_abs / total_abs * 100, 1) if total_abs else 0.0
+
+        distance  = abs(key_strike - uprice)
+        prox      = math.exp(-distance / 25.0)
+        gex_share = key_abs / total_abs  if total_abs  else 0.0
+        oi_share  = (key_coi + key_poi)  / total_oi   if total_oi   else 0.0
+        vol_share = (key_cvol + key_pvol) / total_vol  if total_vol  else 0.0
+        kcs = round((0.5 * gex_share + 0.3 * oi_share + 0.2 * vol_share) * prox * 100, 2)
+
+        other_rows = [r for r in rows if r["strike"] != key_strike]
+        key2_row   = max(other_rows, key=lambda r: abs(r.get("abs", 0) or 0)
+                                                   * math.exp(-abs(r["strike"] - uprice) / 25.0)) if other_rows else None
+        key2_strike = key2_row["strike"] if key2_row else None
+        key2_abs    = abs(key2_row.get("abs", 0) or 0) if key2_row else None
+        key2_cvol   = key2_row.get("cvol", 0) or 0 if key2_row else None
+        key2_pvol   = key2_row.get("pvol", 0) or 0 if key2_row else None
+
+        return {
+            "key_strike": key_strike,
+            "key_absolute": key_abs,
+            "key_call_gex": key_cg,
+            "key_put_gex": key_pg,
+            "key_net": key_cg - key_pg,
+            "key_dominance_pct": key_dominance_pct,
+            "kcs": kcs,
+            "key_call_oi": key_coi,
+            "key_put_oi": key_poi,
+            "key_net_oi": key_coi - key_poi,
+            "key_call_vol": key_cvol,
+            "key_put_vol": key_pvol,
+            "key_net_vol": key_cvol - key_pvol,
+            "key2_strike": key2_strike,
+            "key2_abs": key2_abs,
+            "key2_call_vol": key2_cvol,
+            "key2_put_vol": key2_pvol,
+        }
+    
+    @staticmethod
+    def _get_spx_bars_from_db(date_iso: str, up_to_ntime: int) -> list:
+        """Return per-snapshot RTH price bars from snapshot uprice for the chart."""
+        ndate = int(date_iso.replace("-", ""))
+        with get_connection() as con:
+            rows = con.execute(
+                "SELECT ntime, uprice FROM snapshot "
+                "WHERE ndate=? AND uprice IS NOT NULL AND ntime>=? AND ntime<=? ORDER BY ntime",
+                (ndate, RTH_OPEN, up_to_ntime),
+            ).fetchall()
+        bars = []
+        for ntime, price in rows:
+            t = f"{ntime:04d}"
+            ts = f"{t[:2]}:{t[2:]}"
+            bars.append({"time_str": ts, "Open": price, "High": price, "Low": price, "Close": price})
+        return bars
+    
+    @staticmethod
+    def _teaching_points(snap: dict, prev_snap: dict | None, spx_rows: list) -> list:
+        """Generate teaching points for the snapshot."""
+        points = []
+        uprice = snap.get("uprice", 0)
+        net    = snap.get("net_gex", 0)
+        wall   = snap.get("wall")
+        flip   = snap.get("flip")
+
+        if net < 0:
+            mag = "strongly" if abs(net) > 5e9 else "moderately"
+            points.append({
+                "type": "danger",
+                "icon": "⚡",
+                "title": "Negative GEX — Dealers AMPLIFY moves",
+                "text": (f"Net GEX is {net/1e9:.1f}B ({mag} negative). "
+                         "Dealers are SHORT gamma — when price rises they must BUY to hedge, "
+                         "and when price falls they must SELL. This amplifies momentum. "
+                         "Breakouts are more likely to follow through. "
+                         "Expect larger 30-min candles.")
+            })
+        else:
+            mag = "strongly" if net > 5e9 else "moderately"
+            points.append({
+                "type": "success",
+                "icon": "🧲",
+                "title": "Positive GEX — Dealers SUPPRESS moves",
+                "text": (f"Net GEX is {net/1e9:.1f}B ({mag} positive). "
+                         "Dealers are LONG gamma — when price rises they SELL to hedge, "
+                         "and when price falls they BUY. This dampens momentum and "
+                         "creates mean-reversion pressure. Breakouts often fail here.")
+            })
+
+        key_strike = snap.get("key_strike")
+        if key_strike:
+            dist_pct = abs(key_strike - uprice) / uprice * 100 if uprice else 0
+            points.append({
+                "type": "info",
+                "icon": "🎯",
+                "title": f"Key Strike at {key_strike} ({dist_pct:.1f}% from spot)",
+                "text": (f"Maximum gamma concentration. "
+                         f"Key call GEX: {snap.get('key_call_gex', 0)/1e9:.2f}B, "
+                         f"Key put GEX: {snap.get('key_put_gex', 0)/1e9:.2f}B. "
+                         f"Key net: {(snap.get('key_call_gex', 0) - snap.get('key_put_gex', 0))/1e9:.2f}B. "
+                         f"Dominance: {snap.get('key_dominance_pct', 0):.1f}%.")
+            })
+
+        if flip:
+            points.append({
+                "type": "warning",
+                "icon": "🔄",
+                "title": "Gamma Flip Detected",
+                "text": f"Net GEX changed sign across strikes at {flip}. This often marks support/resistance levels."
+            })
+
+        if wall:
+            points.append({
+                "type": "info",
+                "icon": "🧱",
+                "title": "Gamma Wall",
+                "text": f"Large call wall at {wall}. Can act as resistance if price approaches."
+            })
+
+        return points
+    
+    @staticmethod
+    def _classify_gex_day(date_iso: str) -> dict:
+        """Classify the GEX day type using all available snapshots."""
+        snapshots = []
+        for t in TIMES:
+            raw = SnapshotController._load_snapshot(date_iso, t)
+            if raw:
+                s = SnapshotController._summarise_snapshot(raw)
+                s["time"] = t
+                snapshots.append(s)
+        if not snapshots:
+            return {"type": "no-data", "label": "No Data", "description": "No GEX snapshots available."}
+
+        nets = [s.get("net_gex", 0) for s in snapshots]
+        avg_net = sum(nets) / len(nets) if nets else 0
+
+        if avg_net < -5e9:
+            return {
+                "type": "strong-negative",
+                "label": "Strongly Negative",
+                "description": f"Average net GEX: {avg_net/1e9:.1f}B. Dealers amplify moves."
+            }
+        elif avg_net < 0:
+            return {
+                "type": "negative",
+                "label": "Negative",
+                "description": f"Average net GEX: {avg_net/1e9:.1f}B. Dealers amplify moves."
+            }
+        elif avg_net > 5e9:
+            return {
+                "type": "strong-positive",
+                "label": "Strongly Positive",
+                "description": f"Average net GEX: {avg_net/1e9:.1f}B. Dealers suppress moves."
+            }
+        else:
+            return {
+                "type": "positive",
+                "label": "Positive",
+                "description": f"Average net GEX: {avg_net/1e9:.1f}B. Dealers suppress moves."
+            }
