@@ -101,11 +101,13 @@ class CsvController(BaseController):
                     
                     rows_data.append(row_data)
             
-            response = BaseController.success_response(data={
+            data = {
                 "rows": rows_data
-            })
+            }
             
+            # Return plain data for backward compatibility with original /api/csv-data
             if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data=data)
                 response['test_metadata'] = {
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'test_mode': True,
@@ -113,8 +115,9 @@ class CsvController(BaseController):
                     'query_time_ms': 0,
                     'row_count': len(rows_data)
                 }
-            
-            return BaseController.json_response(response)
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response(data)
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))

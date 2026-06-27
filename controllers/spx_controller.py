@@ -61,11 +61,13 @@ class SpxController(BaseController):
                             "uprice": uprice
                         })
             
-            response = BaseController.success_response(data={
+            data = {
                 "prices": prices
-            })
+            }
             
+            # Return plain data for backward compatibility with original /api/spx-prices
             if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data=data)
                 response['test_metadata'] = {
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'test_mode': True,
@@ -73,8 +75,9 @@ class SpxController(BaseController):
                     'query_time_ms': 0,
                     'row_count': len(prices)
                 }
-            
-            return BaseController.json_response(response)
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response(data)
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))

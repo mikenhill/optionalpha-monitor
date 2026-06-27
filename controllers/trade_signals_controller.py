@@ -49,12 +49,14 @@ class TradeSignalsController(BaseController):
             
             signals = [dict(zip(cols, r)) for r in rows]
             
-            response = BaseController.success_response(data={
+            data = {
                 "date": date_iso,
                 "signals": signals
-            })
+            }
             
+            # Return plain data for backward compatibility with original /api/trade-signals
             if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data=data)
                 response['test_metadata'] = {
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'test_mode': True,
@@ -62,8 +64,9 @@ class TradeSignalsController(BaseController):
                     'query_time_ms': 0,
                     'row_count': len(signals)
                 }
-            
-            return BaseController.json_response(response)
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response(data)
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))

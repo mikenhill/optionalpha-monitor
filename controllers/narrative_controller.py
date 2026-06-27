@@ -41,14 +41,16 @@ class NarrativeController(BaseController):
                 ).fetchone()
             
             if row:
-                response = BaseController.success_response(data={
+                data = {
                     "date": date_iso,
                     "narrative": row[0],
                     "is_llm_enhanced": bool(row[1]),
                     "generated": False
-                })
+                }
                 
+                # Return plain data for backward compatibility with original /api/narrative
                 if request.args.get('test_mode') == '1':
+                    response = BaseController.success_response(data=data)
                     response['test_metadata'] = {
                         'timestamp': datetime.utcnow().isoformat() + 'Z',
                         'test_mode': True,
@@ -56,8 +58,9 @@ class NarrativeController(BaseController):
                         'query_time_ms': 0,
                         'row_count': 1
                     }
-                
-                return BaseController.json_response(response)
+                    return BaseController.json_response(response)
+                else:
+                    return BaseController.json_response(data)
             
             # Narrative not found - return 404
             return BaseController.json_response(

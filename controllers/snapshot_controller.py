@@ -129,8 +129,9 @@ class SnapshotController(BaseController):
                 if prev_snapshot:
                     data['prev_snapshot'] = prev_snapshot.toJson()
             
-            response = BaseController.success_response(data=data)
+            # Return plain data for backward compatibility with original /api/snapshot
             if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data=data)
                 response['test_metadata'] = {
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'test_mode': True,
@@ -138,7 +139,9 @@ class SnapshotController(BaseController):
                     'query_time_ms': 0,
                     'row_count': 1
                 }
-            return BaseController.json_response(response)
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response(data)
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))
@@ -157,8 +160,8 @@ class SnapshotController(BaseController):
         """
         date_iso = request.args.get("date")
         if not date_iso:
-            response = BaseController.success_response(data={"date": date_iso, "rows": []})
             if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data={"date": date_iso, "rows": []})
                 response['test_metadata'] = {
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'test_mode': True,
@@ -166,7 +169,9 @@ class SnapshotController(BaseController):
                     'query_time_ms': 0,
                     'row_count': 0
                 }
-            return BaseController.json_response(response)
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response({"date": date_iso, "rows": []})
         
         try:
             ndate = int(date_iso.replace("-", ""))
@@ -186,8 +191,9 @@ class SnapshotController(BaseController):
                 )
                 rows = [dict(row) for row in cursor.fetchall()]
             
-            response = BaseController.success_response(data={"date": date_iso, "rows": rows})
+            # Return plain object for backward compatibility with original /api/snapshots/summary
             if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data={"date": date_iso, "rows": rows})
                 response['test_metadata'] = {
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'test_mode': True,
@@ -195,7 +201,9 @@ class SnapshotController(BaseController):
                     'query_time_ms': 0,
                     'row_count': len(rows)
                 }
-            return BaseController.json_response(response)
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response({"date": date_iso, "rows": rows})
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))
@@ -345,15 +353,15 @@ class SnapshotController(BaseController):
             # Sort combined results by date/time descending
             snapshots.sort(key=lambda x: (x["ndate"], x["ntime"]), reverse=True)
 
-            response = BaseController.success_response(data={
-                "snapshots": snapshots,
-                "total": total,
-                "offset": offset,
-                "limit": limit,
-                "regime": regime_id
-            })
-            
+            # Return plain object for backward compatibility with original /api/snapshots/all
             if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data={
+                    "snapshots": snapshots,
+                    "total": total,
+                    "offset": offset,
+                    "limit": limit,
+                    "regime": regime_id
+                })
                 response['test_metadata'] = {
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'test_mode': True,
@@ -361,8 +369,15 @@ class SnapshotController(BaseController):
                     'query_time_ms': 0,
                     'row_count': len(snapshots)
                 }
-            
-            return BaseController.json_response(response)
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response({
+                    "snapshots": snapshots,
+                    "total": total,
+                    "offset": offset,
+                    "limit": limit,
+                    "regime": regime_id
+                })
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))
