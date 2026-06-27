@@ -29,6 +29,7 @@ app = Flask(__name__)
 # Import MVC controllers for Phase 2 refactoring
 from controllers.dates_controller import DatesController
 from controllers.snapshot_controller import SnapshotController
+from controllers.admin_controller import AdminController
 
 BASE_DIR  = Path(__file__).resolve().parent
 GEX_DIR   = BASE_DIR / "results" / "histgex"
@@ -4094,6 +4095,25 @@ def mvc_api_snapshots_summary():
 def mvc_api_snapshots_all():
     """MVC version of /api/snapshots/all using SnapshotController."""
     return SnapshotController.get_snapshots_all()
+
+
+# MVC admin routes for data quality tools
+@app.route("/mvc/api/admin/invalid-snapshots")
+def mvc_api_admin_invalid_snapshots():
+    """Get list of snapshots with invalid/null key fields."""
+    return AdminController.get_invalid_snapshots()
+
+
+@app.route("/mvc/api/admin/snapshot-json")
+def mvc_api_admin_snapshot_json():
+    """Get raw JSON data blob for a specific snapshot."""
+    return AdminController.get_json_from_snapshot()
+
+
+@app.route("/mvc/api/admin/rebuild-snapshot")
+def mvc_api_admin_rebuild_snapshot():
+    """Rebuild snapshot flat columns from raw JSON data blob."""
+    return AdminController.rebuild_snapshot_from_json()
 
 
 CSV_SUMMARY = BASE_DIR / "results" / "daily_gex_summary-concise.csv"

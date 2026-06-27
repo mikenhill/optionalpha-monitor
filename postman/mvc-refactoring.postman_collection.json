@@ -505,6 +505,199 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Admin API",
+      "item": [
+        {
+          "name": "Get Invalid Snapshots",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/mvc/api/admin/invalid-snapshots?limit=10&test_mode=1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["mvc", "api", "admin", "invalid-snapshots"],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "10",
+                  "description": "Maximum number of invalid snapshots to return"
+                },
+                {
+                  "key": "test_mode",
+                  "value": "1",
+                  "description": "Enable test mode"
+                }
+              ]
+            },
+            "description": "Find snapshots with invalid/null key fields"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has success field\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success');",
+                  "});",
+                  "",
+                  "pm.test(\"Response has invalid_snapshots array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('invalid_snapshots');",
+                  "    pm.expect(jsonData.data.invalid_snapshots).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test(\"Response has count field\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('count');",
+                  "});",
+                  "",
+                  "pm.test(\"Test metadata present\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('test_metadata');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get JSON from Snapshot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/mvc/api/admin/snapshot-json?date=2026-06-26&time=1117&test_mode=1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["mvc", "api", "admin", "snapshot-json"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "2026-06-26",
+                  "description": "ISO date string"
+                },
+                {
+                  "key": "time",
+                  "value": "1117",
+                  "description": "Time in HHMM format"
+                },
+                {
+                  "key": "test_mode",
+                  "value": "1",
+                  "description": "Enable test mode"
+                }
+              ]
+            },
+            "description": "Get raw JSON data blob for a specific snapshot"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect([200, 404]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"Response has success field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData).to.have.property('success');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has data_blob field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.data).to.have.property('data_blob');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has parsed_data field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.data).to.have.property('parsed_data');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Rebuild Snapshot from JSON",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/mvc/api/admin/rebuild-snapshot?date=2026-06-26&time=1117&test_mode=1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["mvc", "api", "admin", "rebuild-snapshot"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "2026-06-26",
+                  "description": "ISO date string"
+                },
+                {
+                  "key": "time",
+                  "value": "1117",
+                  "description": "Time in HHMM format"
+                },
+                {
+                  "key": "test_mode",
+                  "value": "1",
+                  "description": "Enable test mode"
+                }
+              ]
+            },
+            "description": "Rebuild snapshot flat columns from raw JSON data blob"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect([200, 404]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"Response has success field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData).to.have.property('success');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has rebuilt_values field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.data).to.have.property('rebuilt_values');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has message field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.data).to.have.property('message');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
