@@ -1178,6 +1178,110 @@
           ]
         }
       ]
+    },
+    {
+      "name": "SPX Prices API",
+      "item": [
+        {
+          "name": "Get SPX Prices - MVC",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/mvc/api/spx-prices?mode=eod&test_mode=1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["mvc", "api", "spx-prices"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "eod",
+                  "description": "eod or single"
+                },
+                {
+                  "key": "test_mode",
+                  "value": "1",
+                  "description": "Enable test mode"
+                }
+              ]
+            },
+            "description": "Return SPX price history from snapshot database (MVC version)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has success field\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success');",
+                  "});",
+                  "",
+                  "pm.test(\"Response has prices array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('prices');",
+                  "    pm.expect(jsonData.data.prices).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test(\"Test metadata present\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('test_metadata');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get SPX Prices - Original",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/api/spx-prices?mode=eod",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["api", "spx-prices"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "eod",
+                  "description": "eod or single"
+                }
+              ]
+            },
+            "description": "Return SPX price history from snapshot database (original for comparison)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has prices array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('prices');",
+                  "    pm.expect(jsonData.prices).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

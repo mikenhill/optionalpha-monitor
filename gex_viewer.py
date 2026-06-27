@@ -34,6 +34,7 @@ from controllers.percentiles_controller import PercentilesController
 from controllers.trade_signals_controller import TradeSignalsController
 from controllers.narrative_controller import NarrativeController
 from controllers.csv_controller import CsvController
+from controllers.spx_controller import SpxController
 
 BASE_DIR  = Path(__file__).resolve().parent
 GEX_DIR   = BASE_DIR / "results" / "histgex"
@@ -4146,6 +4147,13 @@ def mvc_api_narrative():
 def mvc_api_csv_data():
     """MVC version of /api/csv-data using CsvController."""
     return CsvController.get_csv_data()
+
+
+# MVC spx-prices route
+@app.route("/mvc/api/spx-prices")
+def mvc_api_spx_prices():
+    """MVC version of /api/spx-prices using SpxController."""
+    return SpxController.get_spx_prices()
 
 
 CSV_SUMMARY = BASE_DIR / "results" / "daily_gex_summary-concise.csv"
