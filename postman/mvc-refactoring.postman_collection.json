@@ -1074,6 +1074,110 @@
           ]
         }
       ]
+    },
+    {
+      "name": "CSV Data API",
+      "item": [
+        {
+          "name": "Get CSV Data - MVC",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/mvc/api/csv-data?time=930&test_mode=1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["mvc", "api", "csv-data"],
+              "query": [
+                {
+                  "key": "time",
+                  "value": "930",
+                  "description": "Time in HHMM format"
+                },
+                {
+                  "key": "test_mode",
+                  "value": "1",
+                  "description": "Enable test mode"
+                }
+              ]
+            },
+            "description": "Return summary metrics for all historical dates at the same time slot (MVC version)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has success field\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('success');",
+                  "});",
+                  "",
+                  "pm.test(\"Response has rows array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData.data).to.have.property('rows');",
+                  "    pm.expect(jsonData.data.rows).to.be.an('array');",
+                  "});",
+                  "",
+                  "pm.test(\"Test metadata present\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('test_metadata');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get CSV Data - Original",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/api/csv-data?time=930",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["api", "csv-data"],
+              "query": [
+                {
+                  "key": "time",
+                  "value": "930",
+                  "description": "Time in HHMM format"
+                }
+              ]
+            },
+            "description": "Return summary metrics for all historical dates at the same time slot (original for comparison)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has rows array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('rows');",
+                  "    pm.expect(jsonData.rows).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

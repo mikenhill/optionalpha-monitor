@@ -33,6 +33,7 @@ from controllers.admin_controller import AdminController
 from controllers.percentiles_controller import PercentilesController
 from controllers.trade_signals_controller import TradeSignalsController
 from controllers.narrative_controller import NarrativeController
+from controllers.csv_controller import CsvController
 
 BASE_DIR  = Path(__file__).resolve().parent
 GEX_DIR   = BASE_DIR / "results" / "histgex"
@@ -4138,6 +4139,13 @@ def mvc_api_trade_signals():
 def mvc_api_narrative():
     """MVC version of /api/narrative using NarrativeController."""
     return NarrativeController.get_narrative()
+
+
+# MVC csv-data route
+@app.route("/mvc/api/csv-data")
+def mvc_api_csv_data():
+    """MVC version of /api/csv-data using CsvController."""
+    return CsvController.get_csv_data()
 
 
 CSV_SUMMARY = BASE_DIR / "results" / "daily_gex_summary-concise.csv"
