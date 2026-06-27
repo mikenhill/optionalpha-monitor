@@ -118,7 +118,7 @@ class AdminController(BaseController):
             
             with get_connection() as con:
                 cursor = con.execute(
-                    "SELECT ndate, ntime, symbol, data FROM snapshot WHERE ndate=? AND ntime=? AND symbol='SPX'",
+                    "SELECT ndate, ntime, symbol, raw_json FROM snapshot WHERE ndate=? AND ntime=? AND symbol='SPX'",
                     (ndate, ntime)
                 )
                 row = cursor.fetchone()
@@ -197,7 +197,7 @@ class AdminController(BaseController):
             with get_connection() as con:
                 # Get the raw data blob
                 cursor = con.execute(
-                    "SELECT ndate, ntime, symbol, data FROM snapshot WHERE ndate=? AND ntime=? AND symbol='SPX'",
+                    "SELECT ndate, ntime, symbol, raw_json FROM snapshot WHERE ndate=? AND ntime=? AND symbol='SPX'",
                     (ndate, ntime)
                 )
                 row = cursor.fetchone()
