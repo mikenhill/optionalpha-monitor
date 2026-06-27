@@ -31,6 +31,7 @@ from controllers.dates_controller import DatesController
 from controllers.snapshot_controller import SnapshotController
 from controllers.admin_controller import AdminController
 from controllers.percentiles_controller import PercentilesController
+from controllers.trade_signals_controller import TradeSignalsController
 
 BASE_DIR  = Path(__file__).resolve().parent
 GEX_DIR   = BASE_DIR / "results" / "histgex"
@@ -4122,6 +4123,13 @@ def mvc_api_admin_rebuild_snapshot():
 def mvc_api_percentiles():
     """MVC version of /api/percentiles using PercentilesController."""
     return PercentilesController.get_percentiles()
+
+
+# MVC trade signals route
+@app.route("/mvc/api/trade-signals")
+def mvc_api_trade_signals():
+    """MVC version of /api/trade-signals using TradeSignalsController."""
+    return TradeSignalsController.get_trade_signals()
 
 
 CSV_SUMMARY = BASE_DIR / "results" / "daily_gex_summary-concise.csv"
