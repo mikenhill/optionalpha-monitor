@@ -1,15 +1,19 @@
 """Controller for snapshot API endpoints."""
 
+import time
+from datetime import datetime
 from flask import request
 from controllers.base_controller import BaseController
 from dao.database import get_connection
 from dao.snapshot_dao import SnapshotDAO
+from middleware.test_mode import with_test_metadata
 
 
 class SnapshotController(BaseController):
     """Controller for snapshot-related API endpoints."""
     
     @staticmethod
+    @with_test_metadata(dao_name="SnapshotController")
     def get_snapshots():
         """Return all available snapshot times for a given date.
         
@@ -21,9 +25,16 @@ class SnapshotController(BaseController):
         """
         date_iso = request.args.get("date")
         if not date_iso:
-            return BaseController.json_response(
-                BaseController.success_response(data={"times": []})
-            )
+            response = BaseController.success_response(data={"times": []})
+            if request.args.get('test_mode') == '1':
+                response['test_metadata'] = {
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'test_mode': True,
+                    'dao_used': 'SnapshotController',
+                    'query_time_ms': 0,
+                    'row_count': 0
+                }
+            return BaseController.json_response(response)
         
         try:
             ndate = int(date_iso.replace("-", ""))
@@ -34,15 +45,23 @@ class SnapshotController(BaseController):
                 )
                 times = [row[0] for row in cursor.fetchall()]
             
-            return BaseController.json_response(
-                BaseController.success_response(data={"times": times})
-            )
+            response = BaseController.success_response(data={"times": times})
+            if request.args.get('test_mode') == '1':
+                response['test_metadata'] = {
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'test_mode': True,
+                    'dao_used': 'SnapshotController',
+                    'query_time_ms': 0,
+                    'row_count': len(times)
+                }
+            return BaseController.json_response(response)
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))
             )
     
     @staticmethod
+    @with_test_metadata(dao_name="SnapshotController")
     def get_snapshot():
         """Get a single snapshot by date and time.
         
@@ -85,15 +104,23 @@ class SnapshotController(BaseController):
                 if prev_snapshot:
                     data['prev_snapshot'] = prev_snapshot.toJson()
             
-            return BaseController.json_response(
-                BaseController.success_response(data=data)
-            )
+            response = BaseController.success_response(data=data)
+            if request.args.get('test_mode') == '1':
+                response['test_metadata'] = {
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'test_mode': True,
+                    'dao_used': 'SnapshotController',
+                    'query_time_ms': 0,
+                    'row_count': 1
+                }
+            return BaseController.json_response(response)
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))
             )
     
     @staticmethod
+    @with_test_metadata(dao_name="SnapshotController")
     def get_snapshots_summary():
         """Return a compact summary row for every available time-slot on a date.
         
@@ -105,9 +132,16 @@ class SnapshotController(BaseController):
         """
         date_iso = request.args.get("date")
         if not date_iso:
-            return BaseController.json_response(
-                BaseController.success_response(data={"date": date_iso, "rows": []})
-            )
+            response = BaseController.success_response(data={"date": date_iso, "rows": []})
+            if request.args.get('test_mode') == '1':
+                response['test_metadata'] = {
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'test_mode': True,
+                    'dao_used': 'SnapshotController',
+                    'query_time_ms': 0,
+                    'row_count': 0
+                }
+            return BaseController.json_response(response)
         
         try:
             ndate = int(date_iso.replace("-", ""))
@@ -127,9 +161,16 @@ class SnapshotController(BaseController):
                 )
                 rows = [dict(row) for row in cursor.fetchall()]
             
-            return BaseController.json_response(
-                BaseController.success_response(data={"date": date_iso, "rows": rows})
-            )
+            response = BaseController.success_response(data={"date": date_iso, "rows": rows})
+            if request.args.get('test_mode') == '1':
+                response['test_metadata'] = {
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'test_mode': True,
+                    'dao_used': 'SnapshotController',
+                    'query_time_ms': 0,
+                    'row_count': len(rows)
+                }
+            return BaseController.json_response(response)
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))
