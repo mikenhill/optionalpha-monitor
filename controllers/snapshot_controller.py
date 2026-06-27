@@ -45,8 +45,8 @@ class SnapshotController(BaseController):
         """
         date_iso = request.args.get("date")
         if not date_iso:
-            response = BaseController.success_response(data={"times": []})
             if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data={"times": []})
                 response['test_metadata'] = {
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'test_mode': True,
@@ -54,7 +54,9 @@ class SnapshotController(BaseController):
                     'query_time_ms': 0,
                     'row_count': 0
                 }
-            return BaseController.json_response(response)
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response({"times": []})
         
         try:
             ndate = int(date_iso.replace("-", ""))
@@ -65,8 +67,9 @@ class SnapshotController(BaseController):
                 )
                 times = [row[0] for row in cursor.fetchall()]
             
-            response = BaseController.success_response(data={"times": times})
+            # Return plain object for backward compatibility with original /api/snapshots
             if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data={"times": times})
                 response['test_metadata'] = {
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'test_mode': True,
@@ -74,7 +77,9 @@ class SnapshotController(BaseController):
                     'query_time_ms': 0,
                     'row_count': len(times)
                 }
-            return BaseController.json_response(response)
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response({"times": times})
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))
