@@ -9,16 +9,16 @@
       "name": "Dates API",
       "item": [
         {
-          "name": "Get All Dates",
+          "name": "Get All Dates (MVC)",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:5050/api/dates?test_mode=1",
+              "raw": "http://localhost:5050/mvc/api/dates?test_mode=1",
               "protocol": "http",
               "host": ["localhost"],
               "port": "5050",
-              "path": ["api", "dates"],
+              "path": ["mvc", "api", "dates"],
               "query": [
                 {
                   "key": "test_mode",
@@ -27,7 +27,7 @@
                 }
               ]
             },
-            "description": "Get all available dates with test mode enabled"
+            "description": "Get all available dates with test mode enabled (MVC version)"
           },
           "response": [],
           "event": [
@@ -66,6 +66,40 @@
               }
             }
           ]
+        },
+        {
+          "name": "Get All Dates (Original)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/api/dates",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["api", "dates"]
+            },
+            "description": "Get all available dates (original implementation for comparison)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response is an array\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
         }
       ]
     },
@@ -73,16 +107,16 @@
       "name": "Snapshot API",
       "item": [
         {
-          "name": "Get Snapshots (Times for Date)",
+          "name": "Get Snapshots (Times for Date) - MVC",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:5050/api/snapshots?date=2026-06-23&test_mode=1",
+              "raw": "http://localhost:5050/mvc/api/snapshots?date=2026-06-23&test_mode=1",
               "protocol": "http",
               "host": ["localhost"],
               "port": "5050",
-              "path": ["api", "snapshots"],
+              "path": ["mvc", "api", "snapshots"],
               "query": [
                 {
                   "key": "date",
@@ -96,7 +130,7 @@
                 }
               ]
             },
-            "description": "Get all snapshot times for a specific date"
+            "description": "Get all snapshot times for a specific date (MVC version)"
           },
           "response": [],
           "event": [
@@ -131,16 +165,58 @@
           ]
         },
         {
-          "name": "Get Single Snapshot",
+          "name": "Get Snapshots (Times for Date) - Original",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:5050/api/snapshot?date=2026-06-23&time=935&test_mode=1",
+              "raw": "http://localhost:5050/api/snapshots?date=2026-06-23",
               "protocol": "http",
               "host": ["localhost"],
               "port": "5050",
-              "path": ["api", "snapshot"],
+              "path": ["api", "snapshots"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "2026-06-23",
+                  "description": "ISO date string"
+                }
+              ]
+            },
+            "description": "Get all snapshot times for a specific date (original for comparison)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has times field\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('times');",
+                  "    pm.expect(jsonData.times).to.be.an('array');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Single Snapshot - MVC",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/mvc/api/snapshot?date=2026-06-23&time=935&test_mode=1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["mvc", "api", "snapshot"],
               "query": [
                 {
                   "key": "date",
@@ -159,7 +235,7 @@
                 }
               ]
             },
-            "description": "Get a single snapshot by date and time"
+            "description": "Get a single snapshot by date and time (MVC version)"
           },
           "response": [],
           "event": [
@@ -194,16 +270,16 @@
           ]
         },
         {
-          "name": "Get Snapshots Summary",
+          "name": "Get Snapshots Summary - MVC",
           "request": {
             "method": "GET",
             "header": [],
             "url": {
-              "raw": "http://localhost:5050/api/snapshots/summary?date=2026-06-23&test_mode=1",
+              "raw": "http://localhost:5050/mvc/api/snapshots/summary?date=2026-06-23&test_mode=1",
               "protocol": "http",
               "host": ["localhost"],
               "port": "5050",
-              "path": ["api", "snapshots", "summary"],
+              "path": ["mvc", "api", "snapshots", "summary"],
               "query": [
                 {
                   "key": "date",
@@ -217,7 +293,7 @@
                 }
               ]
             },
-            "description": "Get summary rows for all snapshots on a date"
+            "description": "Get summary rows for all snapshots on a date (MVC version)"
           },
           "response": [],
           "event": [
@@ -244,6 +320,48 @@
                   "    var jsonData = pm.response.json();",
                   "    pm.expect(jsonData).to.have.property('test_metadata');",
                   "    pm.expect(jsonData.test_metadata).to.have.property('row_count');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Snapshots Summary - Original",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/api/snapshots/summary?date=2026-06-23",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["api", "snapshots", "summary"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "2026-06-23",
+                  "description": "ISO date string"
+                }
+              ]
+            },
+            "description": "Get summary rows for all snapshots on a date (original for comparison)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200\", function () {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"Response has rows field\", function () {",
+                  "    var jsonData = pm.response.json();",
+                  "    pm.expect(jsonData).to.have.property('rows');",
+                  "    pm.expect(jsonData.rows).to.be.an('array');",
                   "});"
                 ],
                 "type": "text/javascript"

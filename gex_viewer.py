@@ -26,6 +26,10 @@ from flask import Flask, jsonify, render_template, request
 
 app = Flask(__name__)
 
+# Import MVC controllers for Phase 2 refactoring
+from controllers.dates_controller import DatesController
+from controllers.snapshot_controller import SnapshotController
+
 BASE_DIR  = Path(__file__).resolve().parent
 GEX_DIR   = BASE_DIR / "results" / "histgex"
 DB_PATH   = BASE_DIR / "gex.db"
@@ -4057,6 +4061,31 @@ def csv_page():
 @app.route("/api/dates")
 def api_dates():
     return jsonify(available_dates())
+
+
+# MVC refactoring routes (Phase 2) - new controller-based implementations
+@app.route("/mvc/api/dates")
+def mvc_api_dates():
+    """MVC version of /api/dates using DatesController."""
+    return DatesController.get_dates()
+
+
+@app.route("/mvc/api/snapshots")
+def mvc_api_snapshots():
+    """MVC version of /api/snapshots using SnapshotController."""
+    return SnapshotController.get_snapshots()
+
+
+@app.route("/mvc/api/snapshot")
+def mvc_api_snapshot():
+    """MVC version of /api/snapshot using SnapshotController."""
+    return SnapshotController.get_snapshot()
+
+
+@app.route("/mvc/api/snapshots/summary")
+def mvc_api_snapshots_summary():
+    """MVC version of /api/snapshots/summary using SnapshotController."""
+    return SnapshotController.get_snapshots_summary()
 
 
 CSV_SUMMARY = BASE_DIR / "results" / "daily_gex_summary-concise.csv"
