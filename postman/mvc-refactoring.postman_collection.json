@@ -953,6 +953,127 @@
           ]
         }
       ]
+    },
+    {
+      "name": "Narrative API",
+      "item": [
+        {
+          "name": "Get Narrative - MVC",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/mvc/api/narrative?date=2026-06-26&test_mode=1",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["mvc", "api", "narrative"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "2026-06-26",
+                  "description": "ISO date string"
+                },
+                {
+                  "key": "test_mode",
+                  "value": "1",
+                  "description": "Enable test mode"
+                }
+              ]
+            },
+            "description": "Get or generate a trading narrative for a date (MVC version)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect([200, 404]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"Response has success field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData).to.have.property('success');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has date field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.data).to.have.property('date');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has narrative field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.data).to.have.property('narrative');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has is_llm_enhanced field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData.data).to.have.property('is_llm_enhanced');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Test metadata present\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData).to.have.property('test_metadata');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        },
+        {
+          "name": "Get Narrative - Original",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5050/api/narrative?date=2026-06-26",
+              "protocol": "http",
+              "host": ["localhost"],
+              "port": "5050",
+              "path": ["api", "narrative"],
+              "query": [
+                {
+                  "key": "date",
+                  "value": "2026-06-26",
+                  "description": "ISO date string"
+                }
+              ]
+            },
+            "description": "Get or generate a trading narrative for a date (original for comparison)"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test(\"Status code is 200 or 404\", function () {",
+                  "    pm.expect([200, 404]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test(\"Response has date field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData).to.have.property('date');",
+                  "    });",
+                  "    ",
+                  "    pm.test(\"Response has narrative field\", function () {",
+                  "        var jsonData = pm.response.json();",
+                  "        pm.expect(jsonData).to.have.property('narrative');",
+                  "    });",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }
