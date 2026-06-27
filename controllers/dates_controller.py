@@ -19,7 +19,7 @@ class DatesController(BaseController):
         Returns sorted list of ISO date strings (YYYY-MM-DD) that have GEX data.
         
         Returns:
-            JSON response with list of dates
+            JSON response with list of dates (plain array for backward compatibility)
         """
         try:
             with get_connection() as con:
@@ -37,10 +37,11 @@ class DatesController(BaseController):
                 s = str(row[0])  # YYYYMMDD int -> string
                 dates.append(f"{s[:4]}-{s[4:6]}-{s[6:8]}")
             
-            response = BaseController.success_response(data=dates)
-            
-            # Add test metadata if test mode is enabled
+            # Return plain array for backward compatibility with original /api/dates
+            # The MVC version at /mvc/api/dates can add test metadata if needed
             if request.args.get('test_mode') == '1':
+                # For test mode, return wrapped response with metadata
+                response = BaseController.success_response(data=dates)
                 response['test_metadata'] = {
                     'timestamp': datetime.utcnow().isoformat() + 'Z',
                     'test_mode': True,
@@ -48,8 +49,10 @@ class DatesController(BaseController):
                     'query_time_ms': 0,
                     'row_count': len(dates)
                 }
-            
-            return BaseController.json_response(response)
+                return BaseController.json_response(response)
+            else:
+                # For normal requests, return plain array (original behavior)
+                return BaseController.json_response(dates)
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e))
