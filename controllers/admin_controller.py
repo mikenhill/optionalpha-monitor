@@ -147,9 +147,7 @@ class AdminController(BaseController):
                     "date": date_str,
                     "time": time_str,
                     "symbol": symbol,
-                    "data_blob": data_blob,
-                    "parsed_data": parsed_data,
-                    "data_size": len(data_blob) if data_blob else 0
+                    "parsed_data": parsed_data
                 })
                 
                 if request.args.get('test_mode') == '1':
