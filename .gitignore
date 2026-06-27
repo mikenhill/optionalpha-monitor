@@ -5,3 +5,11 @@ captures/
 results/
 __pycache__/
 .venv/
+*.db
+*.db-shm
+*.db-wal
+debug_*.py
+verify_*.py
+force_*.py
+test_*.py
+*.gsheet

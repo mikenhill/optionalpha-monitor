@@ -1,4 +1,4 @@
-"""
+﻿"""
 GEX Viewer — Interactive intraday GEX + SPX educator
 ======================================================
 Flask server that serves an interactive HTML page for stepping through a
@@ -549,7 +549,7 @@ def _generate_daily_narrative(date_iso: str) -> str:
     # Get all snapshots for this day in chronological order
     with _db() as con:
         rows = con.execute(
-            "SELECT ntime FROM gex_snapshots WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
+            "SELECT ntime FROM snapshot WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
             (ndate,)
         ).fetchall()
 
@@ -770,9 +770,9 @@ def _populate_percentile_history() -> dict:
     """
     import json
     with _db() as con:
-        # Get all distinct (ndate, ntime) pairs from gex_snapshots
+        # Get all distinct (ndate, ntime) pairs from snapshot
         pairs = con.execute(
-            "SELECT DISTINCT ndate, ntime FROM gex_snapshots WHERE symbol='SPX' ORDER BY ndate, ntime"
+            "SELECT DISTINCT ndate, ntime FROM snapshot WHERE symbol='SPX' ORDER BY ndate, ntime"
         ).fetchall()
         if not pairs:
             return {"status": "no_data", "snapshots": 0}
@@ -866,14 +866,14 @@ def _ensure_metric_history_table() -> None:
 
 
 def _populate_metric_history() -> dict:
-    """Populate metric_history with EOD values from gex_snapshots flat columns.
+    """Populate metric_history with EOD values from snapshot flat columns.
 
     Returns stats about the population run.
     """
     with _db() as con:
         # Get the last RTH snapshot per date (skip pre-market-only days)
         rows = con.execute(
-            "SELECT ndate, MAX(ntime) FROM gex_snapshots "
+            "SELECT ndate, MAX(ntime) FROM snapshot "
             "WHERE symbol='SPX' AND ntime>=930 AND net_gex IS NOT NULL "
             "GROUP BY ndate ORDER BY ndate"
         ).fetchall()
@@ -888,7 +888,7 @@ def _populate_metric_history() -> dict:
                 "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                 "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                 "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip "
-                "FROM gex_snapshots WHERE ndate=? AND ntime=? AND symbol='SPX'",
+                "FROM snapshot WHERE ndate=? AND ntime=? AND symbol='SPX'",
                 (ndate, last_ntime)
             ).fetchone()
             if not row:
@@ -937,15 +937,15 @@ def _populate_metric_history() -> dict:
         return {"status": "populated", "dates": len(rows), "metrics": populated}
 
 
-def _ensure_gex_snapshots_premarket() -> None:
-    """Add is_premarket and source columns to gex_snapshots if missing; back-fill values."""
+def _ensure_snapshot_premarket() -> None:
+    """Add is_premarket and source columns to snapshot if missing; back-fill values."""
     with _db() as con:
-        cols = [r[1] for r in con.execute("PRAGMA table_info(gex_snapshots)").fetchall()]
+        cols = [r[1] for r in con.execute("PRAGMA table_info(snapshot)").fetchall()]
         if "is_premarket" not in cols:
-            con.execute("ALTER TABLE gex_snapshots ADD COLUMN is_premarket INTEGER NOT NULL DEFAULT 0")
-            con.execute("UPDATE gex_snapshots SET is_premarket=1 WHERE ntime < 930")
+            con.execute("ALTER TABLE snapshot ADD COLUMN is_premarket INTEGER NOT NULL DEFAULT 0")
+            con.execute("UPDATE snapshot SET is_premarket=1 WHERE ntime < 930")
         if "source" not in cols:
-            con.execute("ALTER TABLE gex_snapshots ADD COLUMN source TEXT NOT NULL DEFAULT 'histgex'")
+            con.execute("ALTER TABLE snapshot ADD COLUMN source TEXT NOT NULL DEFAULT 'histgex'")
 
 
 GEX_SNAPSHOTS_SUMMARY_COLS = [
@@ -978,13 +978,13 @@ GEX_SNAPSHOTS_SUMMARY_COLS = [
 ]
 
 
-def _ensure_gex_snapshots_summary_columns() -> None:
-    """Add flat summary columns to gex_snapshots so historical rows match live_captures."""
+def _ensure_snapshot_summary_columns() -> None:
+    """Add flat summary columns to snapshot so historical rows match snapshot."""
     with _db() as con:
-        existing = {r[1] for r in con.execute("PRAGMA table_info(gex_snapshots)").fetchall()}
+        existing = {r[1] for r in con.execute("PRAGMA table_info(snapshot)").fetchall()}
         for col, dtype in GEX_SNAPSHOTS_SUMMARY_COLS:
             if col not in existing:
-                con.execute(f"ALTER TABLE gex_snapshots ADD COLUMN {col} {dtype}")
+                con.execute(f"ALTER TABLE snapshot ADD COLUMN {col} {dtype}")
 
 
 def _drop_legacy_snapshots_table() -> None:
@@ -993,11 +993,11 @@ def _drop_legacy_snapshots_table() -> None:
         con.execute("DROP TABLE IF EXISTS snapshots")
 
 
-def _backfill_gex_snapshots_summary(limit: int | None = None, force: bool = False) -> dict:
-    """Compute and store flat summary columns for existing gex_snapshots rows.
+def _backfill_snapshot_summary(limit: int | None = None, force: bool = False) -> dict:
+    """Compute and store flat summary columns for existing snapshot rows.
 
     Histgex rows are recomputed from the stored JSON; live_promoted rows are
-    copied from the matching live_captures row.
+    copied from the matching snapshot row.
 
     If limit is provided, only backfill that many rows (useful for quick tests).
     If force is True, re-backfill all rows (not just those with net_gex IS NULL).
@@ -1008,13 +1008,13 @@ def _backfill_gex_snapshots_summary(limit: int | None = None, force: bool = Fals
     with _db() as con:
         where_clause = "" if force else "WHERE symbol='SPX' AND net_gex IS NULL"
         rows = con.execute(
-            f"SELECT ndate, ntime, uprice, data, source FROM gex_snapshots "
+            f"SELECT ndate, ntime, uprice, raw_json, source FROM snapshot "
             f"{where_clause} "
             f"LIMIT {limit}" if limit is not None else ""
         ).fetchall()
 
     update_sql = """
-        UPDATE gex_snapshots SET
+        UPDATE snapshot SET
             sentiment=?, gex_ratio=?, net_gex=?, kcs=?, dominance=?,
             total_call_gex=?, total_put_gex=?, key_strike=?, key_call_gex=?, key_put_gex=?,
             total_call_oi=?, total_put_oi=?, key_call_oi=?, key_put_oi=?,
@@ -1037,13 +1037,13 @@ def _backfill_gex_snapshots_summary(limit: int | None = None, force: bool = Fals
         elif source == "gex":
             with _db() as con:
                 live = con.execute(
-                    "SELECT spx_last, sentiment, gex_ratio, net_gex, kcs, dominance, "
+                    "SELECT uprice, sentiment, gex_ratio, net_gex, kcs, dominance, "
                     "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
                     "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                     "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                     "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, "
                     "hmm_state, hmm_label, raw_json "
-                    "FROM live_captures WHERE ndate=? AND ntime=?",
+                    "FROM snapshot WHERE ndate=? AND ntime=?",
                     (ndate, ntime),
                 ).fetchone()
             if live:
@@ -1077,12 +1077,12 @@ def _backfill_gex_snapshots_summary(limit: int | None = None, force: bool = Fals
     return {"updated": updated, "copied": copied}
 
 
-def _backfill_live_captures_gex_ratio() -> dict:
-    """Recompute gex_ratio for all live_captures rows using the new flip-sign formula."""
+def _backfill_snapshot_gex_ratio() -> dict:
+    """Recompute gex_ratio for all snapshot rows using the new flip-sign formula."""
     updated = 0
     with _db() as con:
         rows = con.execute(
-            "SELECT ndate, ntime, total_call_gex, total_put_gex FROM live_captures WHERE total_call_gex IS NOT NULL"
+            "SELECT ndate, ntime, total_call_gex, total_put_gex FROM snapshot WHERE total_call_gex IS NOT NULL"
         ).fetchall()
 
     for ndate, ntime, total_call_gex, total_put_gex in rows:
@@ -1096,7 +1096,7 @@ def _backfill_live_captures_gex_ratio() -> dict:
 
         with _db() as con:
             con.execute(
-                "UPDATE live_captures SET gex_ratio=? WHERE ndate=? AND ntime=?",
+                "UPDATE snapshot SET gex_ratio=? WHERE ndate=? AND ntime=?",
                 (gex_ratio, ndate, ntime)
             )
         updated += 1
@@ -1104,61 +1104,61 @@ def _backfill_live_captures_gex_ratio() -> dict:
     return {"updated": updated}
 
 
-def _backfill_live_captures_nulls() -> dict:
-    """Set default values (0) for null computed columns in live_captures."""
+def _backfill_snapshot_nulls() -> dict:
+    """Set default values (0) for null computed columns in snapshot."""
     updated = 0
     with _db() as con:
         # Update null net_gex to 0
         updated += con.execute(
-            "UPDATE live_captures SET net_gex=0 WHERE net_gex IS NULL"
+            "UPDATE snapshot SET net_gex=0 WHERE net_gex IS NULL"
         ).rowcount
         # Update null sentiment to 50
         updated += con.execute(
-            "UPDATE live_captures SET sentiment=50 WHERE sentiment IS NULL"
+            "UPDATE snapshot SET sentiment=50 WHERE sentiment IS NULL"
         ).rowcount
         # Update null gex_ratio to 0
         updated += con.execute(
-            "UPDATE live_captures SET gex_ratio=0 WHERE gex_ratio IS NULL"
+            "UPDATE snapshot SET gex_ratio=0 WHERE gex_ratio IS NULL"
         ).rowcount
         # Update null kcs to 0
         updated += con.execute(
-            "UPDATE live_captures SET kcs=0 WHERE kcs IS NULL"
+            "UPDATE snapshot SET kcs=0 WHERE kcs IS NULL"
         ).rowcount
         # Update null dominance to 0
         updated += con.execute(
-            "UPDATE live_captures SET dominance=0 WHERE dominance IS NULL"
+            "UPDATE snapshot SET dominance=0 WHERE dominance IS NULL"
         ).rowcount
     return {"updated": updated}
 
 
-def _backfill_gex_snapshots_nulls() -> dict:
-    """Set default values (0) for null computed columns in gex_snapshots."""
+def _backfill_snapshot_nulls() -> dict:
+    """Set default values (0) for null computed columns in snapshot."""
     updated = 0
     with _db() as con:
         # Update null net_gex to 0
         updated += con.execute(
-            "UPDATE gex_snapshots SET net_gex=0 WHERE net_gex IS NULL"
+            "UPDATE snapshot SET net_gex=0 WHERE net_gex IS NULL"
         ).rowcount
         # Update null sentiment to 50
         updated += con.execute(
-            "UPDATE gex_snapshots SET sentiment=50 WHERE sentiment IS NULL"
+            "UPDATE snapshot SET sentiment=50 WHERE sentiment IS NULL"
         ).rowcount
         # Update null gex_ratio to 0
         updated += con.execute(
-            "UPDATE gex_snapshots SET gex_ratio=0 WHERE gex_ratio IS NULL"
+            "UPDATE snapshot SET gex_ratio=0 WHERE gex_ratio IS NULL"
         ).rowcount
         # Update null kcs to 0
         updated += con.execute(
-            "UPDATE gex_snapshots SET kcs=0 WHERE kcs IS NULL"
+            "UPDATE snapshot SET kcs=0 WHERE kcs IS NULL"
         ).rowcount
         # Update null dominance to 0
         updated += con.execute(
-            "UPDATE gex_snapshots SET dominance=0 WHERE dominance IS NULL"
+            "UPDATE snapshot SET dominance=0 WHERE dominance IS NULL"
         ).rowcount
     return {"updated": updated}
 
 
-def _backfill_hmm_labels_for_gex_snapshots(only_null: bool = False) -> dict:
+def _backfill_hmm_labels_for_snapshot(only_null: bool = False) -> dict:
     """Run HMM sequence prediction for historical dates and store labels.
 
     Only updates RTH snapshots (ntime >= 930). Pre-market rows keep hmm_label=NULL.
@@ -1170,19 +1170,19 @@ def _backfill_hmm_labels_for_gex_snapshots(only_null: bool = False) -> dict:
     with _db() as con:
         if only_null:
             dates = [r[0] for r in con.execute(
-                "SELECT DISTINCT ndate FROM gex_snapshots "
+                "SELECT DISTINCT ndate FROM snapshot "
                 "WHERE symbol='SPX' AND ntime>=930 AND hmm_label IS NULL ORDER BY ndate"
             ).fetchall()]
         else:
             dates = [r[0] for r in con.execute(
-                "SELECT DISTINCT ndate FROM gex_snapshots WHERE symbol='SPX' AND ntime>=930 ORDER BY ndate"
+                "SELECT DISTINCT ndate FROM snapshot WHERE symbol='SPX' AND ntime>=930 ORDER BY ndate"
             ).fetchall()]
     updated = 0
     for ndate in dates:
         with _db() as con:
             rows = con.execute(
                 "SELECT ntime, uprice, net_gex, kcs, sentiment, key_strike, total_put_vol "
-                "FROM gex_snapshots WHERE ndate=? AND symbol='SPX' AND ntime>=930 ORDER BY ntime",
+                "FROM snapshot WHERE ndate=? AND symbol='SPX' AND ntime>=930 ORDER BY ntime",
                 (ndate,),
             ).fetchall()
         snaps = [
@@ -1198,7 +1198,7 @@ def _backfill_hmm_labels_for_gex_snapshots(only_null: bool = False) -> dict:
             label = hmm.get("label")
             with _db() as con:
                 con.execute(
-                    "UPDATE gex_snapshots SET hmm_state=?, hmm_label=? "
+                    "UPDATE snapshot SET hmm_state=?, hmm_label=? "
                     "WHERE ndate=? AND ntime=? AND symbol='SPX'",
                     (state, label, ndate, ntime),
                 )
@@ -1207,11 +1207,11 @@ def _backfill_hmm_labels_for_gex_snapshots(only_null: bool = False) -> dict:
 
 
 def _promote_live_to_historical() -> dict:
-    """Promote prior-day live_captures rows into gex_snapshots at server startup.
+    """Promote prior-day snapshot rows into snapshot at server startup.
 
-    Any live_captures row whose ndate < today (ET) that does not already exist
-    in gex_snapshots is inserted with source='live_promoted'.
-    All flat summary columns are copied from live_captures so the historical tab
+    Any snapshot row whose ndate < today (ET) that does not already exist
+    in snapshot is inserted with source='live_promoted'.
+    All flat summary columns are copied from snapshot so the historical tab
     renders identical values to the live tab.
     Returns {"promoted": N, "skipped": N}.
     """
@@ -1223,13 +1223,13 @@ def _promote_live_to_historical() -> dict:
     try:
         with _db() as con:
             rows = con.execute(
-                "SELECT ndate, ntime, spx_last, sentiment, gex_ratio, net_gex, kcs, dominance, "
+                "SELECT ndate, ntime, uprice, sentiment, gex_ratio, net_gex, kcs, dominance, "
                 "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
                 "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                 "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                 "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, "
                 "hmm_state, hmm_label, raw_json "
-                "FROM live_captures WHERE ndate < ? ORDER BY ndate, ntime",
+                "FROM snapshot WHERE ndate < ? ORDER BY ndate, ntime",
                 (today_ndate,),
             ).fetchall()
         for row in rows:
@@ -1241,7 +1241,7 @@ def _promote_live_to_historical() -> dict:
              hmm_state, hmm_label, raw_json) = row
             with _db() as con:
                 exists = con.execute(
-                    "SELECT 1 FROM gex_snapshots WHERE ndate=? AND ntime=? AND symbol='SPX'",
+                    "SELECT 1 FROM snapshot WHERE ndate=? AND ntime=? AND symbol='SPX'",
                     (ndate, ntime),
                 ).fetchone()
             if exists:
@@ -1250,7 +1250,7 @@ def _promote_live_to_historical() -> dict:
             # Live-promoted rows keep data as empty JSON list; the flat columns are the source of truth.
             with _db() as con:
                 con.execute(
-                    "INSERT OR IGNORE INTO gex_snapshots "
+                    "INSERT OR IGNORE INTO snapshot "
                     "(ndate, ntime, symbol, uprice, data, is_premarket, source, "
                     "sentiment, gex_ratio, net_gex, kcs, dominance, "
                     "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
@@ -1337,7 +1337,7 @@ def api_populate_spx_open_prices():
 
 
 def _ensure_hmm_tables() -> None:
-    """Create hmm_model table and add hmm columns to live_captures."""
+    """Create hmm_model table and add hmm columns to snapshot."""
     with _db() as con:
         con.execute("""
             CREATE TABLE IF NOT EXISTS hmm_model (
@@ -1350,11 +1350,11 @@ def _ensure_hmm_tables() -> None:
                 model_blob  BLOB NOT NULL
             )
         """)
-        caps = [r[1] for r in con.execute("PRAGMA table_info(live_captures)").fetchall()]
+        caps = [r[1] for r in con.execute("PRAGMA table_info(snapshot)").fetchall()]
         if "hmm_state" not in caps:
-            con.execute("ALTER TABLE live_captures ADD COLUMN hmm_state INTEGER")
+            con.execute("ALTER TABLE snapshot ADD COLUMN hmm_state INTEGER")
         if "hmm_label" not in caps:
-            con.execute("ALTER TABLE live_captures ADD COLUMN hmm_label TEXT")
+            con.execute("ALTER TABLE snapshot ADD COLUMN hmm_label TEXT")
 
 
 # HMM feature set (5 features covering the 5 independent PCA dimensions)
@@ -1365,7 +1365,7 @@ HMM_N_STATES = 4
 def _build_hmm_matrix() -> tuple:
     """Collect all RTH snapshots and build a normalised feature matrix.
 
-    Reads directly from the flat summary columns stored in gex_snapshots, so
+    Reads directly from the flat summary columns stored in snapshot, so
     no JSON parsing or re-summarisation is needed.
 
     Returns (X_scaled, scaler, raw_df) or (None, None, None) if insufficient data.
@@ -1377,7 +1377,7 @@ def _build_hmm_matrix() -> tuple:
     with _db() as con:
         rows = con.execute(
             "SELECT ndate, ntime, uprice, net_gex, kcs, sentiment, key_strike, total_put_vol "
-            "FROM gex_snapshots "
+            "FROM snapshot "
             "WHERE symbol='SPX' AND ntime>=930 AND net_gex IS NOT NULL "
             "ORDER BY ndate, ntime"
         ).fetchall()
@@ -1481,7 +1481,7 @@ def _train_hmm(force: bool = False) -> dict:
               json.dumps(state_labels), blob))
 
     # Regenerate stored HMM labels for all historical snapshots using the new model.
-    hmm_backfill = _backfill_hmm_labels_for_gex_snapshots()
+    hmm_backfill = _backfill_hmm_labels_for_snapshot()
 
     return {
         "status": "trained",
@@ -1495,7 +1495,7 @@ def _train_hmm(force: bool = False) -> dict:
 
 
 def _compute_pca() -> dict:
-    """Compute PCA over the flat summary features stored in gex_snapshots.
+    """Compute PCA over the flat summary features stored in snapshot.
 
     Returns explained variance, cumulative variance, per-component feature
     loadings, and the list of features used. Used to visualise the independent
@@ -1522,7 +1522,7 @@ def _compute_pca() -> dict:
             "total_call_oi, total_put_oi, total_call_vol, total_put_vol, "
             "key_call_gex, key_put_gex, key_call_oi, key_put_oi, key_call_vol, key_put_vol, "
             "key_strike, flip, key2_abs "
-            "FROM gex_snapshots WHERE symbol='SPX' AND ntime>=930 AND net_gex IS NOT NULL"
+            "FROM snapshot WHERE symbol='SPX' AND ntime>=930 AND net_gex IS NOT NULL"
         ).fetchall()
 
     records = []
@@ -1824,7 +1824,7 @@ def api_admin_generate_report():
 
 @app.route("/api/admin/verify-data", methods=["POST"])
 def api_admin_verify_data():
-    """Verify data integrity across gex_snapshots table."""
+    """Verify data integrity across snapshot table."""
     try:
         results = _verify_data()
         return jsonify({
@@ -1899,7 +1899,7 @@ def api_metric_history():
     with _db() as con:
         # Try live captures first (today)
         live_row = con.execute(
-            "SELECT ndate, spx_last, net_gex, kcs, sentiment, gex_ratio, total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, total_call_oi, total_put_oi, key_call_oi, key_put_oi, total_call_vol, total_put_vol, key_call_vol, key_put_vol, key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip FROM live_captures WHERE ndate=(SELECT MAX(ndate) FROM live_captures) ORDER BY ntime DESC LIMIT 1"
+            "SELECT ndate, uprice, net_gex, kcs, sentiment, gex_ratio, total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, total_call_oi, total_put_oi, key_call_oi, key_put_oi, total_call_vol, total_put_vol, key_call_vol, key_put_vol, key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip FROM snapshot WHERE ndate=(SELECT MAX(ndate) FROM snapshot) ORDER BY ntime DESC LIMIT 1"
         ).fetchone()
         if live_row:
             current_date = live_row[0]
@@ -1975,11 +1975,65 @@ def api_metric_history():
     })
 
 
-def _ensure_live_captures_table() -> None:
-    """Create the live_captures table if it does not exist, and add is_premarket column if missing."""
+
+
+def _ensure_snapshot_table() -> None:
+    """Create unified snapshot table if it does not exist.
+
+    This table replaces both snapshot and snapshot.
+    Source field: 'gex' for live data, 'histgex' for historical data.
+    """
     with _db() as con:
         con.execute("""
-            CREATE TABLE IF NOT EXISTS live_captures (
+            CREATE TABLE IF NOT EXISTS snapshot (
+                ndate           INTEGER NOT NULL,
+                ntime           INTEGER NOT NULL,
+                symbol          TEXT NOT NULL,
+                uprice          REAL,
+                raw_json        TEXT,
+                capture_ts      TEXT,
+                source          TEXT NOT NULL,
+                sentiment       REAL,
+                gex_ratio       REAL,
+                net_gex         REAL,
+                kcs             REAL,
+                dominance       REAL,
+                total_call_gex  REAL,
+                total_put_gex   REAL,
+                key_strike      REAL,
+                key_call_gex    REAL,
+                key_put_gex     REAL,
+                total_call_oi   INTEGER,
+                total_put_oi    INTEGER,
+                key_call_oi     INTEGER,
+                key_put_oi      INTEGER,
+                total_call_vol  INTEGER,
+                total_put_vol   INTEGER,
+                key_call_vol    INTEGER,
+                key_put_vol     INTEGER,
+                key2_strike     REAL,
+                key2_abs        REAL,
+                key2_call_vol   INTEGER,
+                key2_put_vol    INTEGER,
+                flip            REAL,
+                is_premarket    INTEGER NOT NULL DEFAULT 0,
+                hmm_state       INTEGER,
+                hmm_label       TEXT,
+                PRIMARY KEY (ndate, ntime, symbol)
+            )
+        """)
+        # Create indexes for common queries
+        con.execute("CREATE INDEX IF NOT EXISTS ix_snapshot_symbol ON snapshot (symbol)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_snapshot_ndate ON snapshot (ndate)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_snapshot_source ON snapshot (source)")
+        con.execute("CREATE INDEX IF NOT EXISTS ix_snapshot_date_time ON snapshot (ndate DESC, ntime DESC)")
+
+
+def _ensure_snapshot_table() -> None:
+    """Create the snapshot table if it does not exist, and add is_premarket column if missing."""
+    with _db() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS snapshot (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
                 capture_ts      TEXT NOT NULL,
                 ndate           INTEGER NOT NULL,
@@ -2014,33 +2068,33 @@ def _ensure_live_captures_table() -> None:
             )
         """)
         # Migrate existing tables that may lack is_premarket or raw_json
-        cols = [r[1] for r in con.execute("PRAGMA table_info(live_captures)").fetchall()]
+        cols = [r[1] for r in con.execute("PRAGMA table_info(snapshot)").fetchall()]
         if "is_premarket" not in cols:
-            con.execute("ALTER TABLE live_captures ADD COLUMN is_premarket INTEGER NOT NULL DEFAULT 0")
+            con.execute("ALTER TABLE snapshot ADD COLUMN is_premarket INTEGER NOT NULL DEFAULT 0")
         if "raw_json" not in cols:
-            con.execute("ALTER TABLE live_captures ADD COLUMN raw_json TEXT")
+            con.execute("ALTER TABLE snapshot ADD COLUMN raw_json TEXT")
         
         # Migration: add UNIQUE constraint on (ndate, ntime) if not present
         # SQLite doesn't support ALTER TABLE ADD CONSTRAINT, so we need to recreate
-        indexes = [r[1] for r in con.execute("PRAGMA index_list(live_captures)").fetchall()]
-        has_unique = any("live_captures_ndate_ntime" in idx for idx in indexes)
+        indexes = [r[1] for r in con.execute("PRAGMA index_list(snapshot)").fetchall()]
+        has_unique = any("snapshot_ndate_ntime" in idx for idx in indexes)
         if not has_unique:
-            # Remove duplicates first
+            # Remove duplicates first (use rowid)
             con.execute("""
-                DELETE FROM live_captures 
-                WHERE id NOT IN (
-                    SELECT MIN(id) FROM live_captures 
-                    GROUP BY ndate, ntime
+                DELETE FROM snapshot 
+                WHERE rowid NOT IN (
+                    SELECT MIN(rowid) FROM snapshot 
+                    GROUP BY ndate, ntime, symbol
                 )
             """)
             # Create unique index
-            con.execute("CREATE UNIQUE INDEX live_captures_ndate_ntime ON live_captures(ndate, ntime)")
+            con.execute("CREATE UNIQUE INDEX snapshot_ndate_ntime ON snapshot(ndate, ntime, symbol)")
 
 
 def _ensure_unified_snapshots_table() -> None:
     """Create unified snapshots table if it does not exist.
 
-    This table replaces both live_captures and gex_snapshots.
+    This table replaces both snapshot and snapshot.
     Historical = date < today (SQL filter, no flag needed).
     """
     with _db() as con:
@@ -2089,7 +2143,7 @@ def _ensure_unified_snapshots_table() -> None:
 
 
 def _migrate_to_unified_snapshots() -> dict:
-    """Migrate data from live_captures and gex_snapshots to unified snapshots table.
+    """Migrate data from snapshot and snapshot to unified snapshots table.
 
     Returns {"live_migrated": N, "hist_migrated": N, "skipped": N}
     """
@@ -2104,15 +2158,15 @@ def _migrate_to_unified_snapshots() -> dict:
         if existing > 0:
             return {"status": "already_migrated", "existing": existing}
 
-        # Migrate live_captures
+        # Migrate snapshot
         live_rows = con.execute(
-            """SELECT ndate, ntime, spx_last, sentiment, gex_ratio, net_gex, kcs, dominance,
+            """SELECT ndate, ntime, uprice, sentiment, gex_ratio, net_gex, kcs, dominance,
                total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex,
                total_call_oi, total_put_oi, key_call_oi, key_put_oi,
                total_call_vol, total_put_vol, key_call_vol, key_put_vol,
                key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip,
                is_premarket, hmm_state, hmm_label, capture_ts
-               FROM live_captures"""
+               FROM snapshot"""
         ).fetchall()
 
         for r in live_rows:
@@ -2146,16 +2200,16 @@ def _migrate_to_unified_snapshots() -> dict:
             except Exception as e:
                 skipped += 1
 
-        # Migrate gex_snapshots
+        # Migrate snapshot
         hist_rows = con.execute(
-            """SELECT ndate, ntime, symbol, uprice, data, source,
+            """SELECT ndate, ntime, symbol, uprice, raw_json, source,
                sentiment, gex_ratio, net_gex, kcs, dominance,
                total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex,
                total_call_oi, total_put_oi, key_call_oi, key_put_oi,
                total_call_vol, total_put_vol, key_call_vol, key_put_vol,
                key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip,
                is_premarket, hmm_state, hmm_label
-               FROM gex_snapshots WHERE symbol='SPX'"""
+               FROM snapshot WHERE symbol='SPX'"""
         ).fetchall()
 
         for r in hist_rows:
@@ -2176,7 +2230,7 @@ def _migrate_to_unified_snapshots() -> dict:
                      total_call_vol, total_put_vol, key_call_vol, key_put_vol,
                      key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip,
                      is_premarket, hmm_state, hmm_label)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     (ndate, ntime, symbol, uprice, data, source or 'histgex',
                      sentiment, gex_ratio, net_gex, kcs, dominance,
                      total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex,
@@ -2231,22 +2285,22 @@ RTH_CLOSE = 1600  # Regular Trading Hours end (ET)
 
 
 def get_spx_ohlc_from_db(date_iso: str) -> dict | None:
-    """Derive SPX OHLC for a date from the uprice values stored in gex_snapshots.
+    """Derive SPX OHLC for a date from the uprice values stored in snapshot.
 
     Only uses RTH prices (ntime >= 930) so pre-market captures don't corrupt
-    the Open value. Also checks live_captures for today.
+    the Open value. Also checks snapshot for today.
     Returns None if no RTH data found.
     """
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         rows = con.execute(
-            "SELECT ntime, uprice FROM gex_snapshots "
+            "SELECT ntime, uprice FROM snapshot "
             "WHERE ndate=? AND uprice IS NOT NULL AND ntime>=? ORDER BY ntime",
             (ndate, RTH_OPEN),
         ).fetchall()
         live_rows = con.execute(
-            "SELECT ntime, spx_last FROM live_captures "
-            "WHERE ndate=? AND spx_last IS NOT NULL AND ntime>=? ORDER BY ntime",
+            "SELECT ntime, uprice FROM snapshot "
+            "WHERE ndate=? AND uprice IS NOT NULL AND ntime>=? ORDER BY ntime",
             (ndate, RTH_OPEN),
         ).fetchall()
 
@@ -2277,13 +2331,13 @@ def get_spx_ohlc_from_db(date_iso: str) -> dict | None:
 
 
 def get_spx_bars_from_db(date_iso: str, up_to_ntime: int) -> list:
-    """Return per-snapshot RTH price bars from gex_snapshots uprice for the chart,
+    """Return per-snapshot RTH price bars from snapshot uprice for the chart,
     for all ntimes in [930, up_to_ntime].
     """
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         rows = con.execute(
-            "SELECT ntime, uprice FROM gex_snapshots "
+            "SELECT ntime, uprice FROM snapshot "
             "WHERE ndate=? AND uprice IS NOT NULL AND ntime>=? AND ntime<=? ORDER BY ntime",
             (ndate, RTH_OPEN, up_to_ntime),
         ).fetchall()
@@ -2299,7 +2353,7 @@ def available_dates() -> list:
     """Return sorted list of ISO date strings that have GEX data in the DB."""
     with _db() as con:
         rows = con.execute(
-            "SELECT DISTINCT ndate FROM gex_snapshots ORDER BY ndate"
+            "SELECT DISTINCT ndate FROM snapshot ORDER BY ndate"
         ).fetchall()
     dates = []
     for r in rows:
@@ -2308,17 +2362,67 @@ def available_dates() -> list:
     return dates
 
 
+def load_snapshot(date_iso: str, ntime: int, symbol: str = "SPX") -> dict | None:
+    """Load a single snapshot from the unified snapshot table."""
+    ndate = int(date_iso.replace("-", ""))
+    with _db() as con:
+        row = con.execute(
+            "SELECT uprice, raw_json, sentiment, gex_ratio, net_gex, kcs, dominance, "
+            "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
+            "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
+            "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
+            "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, hmm_state, hmm_label "
+            "FROM snapshot "
+            "WHERE ndate=? AND ntime=? AND symbol=?",
+            (ndate, ntime, symbol),
+        ).fetchone()
+    if row:
+        parsed = json.loads(row[1]) if row[1] else {"data": []}
+        # The DB stores the full JSON dict with 'data' key; extract the inner data list
+        data_list = parsed.get("data") if isinstance(parsed, dict) else parsed
+        return {
+            "uprice": row[0],
+            "data": data_list,
+            "sentiment": row[2],
+            "gex_ratio": row[3],
+            "net_gex": row[4],
+            "kcs": row[5],
+            "dominance": row[6],
+            "total_call_gex": row[7],
+            "total_put_gex": row[8],
+            "key_strike": row[9],
+            "key_call_gex": row[10],
+            "key_put_gex": row[11],
+            "total_call_oi": row[12],
+            "total_put_oi": row[13],
+            "key_call_oi": row[14],
+            "key_put_oi": row[15],
+            "total_call_vol": row[16],
+            "total_put_vol": row[17],
+            "key_call_vol": row[18],
+            "key_put_vol": row[19],
+            "key2_strike": row[20],
+            "key2_abs": row[21],
+            "key2_call_vol": row[22],
+            "key2_put_vol": row[23],
+            "flip": row[24],
+            "hmm_state": row[25],
+            "hmm_label": row[26],
+        }
+    return None
+
+
 def load_gex_snapshot(date_iso: str, ntime: int, symbol: str = "SPX") -> dict | None:
     """Load a single GEX snapshot from SQLite (historical only)."""
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         row = con.execute(
-            "SELECT uprice, data, sentiment, gex_ratio, net_gex, kcs, dominance, "
+            "SELECT uprice, raw_json, sentiment, gex_ratio, net_gex, kcs, dominance, "
             "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
             "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
             "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
             "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, hmm_state, hmm_label "
-            "FROM gex_snapshots "
+            "FROM snapshot "
             "WHERE ndate=? AND ntime=? AND symbol=?",
             (ndate, ntime, symbol),
         ).fetchone()
@@ -2359,16 +2463,16 @@ def load_gex_snapshot(date_iso: str, ntime: int, symbol: str = "SPX") -> dict | 
 
 
 def load_live_snapshot(date_iso: str, ntime: int) -> dict | None:
-    """Load a single live snapshot from live_captures table."""
+    """Load a single live snapshot from snapshot table."""
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         row = con.execute(
-            "SELECT spx_last, raw_json, sentiment, gex_ratio, net_gex, kcs, dominance, "
+            "SELECT uprice, raw_json, sentiment, gex_ratio, net_gex, kcs, dominance, "
             "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
             "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
             "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
             "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, hmm_state, hmm_label "
-            "FROM live_captures "
+            "FROM snapshot "
             "WHERE ndate=? AND ntime=?",
             (ndate, ntime),
         ).fetchone()
@@ -2574,7 +2678,7 @@ def _compute_key_strike_stats(rows: list, uprice: float) -> dict:
 def _compute_flat_summary(data: dict) -> dict:
     """Compute all flat summary fields for a GEX snapshot (40-strike window).
 
-    This matches the calculation used for live_captures so that historical and
+    This matches the calculation used for snapshot so that historical and
     live rows share identical numeric values.
     """
     # Handle both dict with 'data' key and direct list
@@ -3037,7 +3141,7 @@ def build_thesis(
 
 
 def compare_thesis_with_actuals(date_iso: str, thesis: dict, spx_df: pd.DataFrame = None) -> dict:
-    """Compare thesis with OHLC sourced from gex_snapshots DB."""
+    """Compare thesis with OHLC sourced from snapshot DB."""
     ohlc = get_spx_ohlc_from_db(date_iso)
     if not ohlc:
         return {"error": "No SPX data for this date"}
@@ -3120,7 +3224,7 @@ def generate_eod_analysis(date_iso: str) -> dict:
 
 
 def _analyse_intraday_captures(date_iso: str) -> dict:
-    """Apply the four Jun-22 lessons to today's live_captures rows.
+    """Apply the four Jun-22 lessons to today's snapshot rows.
 
     Lessons from Gex/Lessons Learnt/20260622.txt:
       1. Key-strike call:put vol ratio — if puts overtake calls early, pin will fail
@@ -3131,10 +3235,10 @@ def _analyse_intraday_captures(date_iso: str) -> dict:
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         rows = con.execute(
-            "SELECT ntime, spx_last, net_gex, key_strike, key_call_gex, key_put_gex, "
+            "SELECT ntime, uprice, net_gex, key_strike, key_call_gex, key_put_gex, "
             "key_call_vol, key_put_vol, key_call_oi, key_put_oi, "
             "key2_strike, key2_abs, flip, dominance "
-            "FROM live_captures WHERE ndate=? ORDER BY ntime",
+            "FROM snapshot WHERE ndate=? ORDER BY ntime",
             (ndate,),
         ).fetchall()
 
@@ -3336,21 +3440,21 @@ def _analyse_intraday_captures(date_iso: str) -> dict:
 
 def generate_live_analysis(date_iso: str) -> dict:
     """Generate live/current-day analysis from the daily summary CSV,
-    overriding stale CSV values with the latest live_captures row from DB.
+    overriding stale CSV values with the latest snapshot row from DB.
     """
     thesis = generate_thesis_from_daily_summary(date_iso)
     if "error" in thesis:
         return thesis
 
-    # Override thesis values with the latest live_captures row so the
+    # Override thesis values with the latest snapshot row so the
     # thesis net_gex, the table, and the UI widget all show the same number.
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         latest_cap = con.execute(
-            "SELECT spx_last, net_gex, key_strike, flip, "
+            "SELECT uprice, net_gex, key_strike, flip, "
             "key_call_gex, key_put_gex, key_call_oi, key_put_oi, "
             "key_call_vol, key_put_vol "
-            "FROM live_captures WHERE ndate=? ORDER BY id DESC LIMIT 1",
+            "FROM snapshot WHERE ndate=? ORDER BY id DESC LIMIT 1",
             (ndate,),
         ).fetchone()
     if latest_cap:
@@ -3388,7 +3492,7 @@ def generate_live_analysis(date_iso: str) -> dict:
             ndate = int(date_iso.replace("-", ""))
             with _db() as con:
                 price_rows = con.execute(
-                    "SELECT spx_last FROM live_captures WHERE ndate=? AND spx_last IS NOT NULL ORDER BY ntime",
+                    "SELECT uprice FROM snapshot WHERE ndate=? AND uprice IS NOT NULL ORDER BY ntime",
                     (ndate,),
                 ).fetchall()
             prices = [r[0] for r in price_rows]
@@ -3782,7 +3886,7 @@ _STATS_CACHE_METRICS = ["net_gex", "call_gex", "put_gex", "call_oi", "put_oi", "
 def _snapshot_computed_stats(date_iso: str, ntime: int) -> dict | None:
     """Load a histgex snapshot and compute the same 40-strike window stats as the API.
     
-    First tries to read from flat columns in gex_snapshots (backfilled values).
+    First tries to read from flat columns in snapshot (backfilled values).
     Falls back to JSON computation if flat columns are NULL.
     """
     import sqlite3
@@ -3793,7 +3897,7 @@ def _snapshot_computed_stats(date_iso: str, ntime: int) -> dict | None:
         row = con.execute(
             "SELECT net_gex, total_call_gex, total_put_gex, total_call_oi, total_put_oi, "
             "total_call_vol, total_put_vol, kcs, dominance, sentiment, gex_ratio "
-            "FROM gex_snapshots WHERE ndate=? AND ntime=? AND symbol='SPX'",
+            "FROM snapshot WHERE ndate=? AND ntime=? AND symbol='SPX'",
             (ndate, ntime)
         ).fetchone()
     
@@ -3901,7 +4005,7 @@ def get_history_cache(ntime: int) -> dict:
 # API routes
 # ---------------------------------------------------------------------------
 
-SPX_DF = pd.DataFrame()  # SPX price data sourced from gex_snapshots DB, not CSV
+SPX_DF = pd.DataFrame()  # SPX price data sourced from snapshot DB, not CSV
 
 
 @app.route("/")
@@ -4057,14 +4161,14 @@ def api_snapshot():
     ntime    = int(request.args.get("time", 930))
     prev_t   = request.args.get("prev_time")
 
-    data = load_gex_snapshot(date_iso, ntime)
+    data = load_snapshot(date_iso, ntime)
     if data is None:
         return jsonify({"error": "No GEX data for this date/time"}), 404
 
     snap = summarise_snapshot(data)
     prev_snap = None
     if prev_t:
-        prev_data = load_gex_snapshot(date_iso, int(prev_t))
+        prev_data = load_snapshot(date_iso, int(prev_t))
         if prev_data:
             prev_snap = summarise_snapshot(prev_data)
 
@@ -4170,7 +4274,7 @@ def api_snapshots():
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         rows = con.execute(
-            "SELECT DISTINCT ntime FROM gex_snapshots WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
+            "SELECT DISTINCT ntime FROM snapshot WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
             (ndate,)
         ).fetchall()
     times = [r[0] for r in rows]
@@ -4181,8 +4285,8 @@ def api_snapshots():
 def api_snapshots_summary():
     """Return a compact summary row for every available time-slot on a date.
 
-    Sourced directly from the flat summary columns stored in gex_snapshots.
-    Columns match the live_captures table schema so both tabs can share the
+    Sourced from the unified snapshot table.
+    Columns match the snapshot table schema so both tabs can share the
     same frontend table renderer.
     """
     date_iso = request.args.get("date")
@@ -4197,7 +4301,7 @@ def api_snapshots_summary():
         "key2_strike", "key2_abs", "key2_call_vol", "key2_put_vol", "flip",
         "hmm_state", "hmm_label", "is_premarket",
     ]
-    sql = f"SELECT {', '.join(fields)} FROM gex_snapshots WHERE ndate=? AND symbol='SPX' ORDER BY ntime DESC"
+    sql = f"SELECT {', '.join(fields)} FROM snapshot WHERE ndate=? AND symbol='SPX' ORDER BY ntime DESC"
     with _db() as con:
         rows = con.execute(sql, (ndate,)).fetchall()
 
@@ -4454,7 +4558,7 @@ def api_narrative_update():
 
 @app.route("/api/migrate-live", methods=["POST"])
 def api_migrate_live():
-    """Manually trigger promotion of prior-day live captures to historical gex_snapshots."""
+    """Manually trigger promotion of prior-day live captures to historical snapshot."""
     result = _promote_live_to_historical()
     return jsonify(result)
 
@@ -4524,7 +4628,7 @@ def api_trade_signals_generate():
     ndate = int(date_iso.replace("-", ""))
 
     # Load all snapshots for the date in time order
-    # For today's date, use live_captures; for historical dates, use gex_snapshots
+    # For today's date, use snapshot; for historical dates, use snapshot
     from datetime import datetime, timedelta, timezone
     et_now = get_et_now()
     today_ndate = int(et_now.strftime("%Y%m%d"))
@@ -4533,12 +4637,12 @@ def api_trade_signals_generate():
     with _db() as con:
         if use_live:
             snap_rows = con.execute(
-                "SELECT ntime, spx_last, net_gex, sentiment, gex_ratio, kcs, dominance, "
+                "SELECT ntime, uprice, net_gex, sentiment, gex_ratio, kcs, dominance, "
                 "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
                 "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                 "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                 "key2_strike, key2_abs, flip, hmm_label, 0 as is_premarket "
-                "FROM live_captures WHERE ndate=? ORDER BY ntime",
+                "FROM snapshot WHERE ndate=? ORDER BY ntime",
                 (ndate,)
             ).fetchall()
         else:
@@ -4548,7 +4652,7 @@ def api_trade_signals_generate():
                 "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                 "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                 "key2_strike, key2_abs, flip, hmm_label, is_premarket "
-                "FROM gex_snapshots WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
+                "FROM snapshot WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
                 (ndate,)
             ).fetchall()
 
@@ -4722,7 +4826,7 @@ def api_history_distribution():
         ntime_current = int(current_time)
         with _db() as con:
             row = con.execute(
-                f"SELECT {db_col} FROM gex_snapshots "
+                f"SELECT {db_col} FROM snapshot "
                 "WHERE ndate=? AND ntime=? AND symbol='SPX'",
                 (ndate, ntime_current)
             ).fetchone()
@@ -4732,9 +4836,9 @@ def api_history_distribution():
     else:
         # Find the latest snapshot matching the requested time slot
         with _db() as con:
-            # Check live_captures first for the requested ntime
+            # Check snapshot first for the requested ntime
             live_row = con.execute(
-                f"SELECT capture_ts, {db_col} FROM live_captures "
+                f"SELECT capture_ts, {db_col} FROM snapshot "
                 f"WHERE ntime=? AND {db_col} IS NOT NULL ORDER BY capture_ts DESC LIMIT 1",
                 (ntime,)
             ).fetchone()
@@ -4744,7 +4848,7 @@ def api_history_distribution():
             else:
                 # Fall back to latest historical snapshot matching the requested ntime
                 hist_row = con.execute(
-                    f"SELECT ndate, ntime, {db_col} FROM gex_snapshots "
+                    f"SELECT ndate, ntime, {db_col} FROM snapshot "
                     f"WHERE symbol='SPX' AND ntime=? AND {db_col} IS NOT NULL "
                     "ORDER BY ndate DESC LIMIT 1",
                     (ntime,)
@@ -4790,7 +4894,7 @@ def api_history_distribution():
 def api_snapshots_all():
     """Return all snapshots with pagination for Distribution page.
 
-    Includes both gex_snapshots (historical) and live_captures (today's live data).
+    Includes both snapshot (historical) and snapshot (today's live data).
 
     Query params:
         offset: pagination offset (default 0)
@@ -4811,42 +4915,42 @@ def api_snapshots_all():
     time_end = regime["end"]
 
     with _db() as con:
-        # Get total count (gex_snapshots historical + today's live_captures) filtered by regime
+        # Get total count (snapshot historical + today's snapshot) filtered by regime
         total_hist = con.execute(
-            """SELECT COUNT(*) FROM gex_snapshots
+            """SELECT COUNT(*) FROM snapshot
                WHERE symbol='SPX' AND ndate < ? AND ntime >= ? AND ntime <= ?""",
             (today_ndate, time_start, time_end)
         ).fetchone()[0]
         total_live = con.execute(
-            """SELECT COUNT(*) FROM live_captures
-               WHERE ndate=? AND ntime >= ? AND ntime <= ?""",
+            """SELECT COUNT(*) FROM snapshot
+               WHERE ndate=? AND source='gex' AND ntime >= ? AND ntime <= ?""",
             (today_ndate, time_start, time_end)
         ).fetchone()[0]
         total = total_hist + total_live
 
-        # Get paginated rows from gex_snapshots (historical only, exclude today, filtered by regime)
+        # Get paginated rows from snapshot (historical only, exclude today, filtered by regime)
         hist_rows = con.execute(
             """SELECT ndate, ntime, uprice, net_gex, sentiment, gex_ratio, kcs, dominance,
                total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex,
                total_call_oi, total_put_oi, key_call_oi, key_put_oi,
                total_call_vol, total_put_vol, key_call_vol, key_put_vol
-               FROM gex_snapshots
+               FROM snapshot
                WHERE symbol='SPX' AND ndate < ? AND ntime >= ? AND ntime <= ?
                ORDER BY ndate DESC, ntime DESC
                LIMIT ? OFFSET ?""",
             (today_ndate, time_start, time_end, limit, offset)
         ).fetchall()
 
-        # Get today's live_captures (only on first page, filtered by regime)
+        # Get today's snapshot (only on first page, filtered by regime)
         live_rows = []
         if offset == 0:
             live_rows = con.execute(
-                """SELECT ndate, ntime, spx_last, sentiment, gex_ratio, net_gex, kcs, dominance,
+                """SELECT ndate, ntime, uprice, sentiment, gex_ratio, net_gex, kcs, dominance,
                    total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex,
                    total_call_oi, total_put_oi, key_call_oi, key_put_oi,
                    total_call_vol, total_put_vol, key_call_vol, key_put_vol
-                   FROM live_captures
-                   WHERE ndate=? AND ntime >= ? AND ntime <= ?
+                   FROM snapshot
+                   WHERE ndate=? AND source='gex' AND ntime >= ? AND ntime <= ?
                    ORDER BY ntime DESC""",
                 (today_ndate, time_start, time_end)
             ).fetchall()
@@ -4971,7 +5075,7 @@ def api_history_all_values():
     # Get all time slots from the history cache, filtered by regime
     with _db() as con:
         rows = con.execute(
-            """SELECT DISTINCT ntime FROM gex_snapshots
+            """SELECT DISTINCT ntime FROM snapshot
                WHERE symbol='SPX' AND ntime>=? AND ntime<=?
                ORDER BY ntime""",
             (time_start, time_end)
@@ -5122,14 +5226,14 @@ def _existing_times(ndate: int, symbol: str = "SPX") -> set:
     """Return the set of ntimes already in the DB for this date."""
     with _db() as con:
         rows = con.execute(
-            "SELECT ntime FROM gex_snapshots WHERE ndate=? AND symbol=?",
+            "SELECT ntime FROM snapshot WHERE ndate=? AND symbol=?",
             (ndate, symbol),
         ).fetchall()
     return {r[0] for r in rows}
 
 
 def _migrate_histgex_to_db(symbol: str = "SPX") -> dict:
-    """Import histgex JSON files into gex_snapshots table."""
+    """Import histgex JSON files into snapshot table."""
     migrated = 0
     skipped = 0
     dates_done = []
@@ -5148,10 +5252,10 @@ def _migrate_histgex_to_db(symbol: str = "SPX") -> dict:
                 ntime = int(parts[1])
             except (IndexError, ValueError):
                 continue
-            # Check if already in gex_snapshots
+            # Check if already in snapshot
             with _db() as con:
                 exists = con.execute(
-                    "SELECT 1 FROM gex_snapshots WHERE ndate=? AND ntime=? AND symbol=?",
+                    "SELECT 1 FROM snapshot WHERE ndate=? AND ntime=? AND symbol=?",
                     (ndate, ntime, symbol),
                 ).fetchone()
             if exists:
@@ -5168,15 +5272,15 @@ def _migrate_histgex_to_db(symbol: str = "SPX") -> dict:
                 snap = _compute_flat_summary(data)
                 with _db() as con:
                     con.execute(
-                        "INSERT OR IGNORE INTO gex_snapshots "
-                        "(ndate, ntime, symbol, uprice, data, is_premarket, source, raw_json, "
+                        "INSERT OR IGNORE INTO snapshot "
+                        "(ndate, ntime, symbol, uprice, is_premarket, source, raw_json, "
                         "sentiment, gex_ratio, net_gex, kcs, dominance, "
                         "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
                         "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                         "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                         "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (ndate, ntime, symbol, uprice, json.dumps(data), is_pre, 'histgex', json.dumps(data),
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (ndate, ntime, symbol, uprice, is_pre, 'histgex', json.dumps(data),
                          snap.get("sentiment_pct"), snap.get("gex_ratio"), snap.get("net_gex"), snap.get("kcs"), snap.get("key_dominance_pct"),
                          snap.get("total_call_gex"), snap.get("total_put_gex"), snap.get("key_strike"), snap.get("key_call_gex"), snap.get("key_put_gex"),
                          snap.get("total_call_oi"), snap.get("total_put_oi"), snap.get("key_call_oi"), snap.get("key_put_oi"),
@@ -5192,10 +5296,10 @@ def _migrate_histgex_to_db(symbol: str = "SPX") -> dict:
 
 
 def _migrate_live_snapshots_to_history(symbol: str = "SPX") -> dict:
-    """Promote prior-day live JSON files into gex_snapshots.
+    """Promote prior-day live JSON files into snapshot.
 
     Scans results/livegex/ for any date folder that is NOT today, reads each
-    *_livegex.json file and inserts it into gex_snapshots (INSERT OR IGNORE so
+    *_livegex.json file and inserts it into snapshot (INSERT OR IGNORE so
     already-present rows are not overwritten).
 
     Returns counts: {"migrated": N, "skipped": N, "dates": [...]}
@@ -5224,10 +5328,10 @@ def _migrate_live_snapshots_to_history(symbol: str = "SPX") -> dict:
             except (IndexError, ValueError):
                 continue
 
-            # Check if already in gex_snapshots
+            # Check if already in snapshot
             with _db() as con:
                 exists = con.execute(
-                    "SELECT 1 FROM gex_snapshots WHERE ndate=? AND ntime=? AND symbol=?",
+                    "SELECT 1 FROM snapshot WHERE ndate=? AND ntime=? AND symbol=?",
                     (ndate, ntime, symbol),
                 ).fetchone()
             if exists:
@@ -5245,15 +5349,15 @@ def _migrate_live_snapshots_to_history(symbol: str = "SPX") -> dict:
                 snap = _compute_flat_summary(data)
                 with _db() as con:
                     con.execute(
-                        "INSERT OR IGNORE INTO gex_snapshots "
-                        "(ndate, ntime, symbol, uprice, data, is_premarket, source, raw_json, "
+                        "INSERT OR IGNORE INTO snapshot "
+                        "(ndate, ntime, symbol, uprice, is_premarket, source, raw_json, "
                         "sentiment, gex_ratio, net_gex, kcs, dominance, "
                         "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
                         "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                         "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
                         "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (ndate, ntime, symbol, uprice, json.dumps(data), is_pre, 'gex', json.dumps(data),
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                        (ndate, ntime, symbol, uprice, is_pre, 'gex', json.dumps(data),
                          snap.get("sentiment_pct"), snap.get("gex_ratio"), snap.get("net_gex"), snap.get("kcs"), snap.get("key_dominance_pct"),
                          snap.get("total_call_gex"), snap.get("total_put_gex"), snap.get("key_strike"), snap.get("key_call_gex"), snap.get("key_put_gex"),
                          snap.get("total_call_oi"), snap.get("total_put_oi"), snap.get("key_call_oi"), snap.get("key_put_oi"),
@@ -5273,7 +5377,7 @@ def _migrate_live_snapshots_to_history(symbol: str = "SPX") -> dict:
 def sync_historical(symbol: str = "SPX", max_days: int = 30) -> dict:
     """Fetch missing historical GEX data working backwards from yesterday.
 
-    First promotes any prior-day live snapshots into gex_snapshots, then
+    First promotes any prior-day live snapshots into snapshot, then
     fetches remaining missing slots from the OptionAlpha histgex API.
 
     Uses market.histgex (not market.gex) — market.gex returns 501 for historical
@@ -5288,7 +5392,7 @@ def sync_historical(symbol: str = "SPX", max_days: int = 30) -> dict:
     from datetime import date, timedelta
     from gex_historical_intraday import fetch_histgex
 
-    # Step 1: migrate prior-day live snapshots into gex_snapshots first
+    # Step 1: migrate prior-day live snapshots into snapshot first
     migration = _migrate_live_snapshots_to_history(symbol)
 
     yesterday = date.today() - timedelta(days=1)
@@ -5326,7 +5430,7 @@ def sync_historical(symbol: str = "SPX", max_days: int = 30) -> dict:
                 snap = _compute_flat_summary({"uprice": uprice, "data": rows})
                 with _db() as con:
                     con.execute(
-                        "INSERT OR IGNORE INTO gex_snapshots "
+                        "INSERT OR IGNORE INTO snapshot "
                         "(ndate, ntime, symbol, uprice, data, is_premarket, source, raw_json, "
                         "sentiment, gex_ratio, net_gex, kcs, dominance, "
                         "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
@@ -5393,7 +5497,7 @@ def api_spx_prices():
         ndate = int(target_date.replace("-", ""))
         with _db() as con:
             rows = con.execute(
-                "SELECT ntime, uprice FROM gex_snapshots WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
+                "SELECT ntime, uprice FROM snapshot WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
                 (ndate,)
             ).fetchall()
         for ntime, uprice in rows:
@@ -5407,7 +5511,7 @@ def api_spx_prices():
         # EOD mode: latest time per day
         with _db() as con:
             rows = con.execute(
-                "SELECT ndate, MAX(ntime) as ntime, uprice FROM gex_snapshots "
+                "SELECT ndate, MAX(ntime) as ntime, uprice FROM snapshot "
                 "WHERE symbol='SPX' GROUP BY ndate ORDER BY ndate"
             ).fetchall()
         for ndate, ntime, uprice in rows:
@@ -5457,16 +5561,6 @@ def api_live_fetch():
 
 
 def _api_live_fetch_inner():
-    # Auto-migrate yesterday's live snapshots to historical on a new day
-    et_now = get_et_now()
-    today_ndate = int(et_now.strftime("%Y%m%d"))
-    with _db() as _chk:
-        old_dates = [r[0] for r in _chk.execute(
-            "SELECT DISTINCT ndate FROM live_captures WHERE ndate < ?", (today_ndate,)
-        ).fetchall()]
-    if old_dates:
-        _migrate_live_snapshots_to_history()
-
     # Step 1: fetch live data via the daily script
     daily_result = run_script("optionalpha_daily.py", ["--symbol", "SPX"], timeout=180)
     if not daily_result["ok"]:
@@ -5504,13 +5598,13 @@ def _api_live_fetch_inner():
     divergence = detect_volume_divergence(data)
     snap = summarise_snapshot(data)
 
-    # HMM regime prediction — save to live_captures with regime label
+    # HMM regime prediction — save to snapshot with regime label
     hmm = {}
     if data["ntime"] >= 930:
         with _db() as _hcon:
             prior_rows = _hcon.execute(
-                "SELECT spx_last, net_gex, kcs, sentiment, key_strike, total_put_vol "
-                "FROM live_captures WHERE ndate=? AND ntime>=930 ORDER BY ntime",
+                "SELECT uprice, net_gex, kcs, sentiment, key_strike, total_put_vol "
+                "FROM snapshot WHERE ndate=? AND ntime>=930 AND source='gex' ORDER BY ntime",
                 (data["ndate"],)
             ).fetchall()
         prior_snaps = [
@@ -5522,25 +5616,26 @@ def _api_live_fetch_inner():
         seq_results = predict_hmm_sequence(all_snaps)
         hmm = seq_results[-1] if seq_results else {}
 
-    # Persist to live_captures for regime tracking
+    # Persist to snapshot for regime tracking
     from datetime import datetime, timezone
     _ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     _is_premarket = 1 if data["ntime"] < RTH_OPEN else 0
     with _db() as _con:
         _con.execute("""
-            INSERT OR REPLACE INTO live_captures (
-                capture_ts, ndate, ntime,
-                spx_last, sentiment, gex_ratio, net_gex, kcs, dominance,
-                total_call_gex, total_put_gex,
-                key_strike, key_call_gex, key_put_gex,
+            INSERT OR REPLACE INTO snapshot (
+                ndate, ntime, symbol, uprice, raw_json, capture_ts, source,
+                sentiment, gex_ratio, net_gex, kcs, dominance,
+                total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex,
                 total_call_oi, total_put_oi, key_call_oi, key_put_oi,
                 total_call_vol, total_put_vol, key_call_vol, key_put_vol,
                 key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip,
-                is_premarket, hmm_state, hmm_label, raw_json
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                is_premarket, hmm_state, hmm_label
+            ) VALUES (?, ?, 'SPX', ?, ?, ?, 'gex',
+                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
-            _ts, data["ndate"], data["ntime"],
-            snap.get("uprice"), snap.get("sentiment_pct"), snap.get("gex_ratio"),
+            data["ndate"], data["ntime"],
+            snap.get("uprice"), json.dumps(data), _ts,
+            snap.get("sentiment_pct"), snap.get("gex_ratio"),
             snap.get("net_gex"), snap.get("kcs"), snap.get("key_dominance_pct"),
             snap.get("call_gex"), snap.get("put_gex"),
             snap.get("key_strike"), snap.get("key_call_gex"), snap.get("key_put_gex"),
@@ -5553,7 +5648,6 @@ def _api_live_fetch_inner():
             snap.get("flip"),
             _is_premarket,
             hmm.get("state"), hmm.get("label"),
-            json.dumps(data),
         ))
 
     uprice = snap.get("uprice", 0)
@@ -5611,8 +5705,8 @@ def _api_live_fetch_inner():
     if data["ntime"] >= 930:
         with _db() as _hcon:
             prior_rows = _hcon.execute(
-                "SELECT spx_last, net_gex, kcs, sentiment, key_strike, total_put_vol "
-                "FROM live_captures WHERE ndate=? AND ntime>=930 ORDER BY ntime",
+                "SELECT uprice, net_gex, kcs, sentiment, key_strike, total_put_vol "
+                "FROM snapshot WHERE ndate=? AND ntime>=930 ORDER BY ntime",
                 (data["ndate"],)
             ).fetchall()
         prior_snaps = [
@@ -5652,7 +5746,7 @@ def _api_live_fetch_inner():
     _is_premarket = 1 if data["ntime"] < RTH_OPEN else 0
     with _db() as _con:
         _con.execute("""
-            INSERT OR REPLACE INTO live_captures (
+            INSERT OR REPLACE INTO snapshot (
                 capture_ts, ndate, ntime,
                 spx_last, sentiment, gex_ratio, net_gex, kcs, dominance,
                 total_call_gex, total_put_gex,
@@ -5715,7 +5809,7 @@ def api_live_analysis():
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         latest_cap = con.execute(
-            "SELECT ntime, spx_last, net_gex, key_strike, flip FROM live_captures "
+            "SELECT ntime, uprice, net_gex, key_strike, flip FROM snapshot "
             "WHERE ndate=? ORDER BY id DESC LIMIT 1", (ndate,)
         ).fetchone()
     ntime = latest_cap[0] if latest_cap else 0
@@ -5770,7 +5864,7 @@ def api_live_analysis_history():
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         rows = con.execute(
-            "SELECT id, saved_ts, ndate, ntime, spx_last, net_gex, key_strike, "
+            "SELECT id, saved_ts, ndate, ntime, uprice, net_gex, key_strike, "
             "flip, regime, thesis_text, verdict, intraday_summary "
             "FROM live_analysis WHERE ndate=? ORDER BY ntime DESC",
             (ndate,),
@@ -5882,29 +5976,34 @@ def detect_volume_divergence(data: dict) -> str | None:
 
 
 def save_live_snapshot(data: dict) -> None:
-    """Save a live snapshot to SQLite gex_snapshots."""
+    """Save a live snapshot to SQLite snapshot."""
     ndate = data["ndate"]
     ntime = data["ntime"]
     rows = data.get("data") or []
     uprice = data.get("uprice", 0)
     with _db() as con:
         con.execute(
-            "INSERT OR REPLACE INTO gex_snapshots (ndate, ntime, symbol, uprice, data, is_premarket) "
-            "VALUES (?, ?, 'SPX', ?, ?, ?)",
+            "INSERT OR REPLACE INTO snapshot (ndate, ntime, symbol, uprice, raw_json, is_premarket, source) "
+            "VALUES (?, ?, 'SPX', ?, ?, ?, 'gex')",
             (ndate, ntime, uprice, json.dumps(rows), 1 if ntime < 930 else 0),
         )
 
 
-def load_live_snapshots(date_iso: str) -> list:
-    """Load all live snapshots for a given date from SQLite, sorted by time."""
-    ndate = int(date_iso.replace("-", ""))
+def load_live_snapshots(date_iso: str | None = None) -> list:
+    """Load all live snapshots from snapshot table (date > yesterday ET)."""
+    from datetime import timedelta
+    et_now = get_et_now()
+    yesterday = et_now - timedelta(days=1)
+    yesterday_ndate = int(yesterday.strftime("%Y%m%d"))
+    
     with _db() as con:
         rows = con.execute(
-            "SELECT ntime, spx_last, raw_json FROM live_captures WHERE ndate=? ORDER BY ntime",
-            (ndate,)
+            "SELECT ndate, ntime, uprice, raw_json FROM snapshot "
+            "WHERE ndate > ? AND symbol='SPX' ORDER BY ndate, ntime",
+            (yesterday_ndate,)
         ).fetchall()
     snapshots = []
-    for ntime, uprice, raw_json in rows:
+    for ndate, ntime, uprice, raw_json in rows:
         try:
             d = json.loads(raw_json) if raw_json else []
             snapshots.append({"ndate": ndate, "ntime": ntime, "uprice": uprice, "data": d})
@@ -5919,7 +6018,7 @@ def live_dates() -> list:
     today_ndate = int(today_et.strftime("%Y%m%d"))
     with _db() as con:
         rows = con.execute(
-            "SELECT DISTINCT ndate FROM gex_snapshots "
+            "SELECT DISTINCT ndate FROM snapshot "
             "WHERE ndate <= ? ORDER BY ndate",
             (today_ndate,),
         ).fetchall()
@@ -5947,21 +6046,25 @@ def api_live_snapshots():
 
 @app.route("/api/live/captures")
 def api_live_captures():
-    """Return live_captures rows for a given date (default: today ET), newest first."""
+    """Return snapshot rows for a given date (default: today ET), newest first."""
     date_iso = request.args.get("date")
     if not date_iso:
         date_iso = get_et_now().strftime("%Y-%m-%d")
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         rows = con.execute(
-            "SELECT * FROM live_captures WHERE ndate=? ORDER BY ntime DESC, id DESC",
+            "SELECT ndate, ntime, uprice, sentiment, gex_ratio, net_gex, kcs, dominance, "
+            "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
+            "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
+            "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
+            "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip, "
+            "is_premarket, hmm_state, hmm_label "
+            "FROM snapshot WHERE ndate=? AND source='gex' ORDER BY ntime DESC",
             (ndate,),
         ).fetchall()
     cols = [
-        "id", "capture_ts", "ndate", "ntime",
-        "spx_last", "sentiment", "gex_ratio", "net_gex", "kcs", "dominance",
-        "total_call_gex", "total_put_gex",
-        "key_strike", "key_call_gex", "key_put_gex",
+        "ndate", "ntime", "uprice", "sentiment", "gex_ratio", "net_gex", "kcs", "dominance",
+        "total_call_gex", "total_put_gex", "key_strike", "key_call_gex", "key_put_gex",
         "total_call_oi", "total_put_oi", "key_call_oi", "key_put_oi",
         "total_call_vol", "total_put_vol", "key_call_vol", "key_put_vol",
         "key2_strike", "key2_abs", "key2_call_vol", "key2_put_vol", "flip",
@@ -6017,8 +6120,8 @@ def api_live_snapshot():
     print(f"[DEBUG] api_live_snapshot: date_iso={date_iso}, ntime={ntime}")
 
     try:
-        data = load_live_snapshot(date_iso, ntime)
-        print(f"[DEBUG] load_live_snapshot returned: {data is not None}")
+        data = load_snapshot(date_iso, ntime)
+        print(f"[DEBUG] load_snapshot returned: {data is not None}")
         if not data:
             return jsonify({"error": "Snapshot not found"}), 404
 
@@ -6084,11 +6187,11 @@ def api_live_snapshot():
     is_pre = 1 if ntime < RTH_OPEN else 0
     snap["is_premarket"] = is_pre
 
-    # Fetch hmm_label from live_captures if available
+    # Fetch hmm_label from snapshot if available
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
         live_row = con.execute(
-            "SELECT hmm_state, hmm_label FROM live_captures WHERE ndate=? AND ntime=?",
+            "SELECT hmm_state, hmm_label FROM snapshot WHERE ndate=? AND ntime=?",
             (ndate, ntime),
         ).fetchone()
     if live_row:
@@ -6404,13 +6507,12 @@ loadDates();
 # ---------------------------------------------------------------------------
 
 def _verify_data() -> dict:
-    """Verify data integrity across gex_snapshots and live_captures tables.
+    """Verify data integrity across the unified snapshot table.
     
     Checks:
-    1. Table source integrity: live_captures should only have today's data, gex_snapshots should only have histgex
-    2. Source field is 'gex' or 'histgex'
-    3. Raw JSON presence (excludes known-missing gex snapshots from dates 20260622-20260626)
-    4. Deep verification: recalculate from raw data and compare to persisted values
+    1. Source field is 'gex' or 'histgex'
+    2. Raw JSON presence (excludes known-missing gex snapshots from dates 20260622-20260626)
+    3. Deep verification: recalculate from raw data and compare to persisted values
     
     Returns dict with verification results.
     """
@@ -6421,7 +6523,6 @@ def _verify_data() -> dict:
     results = {
         "timestamp": datetime.now().isoformat(),
         "total_snapshots": 0,
-        "table_source_errors": [],
         "source_errors": [],
         "raw_json_errors": [],
         "calculation_errors": [],
@@ -6432,47 +6533,13 @@ def _verify_data() -> dict:
     # Known-missing JSON: source='gex' snapshots from 20260622-20260626
     known_missing_dates = [20260622, 20260623, 20260624, 20260625, 20260626]
     
-    # Get today's date in ET
-    today_ndate = int(datetime.now(ZoneInfo("America/New_York")).strftime("%Y%m%d"))
-    
     with _db() as con:
-        # Check 1: Table source integrity
-        # live_captures should only have today's data (source='gex' implied)
+        # Get all SPX snapshots from snapshot table
         cursor = con.execute('''
-            SELECT ndate, ntime
-            FROM live_captures
-            WHERE ndate < ?
-        ''', (today_ndate,))
-        for row in cursor.fetchall():
-            results["table_source_errors"].append({
-                "table": "live_captures",
-                "ndate": row[0],
-                "ntime": row[1],
-                "error": f"live_captures contains prior-day data (ndate={row[0]} < today={today_ndate}). Should be promoted to gex_snapshots."
-            })
-        
-        # gex_snapshots should only have source='histgex' (historical data)
-        # source='gex' in gex_snapshots is incorrect - should be in live_captures
-        cursor = con.execute('''
-            SELECT ndate, ntime, source
-            FROM gex_snapshots
-            WHERE symbol='SPX' AND source='gex'
-        ''')
-        for row in cursor.fetchall():
-            results["table_source_errors"].append({
-                "table": "gex_snapshots",
-                "ndate": row[0],
-                "ntime": row[1],
-                "source": row[2],
-                "error": f"gex_snapshots contains source='gex' data. Live data should be in live_captures table."
-            })
-        
-        # Get all SPX snapshots from gex_snapshots
-        cursor = con.execute('''
-            SELECT ndate, ntime, symbol, source, raw_json, data,
+            SELECT ndate, ntime, symbol, source, raw_json, uprice,
                    net_gex, total_call_gex, total_put_gex, sentiment, gex_ratio,
                    kcs, key_strike, key_call_gex, key_put_gex
-            FROM gex_snapshots 
+            FROM snapshot 
             WHERE symbol='SPX'
             ORDER BY ndate, ntime
         ''')
@@ -6480,7 +6547,7 @@ def _verify_data() -> dict:
         results["total_snapshots"] = len(rows)
         
         for row in rows:
-            (ndate, ntime, symbol, source, raw_json, data,
+            (ndate, ntime, symbol, source, raw_json, uprice,
              db_net_gex, db_total_call_gex, db_total_put_gex, db_sentiment, db_gex_ratio,
              db_kcs, db_key_strike, db_key_call_gex, db_key_put_gex) = row
             
@@ -6505,9 +6572,15 @@ def _verify_data() -> dict:
                     })
             
             # Check 3: Deep verification (recalculate from raw data)
-            if raw_json is not None:
+            # Skip for known-missing dates (20260622-20260626) which have API errors in raw_json
+            if raw_json is not None and ndate not in known_missing_dates:
                 try:
                     raw_data = json.loads(raw_json)
+                    # If raw_data is a list, wrap with uprice so windowing works correctly
+                    if isinstance(raw_data, list):
+                        raw_data = {"data": raw_data, "uprice": uprice or 0}
+                    elif isinstance(raw_data, dict) and "uprice" not in raw_data:
+                        raw_data["uprice"] = uprice or 0
                     recalculated = _compute_flat_summary(raw_data)
                     
                     # Compare key fields (allow small floating point differences)
@@ -6568,7 +6641,6 @@ def _verify_data() -> dict:
     # Summary
     results["summary"] = {
         "total_snapshots": results["total_snapshots"],
-        "table_source_errors": len(results["table_source_errors"]),
         "source_errors": len(results["source_errors"]),
         "raw_json_errors": len(results["raw_json_errors"]),
         "calculation_errors": len(results["calculation_errors"]),
@@ -6583,27 +6655,29 @@ if __name__ == "__main__":
     import argparse, webbrowser, threading
 
     # Run startup migrations and backfills only when the server is launched directly.
-    _ensure_live_captures_table()
+    _ensure_snapshot_table()
+    # _migrate_to_snapshot()  # Already run manually
+    _ensure_snapshot_table()
     _ensure_live_analysis_table()
     _ensure_spx_open_prices_table()
     _populate_spx_open_prices_from_csv()  # fill spx_open_prices from CSV (ignores existing)
-    _ensure_gex_snapshots_premarket()
-    _ensure_gex_snapshots_summary_columns()  # add flat summary columns to gex_snapshots
+    _ensure_snapshot_premarket()
+    _ensure_snapshot_summary_columns()  # add flat summary columns to snapshot
     _drop_legacy_snapshots_table()  # remove legacy pre-SQLite table
     _ensure_hmm_tables()
     _ensure_metric_history_table()
-    _backfill_live_captures_gex_ratio()  # recompute gex_ratio for live_captures with new formula
-    _backfill_live_captures_nulls()  # set default values for null computed columns in live_captures
-    _backfill_gex_snapshots_nulls()  # set default values for null computed columns in gex_snapshots
+    _backfill_snapshot_gex_ratio()  # recompute gex_ratio for snapshot with new formula
+    _backfill_snapshot_nulls()  # set default values for null computed columns in snapshot
+    _backfill_snapshot_nulls()  # set default values for null computed columns in snapshot
     _promote_live_to_historical()  # auto-promote prior-day live snapshots on every startup
-    # _backfill_gex_snapshots_summary(force=True)  # re-backfill all rows with corrected gex_ratio formula - DISABLED: run manually when calculation logic changes
+    # _backfill_snapshot_summary(force=True)  # re-backfill all rows with corrected gex_ratio formula - DISABLED: run manually when calculation logic changes
     _HISTORY_CACHE.clear()  # clear cache after backfill to rebuild with new values
     # _populate_metric_history()  # populate EOD metric values from histograms - DISABLED TEMPORARILY
     _ensure_percentile_history_table()
     # _populate_percentile_history()  # populate time-slot percentiles for rankings - DISABLED TEMPORARILY
     _ensure_narratives_table()
     # _train_hmm()  # train on startup if model is missing or >7 days old; also backfills HMM labels - DISABLED TEMPORARILY
-    # _backfill_hmm_labels_for_gex_snapshots(only_null=True)  # fill labels for any newly added snapshots - DISABLED TEMPORARILY
+    # _backfill_hmm_labels_for_snapshot(only_null=True)  # fill labels for any newly added snapshots - DISABLED TEMPORARILY
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=5050)
