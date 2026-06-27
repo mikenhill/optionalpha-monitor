@@ -29,14 +29,15 @@ class AdminController(BaseController):
         
         try:
             with get_connection() as con:
-                # Find snapshots where key fields are null or zero
+                # Find snapshots where key fields are null or zero, or raw_json is null
                 cursor = con.execute("""
-                    SELECT ndate, ntime, symbol, uprice, 
+                    SELECT ndate, ntime, symbol, uprice, raw_json,
                            key_strike, key_call_gex, key_put_gex,
                            key_call_oi, key_put_oi, key_call_vol, key_put_vol
                     FROM snapshot
                     WHERE symbol='SPX'
-                      AND (key_strike IS NULL OR key_strike = 0
+                      AND (raw_json IS NULL OR raw_json = ''
+                           OR key_strike IS NULL OR key_strike = 0
                            OR key_call_gex IS NULL OR key_call_gex = 0
                            OR key_put_gex IS NULL OR key_put_gex = 0
                            OR key_call_oi IS NULL OR key_call_oi = 0
@@ -49,12 +50,31 @@ class AdminController(BaseController):
                 
                 invalid_snapshots = []
                 for row in cursor.fetchall():
-                    ndate, ntime, symbol, uprice, key_strike, key_call_gex, key_put_gex, \
+                    ndate, ntime, symbol, uprice, raw_json, key_strike, key_call_gex, key_put_gex, \
                     key_call_oi, key_put_oi, key_call_vol, key_put_vol = row
                     
                     ndate_str = str(ndate)
                     date_str = f"{ndate_str[:4]}-{ndate_str[4:6]}-{ndate_str[6:8]}"
                     time_str = f"{ntime // 100:02d}:{ntime % 100:02d}"
+                    
+                    # Determine why this snapshot is invalid
+                    invalid_reasons = []
+                    if not raw_json or raw_json == '':
+                        invalid_reasons.append("raw_json_missing")
+                    if key_strike is None or key_strike == 0:
+                        invalid_reasons.append("key_strike_invalid")
+                    if key_call_gex is None or key_call_gex == 0:
+                        invalid_reasons.append("key_call_gex_invalid")
+                    if key_put_gex is None or key_put_gex == 0:
+                        invalid_reasons.append("key_put_gex_invalid")
+                    if key_call_oi is None or key_call_oi == 0:
+                        invalid_reasons.append("key_call_oi_invalid")
+                    if key_put_oi is None or key_put_oi == 0:
+                        invalid_reasons.append("key_put_oi_invalid")
+                    if key_call_vol is None or key_call_vol == 0:
+                        invalid_reasons.append("key_call_vol_invalid")
+                    if key_put_vol is None or key_put_vol == 0:
+                        invalid_reasons.append("key_put_vol_invalid")
                     
                     invalid_snapshots.append({
                         "ndate": ndate,
@@ -63,6 +83,7 @@ class AdminController(BaseController):
                         "time": time_str,
                         "symbol": symbol,
                         "uprice": uprice,
+                        "raw_json_present": bool(raw_json and raw_json != ''),
                         "key_strike": key_strike,
                         "key_call_gex": key_call_gex,
                         "key_put_gex": key_put_gex,
@@ -70,6 +91,7 @@ class AdminController(BaseController):
                         "key_put_oi": key_put_oi,
                         "key_call_vol": key_call_vol,
                         "key_put_vol": key_put_vol,
+                        "invalid_reasons": invalid_reasons
                     })
             
             response = BaseController.success_response(data={
