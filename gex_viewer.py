@@ -4068,7 +4068,8 @@ def csv_page():
 
 @app.route("/api/dates")
 def api_dates():
-    return jsonify(available_dates())
+    """Route now delegates to DatesController (Phase 5 migration)."""
+    return DatesController.get_dates()
 
 
 # MVC refactoring routes (Phase 2) - new controller-based implementations
