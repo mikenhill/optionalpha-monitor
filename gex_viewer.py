@@ -2226,7 +2226,7 @@ def _migrate_to_unified_snapshots() -> dict:
              is_premarket, hmm_state, hmm_label) = r
             try:
                 con.execute(
-                    """INSERT OR REPLACE INTO snapshots
+                    r"""INSERT OR REPLACE INTO snapshots
                     (ndate, ntime, symbol, uprice, data, source,
                      sentiment, gex_ratio, net_gex, kcs, dominance,
                      total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex,
@@ -2234,7 +2234,9 @@ def _migrate_to_unified_snapshots() -> dict:
                      total_call_vol, total_put_vol, key_call_vol, key_put_vol,
                      key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip,
                      is_premarket, hmm_state, hmm_label)
-                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES
+                    (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
                     (ndate, ntime, symbol, uprice, data, source or 'histgex',
                      sentiment, gex_ratio, net_gex, kcs, dominance,
                      total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex,
@@ -2280,7 +2282,7 @@ TIME_REGIMES = [
 # ---------------------------------------------------------------------------
 
 def load_spx() -> pd.DataFrame:
-    """Legacy CSV loader — kept for reference only. SPX price data now sourced from DB."""
+    """Legacy CSV loader - kept for reference only. SPX price data now sourced from DB."""
     return pd.DataFrame()
 
 
