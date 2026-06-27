@@ -4364,19 +4364,8 @@ def api_snapshot():
 
 @app.route("/api/snapshots")
 def api_snapshots():
-    """Return all available snapshot times for a given date."""
-    date_iso = request.args.get("date")
-    if not date_iso:
-        return jsonify({"times": []})
-
-    ndate = int(date_iso.replace("-", ""))
-    with _db() as con:
-        rows = con.execute(
-            "SELECT DISTINCT ntime FROM snapshot WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
-            (ndate,)
-        ).fetchall()
-    times = [r[0] for r in rows]
-    return jsonify({"times": times})
+    """Route now delegates to SnapshotController (Phase 5 migration)."""
+    return SnapshotController.get_snapshots()
 
 
 @app.route("/api/snapshots/summary")
