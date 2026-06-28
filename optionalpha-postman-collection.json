@@ -6,6 +6,7 @@
   },
   "variable": [
     { "key": "base_url", "value": "https://app.optionalpha.com" },
+    { "key": "local_url", "value": "http://localhost:5050" },
     { "key": "symbol", "value": "SPX" },
     { "key": "xid", "value": "SPX_20260602" },
     { "key": "a5sid", "value": "PASTE_A5SID_HERE" },
@@ -73,6 +74,67 @@
         },
         "description": "Returns gamma exposure data. Confirmed captured call from screener page."
       }
+    },
+    {
+      "name": "Local APIs",
+      "item": [
+        {
+          "name": "Upsert Historical Snapshot",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/snapshot/historical",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "snapshot", "historical"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"SPX\",\n  \"ndate\": 20260625,\n  \"ntime\": 1400,\n  \"uprice\": 7358.22,\n  \"data\": []\n}"
+            },
+            "description": "Upsert a historical snapshot from OptionAlpha market.histgex API. Add ?test=1 to set source='test' for testing."
+          }
+        },
+        {
+          "name": "Upsert Live Snapshot",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/snapshot/live",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "snapshot", "live"]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"symbol\": \"SPX\",\n  \"last\": 7354.02,\n  \"low\": {},\n  \"high\": {},\n  \"data\": []\n}"
+            },
+            "description": "Upsert a live snapshot from OptionAlpha market.gex API. Normalizes to historical format with current timestamp. Add ?test=1 to set source='test' for testing."
+          }
+        },
+        {
+          "name": "Delete Snapshot",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/snapshot?date=2026-06-25&time=1400&symbol=SPX",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "snapshot"],
+              "query": [
+                { "key": "date", "value": "2026-06-25" },
+                { "key": "time", "value": "1400" },
+                { "key": "symbol", "value": "SPX" }
+              ]
+            },
+            "description": "Delete a snapshot from the database by date, time, and optional symbol (default SPX)."
+          }
+        }
+      ]
     }
   ]
 }

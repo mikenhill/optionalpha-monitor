@@ -4259,6 +4259,30 @@ def api_snapshot():
     return SnapshotController.get_snapshot()
 
 
+@app.route("/mvc/api/snapshot/historical", methods=["POST"])
+def api_upsert_historical_snapshot():
+    """Upsert historical snapshot from OptionAlpha market.histgex API."""
+    return SnapshotController.upsert_historical_snapshot()
+
+
+@app.route("/mvc/api/snapshot/live", methods=["POST"])
+def api_upsert_live_snapshot():
+    """Upsert live snapshot from OptionAlpha market.gex API."""
+    return SnapshotController.upsert_live_snapshot()
+
+
+@app.route("/mvc/api/snapshot/test", methods=["GET"])
+def api_find_test_snapshots():
+    """Find all test snapshots (source='test') for admin cleanup."""
+    return SnapshotController.find_test_snapshots()
+
+
+@app.route("/mvc/api/snapshot", methods=["DELETE"])
+def api_delete_snapshot():
+    """Delete a snapshot from the database."""
+    return SnapshotController.delete_snapshot()
+
+
 @app.route("/api/snapshots")
 def api_snapshots():
     """Route now delegates to SnapshotController (Phase 5 migration)."""

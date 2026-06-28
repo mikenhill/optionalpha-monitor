@@ -3,7 +3,7 @@
 import json
 import math
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 from flask import request
 from controllers.base_controller import BaseController
@@ -468,7 +468,7 @@ class SnapshotController(BaseController):
         ndate = int(date_iso.replace("-", ""))
         with get_connection() as con:
             row = con.execute(
-                "SELECT uprice, raw_json, sentiment, gex_ratio, net_gex, kcs, dominance, "
+                "SELECT uprice, raw_json, source, sentiment, gex_ratio, net_gex, kcs, dominance, "
                 "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
                 "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
                 "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
@@ -483,31 +483,32 @@ class SnapshotController(BaseController):
             return {
                 "uprice": row[0],
                 "data": data_list,
-                "sentiment": row[2],
-                "gex_ratio": row[3],
-                "net_gex": row[4],
-                "kcs": row[5],
-                "dominance": row[6],
-                "total_call_gex": row[7],
-                "total_put_gex": row[8],
-                "key_strike": row[9],
-                "key_call_gex": row[10],
-                "key_put_gex": row[11],
-                "total_call_oi": row[12],
-                "total_put_oi": row[13],
-                "key_call_oi": row[14],
-                "key_put_oi": row[15],
-                "total_call_vol": row[16],
-                "total_put_vol": row[17],
-                "key_call_vol": row[18],
-                "key_put_vol": row[19],
-                "key2_strike": row[20],
-                "key2_abs": row[21],
-                "key2_call_vol": row[22],
-                "key2_put_vol": row[23],
-                "flip": row[24],
-                "hmm_state": row[25],
-                "hmm_label": row[26],
+                "source": row[2],
+                "sentiment": row[3],
+                "gex_ratio": row[4],
+                "net_gex": row[5],
+                "kcs": row[6],
+                "dominance": row[7],
+                "total_call_gex": row[8],
+                "total_put_gex": row[9],
+                "key_strike": row[10],
+                "key_call_gex": row[11],
+                "key_put_gex": row[12],
+                "total_call_oi": row[13],
+                "total_put_oi": row[14],
+                "key_call_oi": row[15],
+                "key_put_oi": row[16],
+                "total_call_vol": row[17],
+                "total_put_vol": row[18],
+                "key_call_vol": row[19],
+                "key_put_vol": row[20],
+                "key2_strike": row[21],
+                "key2_abs": row[22],
+                "key2_call_vol": row[23],
+                "key2_put_vol": row[24],
+                "flip": row[25],
+                "hmm_state": row[26],
+                "hmm_label": row[27],
             }
         return None
     
@@ -551,6 +552,7 @@ class SnapshotController(BaseController):
                 "flip": data.get("flip"),
                 "hmm_state": data.get("hmm_state"),
                 "hmm_label": data.get("hmm_label"),
+                "source": data.get("source"),
             }
         
         rows = data.get("data", [])
@@ -763,3 +765,502 @@ class SnapshotController(BaseController):
                 "label": "Positive",
                 "description": f"Average net GEX: {avg_net/1e9:.1f}B. Dealers suppress moves."
             }
+    
+    # -------------------------------------------------------------------------
+    # Data normalization layer for live/historical formats
+    # -------------------------------------------------------------------------
+    
+    @staticmethod
+    def _normalize_live_to_historical(live_data: dict, ndate: int = None, ntime: int = None) -> dict:
+        """Normalize live data format (market.gex) to historical format (market.histgex).
+
+        Live data format:
+            - symbol, last, low, high, data[]
+
+        Historical format:
+            - symbol, ndate, ntime, uprice, data[]
+
+        Args:
+            live_data: Live data from OptionAlpha market.gex API
+            ndate: Optional date override (YYYYMMDD format) for testing
+            ntime: Optional time override (HHMM format) for testing
+
+        Returns:
+            Normalized data in historical format with current timestamp (or overridden values)
+        """
+        if ndate is None or ntime is None:
+            now = datetime.now(timezone.utc)
+            ndate = int(now.strftime("%Y%m%d")) if ndate is None else ndate
+            ntime = int(now.strftime("%H%M")) if ntime is None else ntime
+
+        return {
+            "symbol": live_data.get("symbol", "SPX"),
+            "ndate": ndate,
+            "ntime": ntime,
+            "uprice": live_data.get("last", 0),
+            "data": live_data.get("data", []),
+        }
+    
+    @staticmethod
+    def _validate_historical_format(data: dict) -> tuple[bool, str]:
+        """Validate historical snapshot data format.
+        
+        Required fields: symbol, ndate, ntime, uprice, data
+        
+        Returns:
+            (is_valid, error_message)
+        """
+        required_fields = ["symbol", "ndate", "ntime", "uprice", "data"]
+        
+        for field in required_fields:
+            if field not in data:
+                return False, f"Missing required field: {field}"
+        
+        if not isinstance(data["data"], list):
+            return False, "data must be an array"
+        
+        if not isinstance(data["ndate"], int) or data["ndate"] < 20200000 or data["ndate"] > 20991231:
+            return False, "ndate must be a valid integer in YYYYMMDD format"
+        
+        if not isinstance(data["ntime"], int) or data["ntime"] < 0 or data["ntime"] > 2359:
+            return False, "ntime must be a valid integer in HHMM format"
+        
+        if not isinstance(data["uprice"], (int, float)) or data["uprice"] <= 0:
+            return False, "uprice must be a positive number"
+        
+        return True, ""
+    
+    @staticmethod
+    def _validate_live_format(data: dict) -> tuple[bool, str]:
+        """Validate live snapshot data format.
+        
+        Required fields: symbol, last, data
+        
+        Returns:
+            (is_valid, error_message)
+        """
+        required_fields = ["symbol", "last", "data"]
+        
+        for field in required_fields:
+            if field not in data:
+                return False, f"Missing required field: {field}"
+        
+        if not isinstance(data["data"], list):
+            return False, "data must be an array"
+        
+        if not isinstance(data["last"], (int, float)) or data["last"] <= 0:
+            return False, "last must be a positive number"
+        
+        return True, ""
+    
+    # -------------------------------------------------------------------------
+    # Upsert endpoints for historical and live snapshots
+    # -------------------------------------------------------------------------
+    
+    @staticmethod
+    @with_test_metadata(dao_name="SnapshotController")
+    def upsert_historical_snapshot():
+        """Upsert a historical snapshot from OptionAlpha market.histgex API.
+        
+        POST /mvc/api/snapshot/historical
+        
+        Request body (historical format):
+            {
+                "symbol": "SPX",
+                "ndate": 20260625,
+                "ntime": 1400,
+                "uprice": 7358.22,
+                "data": [...]
+            }
+        
+        Returns:
+            JSON response with success/error status
+        """
+        if request.method != "POST":
+            return BaseController.json_response(
+                BaseController.error_response("Method not allowed"),
+                405
+            )
+        
+        try:
+            data = request.get_json()
+            if not data:
+                return BaseController.json_response(
+                    BaseController.error_response("Request body is required"),
+                    400
+                )
+            
+            # Validate format
+            is_valid, error_msg = SnapshotController._validate_historical_format(data)
+            if not is_valid:
+                return BaseController.json_response(
+                    BaseController.error_response(error_msg),
+                    400
+                )
+            
+            # Compute flat columns from raw data
+            rows = data.get("data", [])
+            uprice = data.get("uprice", 0)
+            
+            # Compute summary stats
+            call_gex = sum(r.get("cg", 0) or 0 for r in rows)
+            put_gex = sum(r.get("pg", 0) or 0 for r in rows)
+            net_gex = call_gex - put_gex
+            
+            # Sentiment
+            pos_bars = sum(1 for r in rows if (r.get("net", 0) or 0) > 0)
+            sentiment_pct = round(pos_bars / len(rows) * 100) if rows else 50
+            
+            # GEX ratio
+            if call_gex > put_gex:
+                gex_ratio = round(call_gex / put_gex, 1) if put_gex else 0
+            else:
+                gex_ratio = round(-put_gex / call_gex, 1) if call_gex else 0
+            
+            # Key strike stats - filter to 20 strikes below and 20 above SPX
+            sorted_rows = sorted(rows, key=lambda r: r["strike"])
+            # Find the index of the strike closest to uprice
+            uprice_idx = min(range(len(sorted_rows)), key=lambda i: abs(sorted_rows[i]["strike"] - uprice))
+            # Take 20 strikes before and 20 after (40-strike window)
+            window_rows = sorted_rows[max(0, uprice_idx - 20):min(len(sorted_rows), uprice_idx + 21)]
+            key_stats = SnapshotController._compute_key_strike_stats(window_rows, uprice)
+            
+            # Total OI and Vol
+            total_call_oi = sum(r.get("coi", 0) or 0 for r in rows)
+            total_put_oi = sum(r.get("poi", 0) or 0 for r in rows)
+            total_call_vol = sum(r.get("cvol", 0) or 0 for r in rows)
+            total_put_vol = sum(r.get("pvol", 0) or 0 for r in rows)
+            
+            # Prepare database values
+            ndate = data["ndate"]
+            ntime = data["ntime"]
+            symbol = data["symbol"]
+            raw_json = json.dumps(data)
+            capture_ts = datetime.now(timezone.utc).isoformat()
+            source = "test" if request.args.get("test") == "1" else "histgex"
+            
+            # Upsert to database
+            with get_connection() as con:
+                con.execute(
+                    """INSERT OR REPLACE INTO snapshot 
+                    (ndate, ntime, symbol, uprice, raw_json, capture_ts, source,
+                     sentiment, gex_ratio, net_gex, kcs, dominance,
+                     total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex,
+                     total_call_oi, total_put_oi, key_call_oi, key_put_oi,
+                     total_call_vol, total_put_vol, key_call_vol, key_put_vol,
+                     key2_strike, key2_abs, key2_call_vol, key2_put_vol)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (ndate, ntime, symbol, uprice, raw_json, capture_ts, source,
+                     sentiment_pct, gex_ratio, net_gex, key_stats.get("kcs", 0), key_stats.get("key_dominance_pct", 0),
+                     call_gex, put_gex, key_stats.get("key_strike", 0), key_stats.get("key_call_gex", 0), key_stats.get("key_put_gex", 0),
+                     total_call_oi, total_put_oi, key_stats.get("key_call_oi", 0), key_stats.get("key_put_oi", 0),
+                     total_call_vol, total_put_vol, key_stats.get("key_call_vol", 0), key_stats.get("key_put_vol", 0),
+                     key_stats.get("key2_strike"), key_stats.get("key2_abs"), key_stats.get("key2_call_vol", 0), key_stats.get("key2_put_vol", 0))
+                )
+                con.commit()
+            
+            response_data = {
+                "success": True,
+                "message": "Historical snapshot upserted successfully",
+                "ndate": ndate,
+                "ntime": ntime,
+                "symbol": symbol
+            }
+            
+            if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data=response_data)
+                response['test_metadata'] = {
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'test_mode': True,
+                    'dao_used': 'SnapshotController',
+                    'query_time_ms': 0,
+                    'row_count': 1
+                }
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response(response_data)
+                
+        except Exception as e:
+            return BaseController.json_response(
+                BaseController.error_response(str(e)),
+                500
+            )
+    
+    @staticmethod
+    @with_test_metadata(dao_name="SnapshotController")
+    def upsert_live_snapshot():
+        """Upsert a live snapshot from OptionAlpha market.gex API.
+
+        POST /mvc/api/snapshot/live
+
+        Query params (required):
+            - date: YYYY-MM-DD format
+            - time: HHMM format
+
+        Request body (live format):
+            {
+                "symbol": "SPX",
+                "last": 7354.02,
+                "low": {...},
+                "high": {...},
+                "data": [...]
+            }
+
+        Returns:
+            JSON response with success/error status
+        """
+        if request.method != "POST":
+            return BaseController.json_response(
+                BaseController.error_response("Method not allowed"),
+                405
+            )
+
+        try:
+            # Require date and time query parameters
+            date_str = request.args.get("date")
+            time_str = request.args.get("time")
+            if not date_str or not time_str:
+                return BaseController.json_response(
+                    BaseController.error_response("date and time query parameters are required"),
+                    400
+                )
+
+            ndate = int(date_str.replace("-", ""))
+            ntime = int(time_str)
+
+            data = request.get_json()
+            if not data:
+                return BaseController.json_response(
+                    BaseController.error_response("Request body is required"),
+                    400
+                )
+
+            # Validate format
+            is_valid, error_msg = SnapshotController._validate_live_format(data)
+            if not is_valid:
+                return BaseController.json_response(
+                    BaseController.error_response(error_msg),
+                    400
+                )
+
+            # Normalize live to historical format with provided date/time
+            normalized = SnapshotController._normalize_live_to_historical(data, ndate, ntime)
+            
+            # Compute flat columns from raw data
+            rows = normalized.get("data", [])
+            uprice = normalized.get("uprice", 0)
+            
+            # Compute summary stats
+            call_gex = sum(r.get("cg", 0) or 0 for r in rows)
+            put_gex = sum(r.get("pg", 0) or 0 for r in rows)
+            net_gex = call_gex - put_gex
+            
+            # Sentiment
+            pos_bars = sum(1 for r in rows if (r.get("net", 0) or 0) > 0)
+            sentiment_pct = round(pos_bars / len(rows) * 100) if rows else 50
+            
+            # GEX ratio
+            if call_gex > put_gex:
+                gex_ratio = round(call_gex / put_gex, 1) if put_gex else 0
+            else:
+                gex_ratio = round(-put_gex / call_gex, 1) if call_gex else 0
+            
+            # Key strike stats - filter to 20 strikes below and 20 above SPX
+            sorted_rows = sorted(rows, key=lambda r: r["strike"])
+            # Find the index of the strike closest to uprice
+            uprice_idx = min(range(len(sorted_rows)), key=lambda i: abs(sorted_rows[i]["strike"] - uprice))
+            # Take 20 strikes before and 20 after (40-strike window)
+            window_rows = sorted_rows[max(0, uprice_idx - 20):min(len(sorted_rows), uprice_idx + 21)]
+            key_stats = SnapshotController._compute_key_strike_stats(window_rows, uprice)
+            
+            # Total OI and Vol
+            total_call_oi = sum(r.get("coi", 0) or 0 for r in rows)
+            total_put_oi = sum(r.get("poi", 0) or 0 for r in rows)
+            total_call_vol = sum(r.get("cvol", 0) or 0 for r in rows)
+            total_put_vol = sum(r.get("pvol", 0) or 0 for r in rows)
+            
+            # Prepare database values
+            ndate = normalized["ndate"]
+            ntime = normalized["ntime"]
+            symbol = normalized["symbol"]
+            raw_json = json.dumps(normalized)
+            capture_ts = datetime.now(timezone.utc).isoformat()
+            source = "test" if request.args.get("test") == "1" else "gex"
+            
+            # Upsert to database
+            with get_connection() as con:
+                con.execute(
+                    """INSERT OR REPLACE INTO snapshot 
+                    (ndate, ntime, symbol, uprice, raw_json, capture_ts, source,
+                     sentiment, gex_ratio, net_gex, kcs, dominance,
+                     total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex,
+                     total_call_oi, total_put_oi, key_call_oi, key_put_oi,
+                     total_call_vol, total_put_vol, key_call_vol, key_put_vol,
+                     key2_strike, key2_abs, key2_call_vol, key2_put_vol)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (ndate, ntime, symbol, uprice, raw_json, capture_ts, source,
+                     sentiment_pct, gex_ratio, net_gex, key_stats.get("kcs", 0), key_stats.get("key_dominance_pct", 0),
+                     call_gex, put_gex, key_stats.get("key_strike", 0), key_stats.get("key_call_gex", 0), key_stats.get("key_put_gex", 0),
+                     total_call_oi, total_put_oi, key_stats.get("key_call_oi", 0), key_stats.get("key_put_oi", 0),
+                     total_call_vol, total_put_vol, key_stats.get("key_call_vol", 0), key_stats.get("key_put_vol", 0),
+                     key_stats.get("key2_strike"), key_stats.get("key2_abs"), key_stats.get("key2_call_vol", 0), key_stats.get("key2_put_vol", 0))
+                )
+                con.commit()
+            
+            response_data = {
+                "success": True,
+                "message": "Live snapshot upserted successfully",
+                "ndate": ndate,
+                "ntime": ntime,
+                "symbol": symbol
+            }
+            
+            if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data=response_data)
+                response['test_metadata'] = {
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'test_mode': True,
+                    'dao_used': 'SnapshotController',
+                    'query_time_ms': 0,
+                    'row_count': 1
+                }
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response(response_data)
+                
+        except Exception as e:
+            return BaseController.json_response(
+                BaseController.error_response(str(e)),
+                500
+            )
+    
+    @staticmethod
+    @with_test_metadata(dao_name="SnapshotController")
+    def find_test_snapshots():
+        """Find all test snapshots (source='test') for admin cleanup.
+        
+        GET /mvc/api/snapshot/test
+        
+        Query params (optional):
+            - symbol: filter by symbol, default "SPX"
+        
+        Returns:
+            JSON response with list of test snapshots
+        """
+        if request.method != "GET":
+            return BaseController.json_response(
+                BaseController.error_response("Method not allowed"),
+                405
+            )
+        
+        try:
+            symbol = request.args.get("symbol", "SPX")
+
+            # Query for test snapshots
+            with get_connection() as con:
+                cursor = con.execute(
+                    "SELECT ndate, ntime, symbol, source, uprice FROM snapshot WHERE source='test' AND symbol=? ORDER BY ndate DESC, ntime DESC",
+                    (symbol,)
+                )
+                rows = cursor.fetchall()
+
+            snapshots = []
+            for row in rows:
+                ndate, ntime, sym, source, uprice = row
+                snapshots.append({
+                    "ndate": ndate,
+                    "ntime": ntime,
+                    "symbol": sym,
+                    "source": source,
+                    "uprice": uprice
+                })
+
+            return BaseController.json_response({
+                "success": True,
+                "count": len(snapshots),
+                "snapshots": snapshots
+            })
+                
+        except Exception as e:
+            return BaseController.json_response(
+                BaseController.error_response(str(e)),
+                500
+            )
+    
+    @staticmethod
+    @with_test_metadata(dao_name="SnapshotController")
+    def delete_snapshot():
+        """Delete a snapshot from the database.
+        
+        DELETE /mvc/api/snapshot
+        
+        Query params:
+            - date: YYYY-MM-DD format
+            - time: HHMM format
+            - symbol: optional, default "SPX"
+        
+        Returns:
+            JSON response with success/error status
+        """
+        if request.method != "DELETE":
+            return BaseController.json_response(
+                BaseController.error_response("Method not allowed"),
+                405
+            )
+        
+        try:
+            date_iso = request.args.get("date")
+            ntime = request.args.get("time")
+            symbol = request.args.get("symbol", "SPX")
+            
+            if not date_iso or not ntime:
+                return BaseController.json_response(
+                    BaseController.error_response("date and time query parameters are required"),
+                    400
+                )
+            
+            # Convert date to ndate
+            ndate = int(date_iso.replace("-", ""))
+            ntime = int(ntime)
+            
+            # Delete from database
+            with get_connection() as con:
+                cursor = con.execute(
+                    "DELETE FROM snapshot WHERE ndate=? AND ntime=? AND symbol=?",
+                    (ndate, ntime, symbol)
+                )
+                con.commit()
+                deleted_count = cursor.rowcount
+            
+            if deleted_count == 0:
+                return BaseController.json_response(
+                    BaseController.error_response("Snapshot not found"),
+                    404
+                )
+            
+            response_data = {
+                "success": True,
+                "message": "Snapshot deleted successfully",
+                "ndate": ndate,
+                "ntime": ntime,
+                "symbol": symbol
+            }
+            
+            if request.args.get('test_mode') == '1':
+                response = BaseController.success_response(data=response_data)
+                response['test_metadata'] = {
+                    'timestamp': datetime.utcnow().isoformat() + 'Z',
+                    'test_mode': True,
+                    'dao_used': 'SnapshotController',
+                    'query_time_ms': 0,
+                    'row_count': deleted_count
+                }
+                return BaseController.json_response(response)
+            else:
+                return BaseController.json_response(response_data)
+                
+        except Exception as e:
+            return BaseController.json_response(
+                BaseController.error_response(str(e)),
+                500
+            )

@@ -250,7 +250,7 @@
       const hc = hmmCls(row.hmm_label);
       return '<tr>' +
         '<td>' + fmtTime(row.ntime) + pre + '</td>' +
-        '<td>' + fmtNum(row.spx_last, 2) + '</td>' +
+        '<td>' + fmtNum(row.uprice, 2) + '</td>' +
         '<td>' + fmtNum(row.sentiment, 1) + '</td>' +
         '<td>' + fmtNum(row.gex_ratio, 1) + '</td>' +
         '<td' + cls(row.net_gex) + '>' + fmtBig(row.net_gex, suffixes.net_gex) + '</td>' +
@@ -298,7 +298,7 @@
         const earliest = rows[rows.length - 1];
         document.getElementById('stat-first').textContent = fmtTime(earliest.ntime);
         document.getElementById('stat-last').textContent = fmtTime(latest.ntime);
-        document.getElementById('stat-spx').textContent = fmtNum(latest.spx_last, 2);
+        document.getElementById('stat-spx').textContent = fmtNum(latest.uprice, 2);
         document.getElementById('stat-wall').textContent = latest.key_strike ?? '--';
         document.getElementById('stat-regime').textContent = latest.hmm_label || '--';
 

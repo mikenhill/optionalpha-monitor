@@ -143,3 +143,58 @@ Once Postman testing confirms MVC implementations match the original:
 1. Update TODO list items for verification completion
 2. Proceed to Phase 2 Step 4: Migrate remaining SnapshotDAO-dependent APIs
 3. Eventually replace original routes with MVC versions after verification
+
+## New Upsert/Delete APIs
+
+The collection now includes new endpoints for separating OptionAlpha read logic from SQLite insert logic:
+
+### Local - Upsert Historical Snapshot
+- **POST** `{{local_url}}/mvc/api/snapshot/historical`
+- **Purpose**: Upsert historical snapshot from OptionAlpha market.histgex API
+- **Body Format**:
+  ```json
+  {
+    "symbol": "SPX",
+    "ndate": 20260625,
+    "ntime": 1400,
+    "uprice": 7358.22,
+    "data": [...]
+  }
+  ```
+- **Test Parameter**: Add `?test=1` to set source='test' (ignored by frontend, useful for testing)
+- **Source**: Default "histgex", "test" when test=1
+
+### Local - Upsert Live Snapshot
+- **POST** `{{local_url}}/mvc/api/snapshot/live`
+- **Purpose**: Upsert live snapshot from OptionAlpha market.gex API
+- **Body Format**:
+  ```json
+  {
+    "symbol": "SPX",
+    "last": 7354.02,
+    "low": {...},
+    "high": {...},
+    "data": [...]
+  }
+  ```
+- **Normalization**: Automatically converts live format to historical format with current timestamp
+- **Test Parameter**: Add `?test=1` to set source='test'
+- **Source**: Default "gex", "test" when test=1
+
+### Local - Delete Snapshot
+- **DELETE** `{{local_url}}/mvc/api/snapshot?date=2026-06-25&time=1400&symbol=SPX`
+- **Purpose**: Delete a snapshot from the database
+- **Query Parameters**:
+  - `date`: YYYY-MM-DD format (required)
+  - `time`: HHMM format (required)
+  - `symbol`: Optional, default "SPX"
+- **Response**: Returns success/error with deleted count
+
+### Testing the New Endpoints
+
+1. Load test data from `test/histgex.json` or `test/gex.json`
+2. Use "Local - Upsert Historical Snapshot" with histgex.json data
+3. Use "Local - Upsert Live Snapshot" with gex.json data
+4. Add `?test=1` to mark as test data (source="test")
+5. Verify with "Get Single Snapshot" to confirm data was inserted
+6. Use "Local - Delete Snapshot" to clean up test data
