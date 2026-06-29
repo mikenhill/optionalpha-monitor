@@ -580,26 +580,26 @@ What you see depends on when RF/HMM are retrained:
       });
       document.getElementById('chart-time-label').textContent = '\u2014 ' + fmtTime(ntime);
 
-      // Fetch and render percentiles - disabled for now (needs gex_strike_window percentile history)
-      // const selDate = document.getElementById('date-sel').value;
-      // fetch('/api/percentiles?date=' + selDate + '&time=' + ntime)
-      //   .then(r => r.json()).then(p => {
-      //     const metrics = [
-      //       ['Net GEX', p.net_gex], ['KCS', p.kcs], ['Dominance', p.dominance],
-      //       ['Call GEX', p.call_gex], ['Put GEX', p.put_gex],
-      //       ['Call Vol', p.call_vol], ['Put Vol', p.put_vol],
-      //     ];
-      //     document.getElementById('pct-grid').innerHTML = metrics.map(([label, m]) => {
-      //       if (!m) return '';
-      //       const pct = m.pct ?? 50;
-      //       const barColor = pct >= 75 ? '#dc3545' : pct >= 50 ? '#fd7e14' : '#198754';
-      //       return '<div class="pct-item">' +
-      //         '<div class="pct-label">' + label + '</div>' +
-      //         '<div class="pct-bar-wrap"><div class="pct-bar" style="width:' + pct + '%;background:' + barColor + '"></div></div>' +
-      //         '<div class="pct-val">' + pct + 'th pct</div>' +
-      //       '</div>';
-      //     }).join('');
-      //   }).catch(() => { document.getElementById('pct-grid').innerHTML = ''; });
+      // Fetch and render percentiles using new gex_percentile_history table
+      const selDate = document.getElementById('date-sel').value;
+      fetch('/api/gex/percentiles?date=' + selDate + '&time=' + ntime)
+        .then(r => r.json()).then(p => {
+          const metrics = [
+            ['Net GEX', p.net_gex], ['KCS', p.kcs], ['Dominance', p.dominance],
+            ['Call GEX', p.call_gex], ['Put GEX', p.put_gex],
+            ['Call Vol', p.call_vol], ['Put Vol', p.put_vol],
+          ];
+          document.getElementById('pct-grid').innerHTML = metrics.map(([label, m]) => {
+            if (!m) return '';
+            const pct = m.pct ?? 50;
+            const barColor = pct >= 75 ? '#dc3545' : pct >= 50 ? '#fd7e14' : '#198754';
+            return '<div class="pct-item">' +
+              '<div class="pct-label">' + label + '</div>' +
+              '<div class="pct-bar-wrap"><div class="pct-bar" style="width:' + pct + '%;background:' + barColor + '"></div></div>' +
+              '<div class="pct-val">' + pct + 'th pct</div>' +
+              '</div>';
+          }).join('');
+        }).catch(() => { document.getElementById('pct-grid').innerHTML = ''; });
     }
 
     async function syncHistorical() {

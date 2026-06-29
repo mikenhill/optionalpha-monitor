@@ -4481,6 +4481,50 @@ def api_gex_dates():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/gex/percentiles")
+def api_gex_percentiles():
+    """Get percentile ranks for all metrics for a given date/time snapshot.
+    
+    Uses pre-computed gex_percentile_history table for fast lookup.
+    
+    Query params:
+    - date: ISO date (YYYY-MM-DD)
+    - time: ntime (HHMM format, default 1000)
+    
+    Returns percentile ranks for net_gex, kcs, dominance, and volume/OI metrics.
+    """
+    from controllers.gex_controller import GexController
+    return GexController.get_gex_percentiles()
+
+
+@app.route("/api/gex/recalc-percentiles")
+def api_recalc_gex_percentiles():
+    """Manually recalculate percentiles for a specific time slot.
+    
+    Query params:
+    - ntime: time in HHMM format (required)
+    
+    Returns status of recalculation.
+    """
+    ntime = request.args.get("ntime")
+    if not ntime:
+        return jsonify({"error": "ntime parameter required"}), 400
+    
+    try:
+        ntime = int(ntime)
+        _recalc_gex_percentiles(ntime)
+        return jsonify({
+            "success": True,
+            "message": f"Recalculated percentiles for time slot {ntime}"
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
 @app.route("/api/gex/snapshot")
 def api_gex_snapshot():
     """Get a single GEX snapshot from gex_strike_window with calculated summary metrics.
@@ -4865,6 +4909,9 @@ def api_gex_fetch_live():
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (ndate, ntime, 'SPX', 'gex', uprice, json.dumps(window_strikes))
             )
+        
+        # Recalculate percentiles for this time slot
+        _recalc_gex_percentiles(ntime)
         
         return jsonify({
             "success": True,
@@ -5780,6 +5827,111 @@ def _migrate_live_snapshots_to_history(symbol: str = "SPX") -> dict:
     return {"migrated": migrated, "skipped": skipped, "dates": dates_done}
 
 
+def _recalc_gex_percentiles(ntime: int) -> None:
+    """Recalculate percentiles for all snapshots at a specific time slot.
+    
+    This is called after inserting new data to keep percentiles synchronized.
+    """
+    import json
+    from controllers.gex_calculations import (
+        calculate_sentiment,
+        calculate_gex_ratio,
+        calculate_net_gex,
+        calculate_kcs,
+        calculate_dominance,
+        calculate_key_strike_stats,
+        calculate_total_oi_and_vol,
+        calculate_total_gex,
+    )
+    
+    METRICS = [
+        "net_gex", "kcs", "sentiment", "gex_ratio", "dominance",
+        "total_call_gex", "total_put_gex",
+        "total_call_oi", "total_put_oi",
+        "total_call_vol", "total_put_vol",
+    ]
+    
+    with _db() as con:
+        # Get all snapshots at this time slot
+        rows = con.execute(
+            "SELECT ndate, ntime, price, data FROM gex_strike_window WHERE ntime=? AND symbol='SPX' AND source='gex' ORDER BY ndate",
+            (ntime,)
+        ).fetchall()
+        
+        if not rows:
+            return
+        
+        # Calculate metrics for all snapshots at this time slot
+        metric_values = {metric: [] for metric in METRICS}
+        snapshot_data = []
+        
+        for row in rows:
+            ndate, ntime, uprice, data_json = row
+            if not uprice or not data_json:
+                continue
+            
+            try:
+                strikes = json.loads(data_json)
+            except:
+                continue
+            
+            if not strikes:
+                continue
+            
+            # Calculate all metrics
+            sentiment = calculate_sentiment(strikes)
+            gex_ratio = calculate_gex_ratio(strikes)
+            net_gex = calculate_net_gex(strikes)
+            kcs = calculate_kcs(strikes, uprice)
+            dominance = calculate_dominance(strikes, uprice)
+            key_stats = calculate_key_strike_stats(strikes, uprice)
+            total_oi_vol = calculate_total_oi_and_vol(strikes)
+            total_gex_vals = calculate_total_gex(strikes)
+            
+            snapshot_data.append({
+                "ndate": ndate,
+                "ntime": ntime,
+                "net_gex": net_gex,
+                "kcs": kcs,
+                "sentiment": sentiment,
+                "gex_ratio": gex_ratio,
+                "dominance": dominance,
+                "total_call_gex": total_gex_vals["total_call_gex"],
+                "total_put_gex": total_gex_vals["total_put_gex"],
+                "total_call_oi": total_oi_vol["total_call_oi"],
+                "total_put_oi": total_oi_vol["total_put_oi"],
+                "total_call_vol": total_oi_vol["total_call_vol"],
+                "total_put_vol": total_oi_vol["total_put_vol"],
+            })
+            
+            for metric in METRICS:
+                metric_values[metric].append(snapshot_data[-1][metric])
+        
+        # Delete existing percentile records for this time slot
+        con.execute(
+            "DELETE FROM gex_percentile_history WHERE ntime=?",
+            (ntime,)
+        )
+        
+        # Calculate percentile ranks for each metric
+        for metric in METRICS:
+            values = metric_values[metric]
+            if not values:
+                continue
+            
+            sorted_vals = sorted(values)
+            
+            for snap in snapshot_data:
+                value = snap[metric]
+                rank = sum(1 for v in sorted_vals if v <= value)
+                percentile = round(rank / len(sorted_vals) * 100, 1)
+                
+                con.execute(
+                    "INSERT INTO gex_percentile_history (ndate, ntime, metric_name, value, percentile) VALUES (?, ?, ?, ?, ?)",
+                    (snap["ndate"], snap["ntime"], metric, value, percentile)
+                )
+
+
 def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str = None, target_time: str = None, max_days: int = 30) -> dict:
     """Fetch GEX data from OptionAlpha and store only in gex_strike_window table.
 
@@ -5849,6 +6001,8 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (ndate, ntime, symbol, 'gex', uprice, json.dumps(window_strikes))
             )
+        # Recalculate percentiles for this time slot
+        _recalc_gex_percentiles(ntime)
         return True
 
     fetched = []
