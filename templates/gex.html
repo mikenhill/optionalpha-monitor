@@ -553,27 +553,27 @@ What you see depends on when RF/HMM are retrained:
         });
       }
       document.getElementById('gex-meta').textContent =
-        'Sentiment: ' + (s.sentiment_pct ?? '--') + '%  Ratio: ' + (s.gex_ratio ?? '--') + '  Net: ' + fmtBig(s.net_gex) + (keyStrike ? '  Key: ' + keyStrike : '');
+        'Sentiment: ' + (s.sentiment_pct ?? '--') + '%  Ratio: ' + fmtNum(s.gex_ratio, 1) + '  Net: ' + fmtBig(s.net_gex) + (keyStrike ? '  Key: ' + keyStrike : '');
       Plotly.react('chart-gex', [
-        { name: 'Call GEX', x: strikes, y: cg, type: 'bar', marker: { color: '#198754' } },
-        { name: 'Put GEX',  x: strikes, y: pg, type: 'bar', marker: { color: '#dc3545' } },
-      ], { ...layout_base, shapes: gexShapes, yaxis: { title: 'GEX ($)', tickformat: '.2s' } }, { responsive: true });
+        { name: 'Call GEX', x: strikes, y: cg, type: 'bar', marker: { color: '#198754' }, hovertemplate: '%{y:,.0f}' },
+        { name: 'Put GEX',  x: strikes, y: pg, type: 'bar', marker: { color: '#dc3545' }, hovertemplate: '%{y:,.0f}' },
+      ], { ...layout_base, shapes: gexShapes, yaxis: { title: 'GEX ($)', tickformat: ',.0f' } }, { responsive: true });
 
       const totalCoi = coi.reduce((a,b) => a+b, 0);
       const totalPoi = Math.abs(poi.reduce((a,b) => a+b, 0));
       document.getElementById('oi-meta').textContent = 'Puts: ' + fmtBig(totalPoi) + '  Calls: ' + fmtBig(totalCoi);
       Plotly.react('chart-oi', [
-        { name: 'Call OI', x: strikes, y: coi, type: 'bar', marker: { color: '#198754' } },
-        { name: 'Put OI',  x: strikes, y: poi, type: 'bar', marker: { color: '#dc3545' } },
-      ], { ...layout_base, yaxis: { title: 'Open Interest', tickformat: '.2s' } }, { responsive: true });
+        { name: 'Call OI', x: strikes, y: coi, type: 'bar', marker: { color: '#198754' }, hovertemplate: '%{y:,.0f}' },
+        { name: 'Put OI',  x: strikes, y: poi, type: 'bar', marker: { color: '#dc3545' }, hovertemplate: '%{y:,.0f}' },
+      ], { ...layout_base, yaxis: { title: 'Open Interest', tickformat: ',.0f' } }, { responsive: true });
 
       const totalCvol = cvol.reduce((a,b) => a+b, 0);
       const totalPvol = Math.abs(pvol.reduce((a,b) => a+b, 0));
       document.getElementById('vol-meta').textContent = 'Puts: ' + fmtBig(totalPvol) + '  Calls: ' + fmtBig(totalCvol);
       Plotly.react('chart-vol', [
-        { name: 'Call Vol', x: strikes, y: cvol, type: 'bar', marker: { color: '#198754' } },
-        { name: 'Put Vol',  x: strikes, y: pvol, type: 'bar', marker: { color: '#dc3545' } },
-      ], { ...layout_base, yaxis: { title: 'Volume', tickformat: '.2s' } }, { responsive: true });
+        { name: 'Call Vol', x: strikes, y: cvol, type: 'bar', marker: { color: '#198754' }, hovertemplate: '%{y:,.0f}' },
+        { name: 'Put Vol',  x: strikes, y: pvol, type: 'bar', marker: { color: '#dc3545' }, hovertemplate: '%{y:,.0f}' },
+      ], { ...layout_base, yaxis: { title: 'Volume', tickformat: ',.0f' } }, { responsive: true });
 
       document.querySelectorAll('.snap-btn').forEach(b => {
         b.classList.toggle('active', parseInt(b.dataset.time) === ntime);
