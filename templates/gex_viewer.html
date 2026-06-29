@@ -456,7 +456,7 @@ window.addEventListener('error', function(e) {
   div.textContent = 'JS Error: ' + e.message + ' (' + e.filename.split('/').pop() + ':' + e.lineno + ')';
   document.body.appendChild(div);
 });
-const TIMES = [930,1000,1030,1100,1130,1200,1230,1300,1330,1400,1430,1500,1530,1555,1600];
+const TIMES = [935,1000,1030,1100,1130,1200,1230,1300,1330,1400,1430,1500,1530,1555];
 let timeIdx = 0, prevTime = null, currentDate = null;
 let hscTimeIdx = 0, hscDate = null;
 
@@ -752,7 +752,7 @@ async function loadSnapshot() {
   const s = d.summary || {};
   // Pre-market banner
   const histBanner = document.getElementById('hist-premarket-banner');
-  if (histBanner) histBanner.classList.toggle('d-none', ntime >= 930);
+  if (histBanner) histBanner.classList.toggle('d-none', ntime >= 935);
 
   setText('lbl-time',      fmtTime(ntime));
   setText('lbl-uprice',    s.uprice ? s.uprice.toFixed(2) : '--');
@@ -1310,7 +1310,7 @@ function renderLiveData(d) {
   console.log('[renderLiveData] Summary:', s);
   // Pre-market banner
   const liveBanner = document.getElementById('live-premarket-banner');
-  if (liveBanner) liveBanner.classList.toggle('d-none', (d.ntime || 0) >= 930);
+  if (liveBanner) liveBanner.classList.toggle('d-none', (d.ntime || 0) >= 935);
 
   console.log('[renderLiveData] Setting text elements...');
   setText('live-lbl-uprice',    s.uprice ? s.uprice.toFixed(2) : '--');

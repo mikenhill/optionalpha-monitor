@@ -133,6 +133,54 @@
             },
             "description": "Delete a snapshot from the database by date, time, and optional symbol (default SPX)."
           }
+        },
+        {
+          "name": "Upsert GEX Strike Window (Historical Format)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/gex/upsert?source=gex&test=0",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "gex"],
+              "query": [
+                { "key": "source", "value": "gex", "description": "Optional: default gex" },
+                { "key": "test", "value": "0", "description": "Optional: set to 1 to force source='test'" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"t\": \"res\",\n    \"tid\": \"test-tid\",\n    \"api\": \"market.histgex\",\n    \"data\": {\n      \"symbol\": \"SPX\",\n      \"ndate\": 20260623,\n      \"ntime\": 1000,\n      \"uprice\": 7399.45,\n      \"data\": []\n    }\n  }\n]"
+            },
+            "description": "Upsert GEX strike window data using historical format (from OptionAlpha market.histgex API). Extracts 40-strike window and stores in gex_strike_window table."
+          }
+        },
+        {
+          "name": "Upsert GEX Strike Window (Live Format)",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/gex/upsert?date=2026-06-28&time=1526&source=gex&test=0",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "gex"],
+              "query": [
+                { "key": "date", "value": "2026-06-28", "description": "Required for live format: YYYY-MM-DD" },
+                { "key": "time", "value": "1526", "description": "Required for live format: HHMM" },
+                { "key": "source", "value": "gex", "description": "Optional: default gex" },
+                { "key": "test", "value": "0", "description": "Optional: set to 1 to force source='test'" }
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "[\n  {\n    \"t\": \"res\",\n    \"tid\": \"test-tid\",\n    \"api\": \"market.gex\",\n    \"data\": {\n      \"symbol\": \"SPX\",\n      \"last\": 7354.02,\n      \"low\": {},\n      \"high\": {},\n      \"data\": []\n    }\n  }\n]"
+            },
+            "description": "Upsert GEX strike window data using live format (from OptionAlpha market.gex API). Requires date and time query params. Extracts 40-strike window and stores in gex_strike_window table."
+          }
         }
       ]
     }

@@ -592,7 +592,7 @@ def _generate_daily_narrative(date_iso: str) -> str:
     trades = []
 
     # Morning setup (first RTH snapshot)
-    rth_snaps = [s for s in snapshots if s["ntime"] >= 930]
+    rth_snaps = [s for s in snapshots if s["ntime"] >= 935]
     if rth_snaps:
         first = rth_snaps[0]
         s = first["snap"]
@@ -953,7 +953,7 @@ def _ensure_snapshot_premarket() -> None:
         cols = [r[1] for r in con.execute("PRAGMA table_info(snapshot)").fetchall()]
         if "is_premarket" not in cols:
             con.execute("ALTER TABLE snapshot ADD COLUMN is_premarket INTEGER NOT NULL DEFAULT 0")
-            con.execute("UPDATE snapshot SET is_premarket=1 WHERE ntime < 930")
+            con.execute("UPDATE snapshot SET is_premarket=1 WHERE ntime < 935")
         if "source" not in cols:
             con.execute("ALTER TABLE snapshot ADD COLUMN source TEXT NOT NULL DEFAULT 'histgex'")
 
@@ -1171,7 +1171,7 @@ def _backfill_snapshot_nulls() -> dict:
 def _backfill_hmm_labels_for_snapshot(only_null: bool = False) -> dict:
     """Run HMM sequence prediction for historical dates and store labels.
 
-    Only updates RTH snapshots (ntime >= 930). Pre-market rows keep hmm_label=NULL.
+    Only updates RTH snapshots (ntime >= 935). Pre-market rows keep hmm_label=NULL.
 
     If only_null=True, only dates with at least one RTH row lacking a label are
     processed, which is useful for filling labels after new snapshots are added
@@ -1181,18 +1181,18 @@ def _backfill_hmm_labels_for_snapshot(only_null: bool = False) -> dict:
         if only_null:
             dates = [r[0] for r in con.execute(
                 "SELECT DISTINCT ndate FROM snapshot "
-                "WHERE symbol='SPX' AND ntime>=930 AND hmm_label IS NULL ORDER BY ndate"
+                "WHERE symbol='SPX' AND ntime>=935 AND hmm_label IS NULL ORDER BY ndate"
             ).fetchall()]
         else:
             dates = [r[0] for r in con.execute(
-                "SELECT DISTINCT ndate FROM snapshot WHERE symbol='SPX' AND ntime>=930 ORDER BY ndate"
+                "SELECT DISTINCT ndate FROM snapshot WHERE symbol='SPX' AND ntime>=935 ORDER BY ndate"
             ).fetchall()]
     updated = 0
     for ndate in dates:
         with _db() as con:
             rows = con.execute(
                 "SELECT ntime, uprice, net_gex, kcs, sentiment, key_strike, total_put_vol "
-                "FROM snapshot WHERE ndate=? AND symbol='SPX' AND ntime>=930 ORDER BY ntime",
+                "FROM snapshot WHERE ndate=? AND symbol='SPX' AND ntime>=935 ORDER BY ntime",
                 (ndate,),
             ).fetchall()
         snaps = [
@@ -1270,7 +1270,7 @@ def _promote_live_to_historical() -> dict:
                     "hmm_state, hmm_label, raw_json) "
                     "VALUES (?, ?, 'SPX', ?, '[]', ?, 'gex', "
                     "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                    (ndate, ntime, spx_last or 0, 1 if ntime < 930 else 0,
+                    (ndate, ntime, spx_last or 0, 1 if ntime < 935 else 0,
                      sentiment, gex_ratio, net_gex, kcs, dominance,
                      total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex,
                      total_call_oi, total_put_oi, key_call_oi, key_put_oi,
@@ -1532,7 +1532,7 @@ def _compute_pca() -> dict:
             "total_call_oi, total_put_oi, total_call_vol, total_put_vol, "
             "key_call_gex, key_put_gex, key_call_oi, key_put_oi, key_call_vol, key_put_vol, "
             "key_strike, flip, key2_abs "
-            "FROM snapshot WHERE symbol='SPX' AND ntime>=930 AND net_gex IS NOT NULL"
+            "FROM snapshot WHERE symbol='SPX' AND ntime>=935 AND net_gex IS NOT NULL"
         ).fetchall()
 
     records = []
@@ -2262,12 +2262,12 @@ SPX_FILES = [
     BASE_DIR / "spx-5min.csv",
     Path(r"g:\My Drive\Colab Notebooks\optionalpha_orb\spx-5min-20250201.csv"),
 ]
-TIMES = [930, 1000, 1030, 1100, 1130, 1200, 1230, 1300, 1330, 1400, 1430, 1500, 1530, 1555, 1600]
+TIMES = [935, 1000, 1030, 1100, 1130, 1200, 1230, 1300, 1330, 1400, 1430, 1500, 1530, 1555]
 
 # Time regimes for Distribution page filtering
 TIME_REGIMES = [
-    {"id": "pre", "label": "Pre-Market", "start": 0, "end": 929},
-    {"id": "0930_1000", "label": "09:30-10:00", "start": 930, "end": 1000},
+    {"id": "pre", "label": "Pre-Market", "start": 0, "end": 934},
+    {"id": "0935_1000", "label": "09:35-10:00", "start": 935, "end": 1000},
     {"id": "1001_1030", "label": "10:01-10:30", "start": 1001, "end": 1030},
     {"id": "1031_1100", "label": "10:31-11:00", "start": 1031, "end": 1100},
     {"id": "1101_1130", "label": "11:01-11:30", "start": 1101, "end": 1130},
@@ -2279,7 +2279,7 @@ TIME_REGIMES = [
     {"id": "1401_1430", "label": "14:01-14:30", "start": 1401, "end": 1430},
     {"id": "1431_1500", "label": "14:31-15:00", "start": 1431, "end": 1500},
     {"id": "1501_1530", "label": "15:01-15:30", "start": 1501, "end": 1530},
-    {"id": "1531_1600", "label": "15:31-16:00", "start": 1531, "end": 1600},
+    {"id": "1531_1555", "label": "15:31-15:55", "start": 1531, "end": 1555},
 ]
 
 
@@ -2292,14 +2292,14 @@ def load_spx() -> pd.DataFrame:
     return pd.DataFrame()
 
 
-RTH_OPEN = 930   # Regular Trading Hours start (ET)
+RTH_OPEN = 935   # Regular Trading Hours start (ET)
 RTH_CLOSE = 1600  # Regular Trading Hours end (ET)
 
 
 def get_spx_ohlc_from_db(date_iso: str) -> dict | None:
     """Derive SPX OHLC for a date from the uprice values stored in snapshot.
 
-    Only uses RTH prices (ntime >= 930) so pre-market captures don't corrupt
+    Only uses RTH prices (ntime >= 935) so pre-market captures don't corrupt
     the Open value. Also checks snapshot for today.
     Returns None if no RTH data found.
     """
@@ -2344,7 +2344,7 @@ def get_spx_ohlc_from_db(date_iso: str) -> dict | None:
 
 def get_spx_bars_from_db(date_iso: str, up_to_ntime: int) -> list:
     """Return per-snapshot RTH price bars from snapshot uprice for the chart,
-    for all ntimes in [930, up_to_ntime].
+    for all ntimes in [935, up_to_ntime].
     """
     ndate = int(date_iso.replace("-", ""))
     with _db() as con:
@@ -4025,6 +4025,11 @@ def index():
     from time import time
     return render_template("historical.html", cache_bust=int(time()))
 
+@app.route("/gex")
+def gex():
+    from time import time
+    return render_template("gex.html", cache_bust=int(time()))
+
 @app.route("/old")
 def index_old():
     from time import time
@@ -4163,7 +4168,7 @@ CSV_SUMMARY = BASE_DIR / "results" / "daily_gex_summary-concise.csv"
 @app.route("/api/csv-data")
 def api_csv_data():
     """Return summary metrics for all historical dates at the same time slot."""
-    ntime = int(request.args.get("time", 930))
+    ntime = int(request.args.get("time", 935))
 
     dates = available_dates()
     rows = []
@@ -4277,6 +4282,69 @@ def api_find_test_snapshots():
     return SnapshotController.find_test_snapshots()
 
 
+@app.route("/mvc/api/gex/strike-window", methods=["GET"])
+def api_get_strike_window_entries():
+    """Get all gex_strike_window entries for a specific date."""
+    return SnapshotController.get_strike_window_entries()
+
+
+@app.route("/mvc/api/gex/strike-window/csv", methods=["GET"])
+def api_get_strike_window_csv():
+    """Get gex_strike_window entries for a specific date in CSV format."""
+    return SnapshotController.get_strike_window_csv()
+
+
+@app.route("/mvc/api/gex/upsert", methods=["POST"])
+def api_upsert_gex():
+    """Upsert GEX strike window data from either historical or live format."""
+    return SnapshotController.upsert_gex()
+
+
+@app.route("/mvc/api/gex/compare", methods=["GET"])
+def api_compare_gex():
+    """Compare two gex_strike_window records."""
+    return SnapshotController.compare_gex()
+
+
+@app.route("/mvc/api/gex/delete-gex", methods=["DELETE"])
+def api_delete_gex():
+    """Delete gex_strike_window records by date/time.
+    
+    Query params:
+    - date: YYYY-MM-DD (required)
+    - time: HHMM (optional, if not provided deletes all times for the date)
+    """
+    date_str = request.args.get("date")
+    time_str = request.args.get("time")
+    
+    if not date_str:
+        return jsonify({"error": "date parameter is required"}), 400
+    
+    ndate = int(date_str.replace("-", ""))
+    
+    with _db() as con:
+        if time_str:
+            ntime = int(time_str.replace(":", ""))
+            con.execute(
+                "DELETE FROM gex_strike_window WHERE ndate=? AND ntime=?",
+                (ndate, ntime)
+            )
+            return jsonify({
+                "success": True,
+                "message": f"Deleted gex_strike_window record for {date_str} at {time_str}"
+            })
+        else:
+            cursor = con.execute(
+                "DELETE FROM gex_strike_window WHERE ndate=?",
+                (ndate,)
+            )
+            deleted_count = cursor.rowcount
+            return jsonify({
+                "success": True,
+                "message": f"Deleted {deleted_count} gex_strike_window records for {date_str}"
+            })
+
+
 @app.route("/mvc/api/snapshot", methods=["DELETE"])
 def api_delete_snapshot():
     """Delete a snapshot from the database."""
@@ -4287,6 +4355,442 @@ def api_delete_snapshot():
 def api_snapshots():
     """Route now delegates to SnapshotController (Phase 5 migration)."""
     return SnapshotController.get_snapshots()
+
+
+@app.route("/api/gex/snapshots")
+def api_gex_snapshots():
+    """Route for new GEX architecture using gex_strike_window table."""
+    from controllers.gex_controller import GexController
+    return GexController.get_gex_snapshots()
+
+
+@app.route("/api/gex/dates")
+def api_gex_dates():
+    """Get all available dates from gex_strike_window table.
+    
+    Returns sorted list of ISO date strings (YYYY-MM-DD) that have GEX data.
+    """
+    try:
+        with _db() as con:
+            cursor = con.execute('''
+                SELECT DISTINCT ndate 
+                FROM gex_strike_window 
+                WHERE symbol = 'SPX'
+                ORDER BY ndate DESC
+            ''')
+            rows = cursor.fetchall()
+        
+        # Convert YYYYMMDD int to ISO format (YYYY-MM-DD)
+        dates = []
+        for row in rows:
+            s = str(row[0])  # YYYYMMDD int -> string
+            dates.append(f"{s[:4]}-{s[4:6]}-{s[6:8]}")
+        
+        return jsonify(dates)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/gex/snapshot")
+def api_gex_snapshot():
+    """Get a single GEX snapshot from gex_strike_window with calculated summary metrics.
+    
+    Query params:
+    - date: ISO date (YYYY-MM-DD)
+    - time: ntime (HHMM format)
+    
+    Returns summary metrics calculated from the 40-strike window data.
+    """
+    date_iso = request.args.get("date")
+    ntime = int(request.args.get("time", 1000))
+    
+    if not date_iso:
+        return jsonify({"error": "date required"}), 400
+    
+    ndate = int(date_iso.replace("-", ""))
+    
+    def calculate_sentiment(strikes):
+        """% of strikes with positive net GEX."""
+        if not strikes:
+            return 0
+        positive = sum(1 for s in strikes if (s.get("cg", 0) + s.get("pg", 0)) > 0)
+        return (positive / len(strikes)) * 100
+    
+    def calculate_gex_ratio(strikes):
+        """call_gex / put_gex with sign flip."""
+        total_cg = sum(s.get("cg", 0) for s in strikes)
+        total_pg = sum(s.get("pg", 0) for s in strikes)
+        if total_pg == 0:
+            return 0
+        return (total_cg / abs(total_pg)) * 100
+    
+    def calculate_net_gex(strikes):
+        """call_gex + put_gex."""
+        return sum(s.get("cg", 0) + s.get("pg", 0) for s in strikes)
+    
+    def calculate_kcs(strikes, uprice):
+        """Weighted formula (0.5*gex_share + 0.3*oi_share + 0.2*vol_share) * proximity * 100."""
+        if not strikes or uprice == 0:
+            return 0
+        
+        # Calculate total values
+        total_cg = sum(abs(s.get("cg", 0)) for s in strikes)
+        total_pg = sum(abs(s.get("pg", 0)) for s in strikes)
+        total_gex = total_cg + total_pg
+        total_coi = sum(s.get("coi", 0) for s in strikes)
+        total_poi = sum(s.get("poi", 0) for s in strikes)
+        total_oi = total_coi + total_poi
+        total_cvol = sum(s.get("cvol", 0) for s in strikes)
+        total_pvol = sum(s.get("pvol", 0) for s in strikes)
+        total_vol = total_cvol + total_pvol
+        
+        if total_gex == 0 and total_oi == 0 and total_vol == 0:
+            return 0
+        
+        # Calculate weighted concentration for each strike
+        max_kcs = 0
+        for s in strikes:
+            strike = s.get("strike", 0)
+            if strike == 0:
+                continue
+            
+            # GEX share
+            gex_abs = abs(s.get("cg", 0)) + abs(s.get("pg", 0))
+            gex_share = gex_abs / total_gex if total_gex > 0 else 0
+            
+            # OI share
+            oi_sum = s.get("coi", 0) + s.get("poi", 0)
+            oi_share = oi_sum / total_oi if total_oi > 0 else 0
+            
+            # Vol share
+            vol_sum = s.get("cvol", 0) + s.get("pvol", 0)
+            vol_share = vol_sum / total_vol if total_vol > 0 else 0
+            
+            # Proximity (closer to uprice = higher weight)
+            proximity = 1 - (abs(strike - uprice) / uprice)
+            proximity = max(0, proximity)
+            
+            # Weighted KCS
+            kcs = (0.5 * gex_share + 0.3 * oi_share + 0.2 * vol_share) * proximity * 100
+            max_kcs = max(max_kcs, kcs)
+        
+        return max_kcs
+    
+    def calculate_dominance(strikes, uprice):
+        """key_abs / total_abs * 100."""
+        if not strikes:
+            return 0
+        
+        total_abs = sum(abs(s.get("cg", 0)) + abs(s.get("pg", 0)) for s in strikes)
+        if total_abs == 0:
+            return 0
+        
+        # Find key strike (max absolute GEX)
+        max_abs = 0
+        for s in strikes:
+            abs_gex = abs(s.get("cg", 0)) + abs(s.get("pg", 0))
+            if abs_gex > max_abs:
+                max_abs = abs_gex
+        
+        return (max_abs / total_abs) * 100
+    
+    def calculate_key_strike_stats(strikes, uprice):
+        """Proximity-weighted max abs."""
+        if not strikes:
+            return {
+                "key_strike": None,
+                "key_call_gex": 0,
+                "key_put_gex": 0,
+                "key_call_oi": 0,
+                "key_put_oi": 0,
+                "key_call_vol": 0,
+                "key_put_vol": 0,
+                "key2_strike": None,
+                "key2_abs": 0,
+                "key2_call_vol": 0,
+                "key2_put_vol": 0,
+            }
+        
+        # Calculate weighted score for each strike
+        scored = []
+        for s in strikes:
+            strike = s.get("strike", 0)
+            if strike == 0:
+                continue
+            
+            abs_gex = abs(s.get("cg", 0)) + abs(s.get("pg", 0))
+            proximity = 1 - (abs(strike - uprice) / uprice)
+            proximity = max(0, proximity)
+            score = abs_gex * proximity
+            scored.append((strike, score, s))
+        
+        # Sort by score descending
+        scored.sort(key=lambda x: x[1], reverse=True)
+        
+        if not scored:
+            return {
+                "key_strike": None,
+                "key_call_gex": 0,
+                "key_put_gex": 0,
+                "key_call_oi": 0,
+                "key_put_oi": 0,
+                "key_call_vol": 0,
+                "key_put_vol": 0,
+                "key2_strike": None,
+                "key2_abs": 0,
+                "key2_call_vol": 0,
+                "key2_put_vol": 0,
+            }
+        
+        # Key strike
+        key_strike, _, key_s = scored[0]
+        
+        # Secondary key strike (excluding key)
+        key2_strike = None
+        key2_abs = 0
+        key2_call_vol = 0
+        key2_put_vol = 0
+        if len(scored) > 1:
+            key2_strike, _, key2_s = scored[1]
+            key2_abs = abs(key2_s.get("cg", 0)) + abs(key2_s.get("pg", 0))
+            key2_call_vol = key2_s.get("cvol", 0)
+            key2_put_vol = key2_s.get("pvol", 0)
+        
+        return {
+            "key_strike": key_strike,
+            "key_call_gex": key_s.get("cg", 0),
+            "key_put_gex": key_s.get("pg", 0),
+            "key_call_oi": key_s.get("coi", 0),
+            "key_put_oi": key_s.get("poi", 0),
+            "key_call_vol": key_s.get("cvol", 0),
+            "key_put_vol": key_s.get("pvol", 0),
+            "key2_strike": key2_strike,
+            "key2_abs": key2_abs,
+            "key2_call_vol": key2_call_vol,
+            "key2_put_vol": key2_put_vol,
+        }
+    
+    def calculate_total_gex(strikes):
+        """Sum of cg/pg across all strikes."""
+        total_cg = sum(s.get("cg", 0) for s in strikes)
+        total_pg = sum(s.get("pg", 0) for s in strikes)
+        return total_cg, total_pg
+    
+    def calculate_total_oi_and_vol(strikes):
+        """Sum of coi/poi/cvol/pvol across all strikes."""
+        total_coi = sum(s.get("coi", 0) for s in strikes)
+        total_poi = sum(s.get("poi", 0) for s in strikes)
+        total_cvol = sum(s.get("cvol", 0) for s in strikes)
+        total_pvol = sum(s.get("pvol", 0) for s in strikes)
+        return total_coi, total_poi, total_cvol, total_pvol
+    
+    def calculate_flip(strikes, uprice):
+        """Price where net GEX crosses zero."""
+        if not strikes or len(strikes) < 2:
+            return None
+        
+        # Sort by strike
+        sorted_strikes = sorted(strikes, key=lambda s: s.get("strike", 0))
+        
+        # Find where net GEX crosses zero
+        for i in range(len(sorted_strikes) - 1):
+            curr = sorted_strikes[i]
+            next_s = sorted_strikes[i + 1]
+            curr_net = curr.get("cg", 0) + curr.get("pg", 0)
+            next_net = next_s.get("cg", 0) + next_s.get("pg", 0)
+            
+            if (curr_net < 0 and next_net > 0) or (curr_net > 0 and next_net < 0):
+                # Linear interpolation
+                curr_strike = curr.get("strike", 0)
+                next_strike = next_s.get("strike", 0)
+                ratio = abs(curr_net) / (abs(curr_net) + abs(next_net))
+                return curr_strike + ratio * (next_strike - curr_strike)
+        
+        return None
+    
+    try:
+        with _db() as con:
+            row = con.execute(
+                "SELECT ndate, ntime, symbol, source, price, data FROM gex_strike_window WHERE ndate=? AND ntime=? AND symbol=?",
+                (ndate, ntime, "SPX")
+            ).fetchone()
+        
+        if not row:
+            return jsonify({"error": "No snapshot found"}), 404
+        
+        strikes = json.loads(row[5])
+        uprice = row[4]
+        
+        # Calculate all summary metrics
+        sentiment = calculate_sentiment(strikes)
+        gex_ratio = calculate_gex_ratio(strikes)
+        net_gex = calculate_net_gex(strikes)
+        kcs = calculate_kcs(strikes, uprice)
+        dominance = calculate_dominance(strikes, uprice)
+        total_cg, total_pg = calculate_total_gex(strikes)
+        total_coi, total_poi, total_cvol, total_pvol = calculate_total_oi_and_vol(strikes)
+        key_stats = calculate_key_strike_stats(strikes, uprice)
+        flip = calculate_flip(strikes, uprice)
+        
+        # Build arrays for charts
+        strikes_sorted = sorted(strikes, key=lambda s: s.get("strike", 0))
+        strike_values = [s.get("strike", 0) for s in strikes_sorted]
+        call_gex = [s.get("cg", 0) for s in strikes_sorted]
+        put_gex = [s.get("pg", 0) for s in strikes_sorted]
+        call_oi = [s.get("coi", 0) for s in strikes_sorted]
+        put_oi = [s.get("poi", 0) for s in strikes_sorted]
+        call_vol = [s.get("cvol", 0) for s in strikes_sorted]
+        put_vol = [s.get("pvol", 0) for s in strikes_sorted]
+        
+        return jsonify({
+            "summary": {
+                "uprice": uprice,
+                "sentiment_pct": sentiment,
+                "gex_ratio": gex_ratio,
+                "net_gex": net_gex,
+                "kcs": kcs,
+                "key_dominance_pct": dominance,
+                "call_gex": total_cg,
+                "put_gex": total_pg,
+                "key_strike": key_stats["key_strike"],
+                "key_call_gex": key_stats["key_call_gex"],
+                "key_put_gex": key_stats["key_put_gex"],
+                "key_call_oi": key_stats["key_call_oi"],
+                "key_put_oi": key_stats["key_put_oi"],
+                "key_call_vol": key_stats["key_call_vol"],
+                "key_put_vol": key_stats["key_put_vol"],
+                "key2_strike": key_stats["key2_strike"],
+                "key2_abs": key_stats["key2_abs"],
+                "key2_call_vol": key_stats["key2_call_vol"],
+                "key2_put_vol": key_stats["key2_put_vol"],
+                "total_call_oi": total_coi,
+                "total_put_oi": total_poi,
+                "total_call_vol": total_cvol,
+                "total_put_vol": total_pvol,
+                "flip": flip,
+            },
+            "strikes": strike_values,
+            "call_gex": call_gex,
+            "put_gex": put_gex,
+            "call_oi": call_oi,
+            "put_oi": put_oi,
+            "call_vol": call_vol,
+            "put_vol": put_vol,
+        })
+        
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+@app.route("/api/gex/fetch-live")
+def api_gex_fetch_live():
+    """Fetch live GEX data from OptionAlpha market.gex and store in gex_strike_window.
+    
+    This is the new GEX tab's live mode - fetches from market.gex (not histgex),
+    extracts 40-strike window, and stores with source='gex'.
+    """
+    from time import time as _time
+    from datetime import datetime, timezone
+    from optionalpha_client import call_optionalpha_api, SESSION_FILE
+    
+    def extract_strike_window(strikes, uprice):
+        """Extract 40 strikes around the SPX price."""
+        if not strikes:
+            return []
+        sorted_strikes = sorted(strikes, key=lambda r: r["strike"])
+        uprice_idx = min(range(len(sorted_strikes)),
+                         key=lambda i: abs(sorted_strikes[i]["strike"] - uprice))
+        exact_match = sorted_strikes[uprice_idx]["strike"] == uprice
+        if exact_match:
+            start_idx = max(0, uprice_idx - 20)
+            end_idx = min(len(sorted_strikes), uprice_idx + 20)
+            window = sorted_strikes[start_idx:end_idx]
+            if len(window) > 40:
+                if uprice_idx - start_idx >= 20 and end_idx - uprice_idx >= 19:
+                    window = sorted_strikes[uprice_idx - 20:uprice_idx + 20]
+                elif uprice_idx - start_idx >= 20:
+                    window = window[:40]
+                else:
+                    window = window[-40:]
+        else:
+            start_idx = max(0, uprice_idx - 20)
+            end_idx = min(len(sorted_strikes), uprice_idx + 21)
+            window = sorted_strikes[start_idx:end_idx]
+            if len(window) > 40:
+                window = window[:40]
+        return window
+    
+    try:
+        # Build RPC payload for market.gex with current xid
+        xid = current_xid("SPX")
+        print(f"[DEBUG] Using xid: {xid}")
+        tid = int(_time() * 1000)
+        payload = [
+            {
+                "t": "rpc",
+                "tid": f"{tid}-10071",
+                "api": "market.gex",
+                "args": ["SPX", xid],
+            }
+        ]
+        print(f"[DEBUG] Payload: {payload}")
+        
+        # Call OptionAlpha API
+        raw = call_optionalpha_api(payload, SESSION_FILE)
+        print(f"[DEBUG] OptionAlpha raw response: {raw}")
+        
+        # Extract market.gex response
+        data = None
+        for item in raw:
+            print(f"[DEBUG] Item: {item}")
+            if item.get("api") == "market.gex":
+                data = item.get("data")
+                print(f"[DEBUG] Found market.gex data: {data}")
+                break
+        
+        if not data:
+            return jsonify({"error": "No market.gex data in response", "raw_response": raw}), 500
+        
+        # Get current date/time
+        et_now = get_et_now()
+        ndate = int(et_now.strftime("%Y%m%d"))
+        ntime = int(et_now.strftime("%H%M"))
+        uprice = data.get("last", 0)
+        rows = data.get("data") or []
+        
+        if not rows:
+            return jsonify({"error": "No strike data in market.gex response"}), 500
+        
+        # Extract 40-strike window
+        window_strikes = extract_strike_window(rows, uprice)
+        if not window_strikes:
+            return jsonify({"error": "Could not extract 40-strike window"}), 500
+        
+        # Store in gex_strike_window with source='gex'
+        with _db() as con:
+            con.execute(
+                "INSERT OR REPLACE INTO gex_strike_window "
+                "(ndate, ntime, symbol, source, price, data) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (ndate, ntime, 'SPX', 'gex', uprice, json.dumps(window_strikes))
+            )
+        
+        return jsonify({
+            "success": True,
+            "message": f"Fetched live GEX data for {et_now.strftime('%Y-%m-%d %H:%M')}",
+            "ndate": ndate,
+            "ntime": ntime,
+            "uprice": uprice,
+            "strike_count": len(window_strikes)
+        })
+        
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
 
 
 @app.route("/api/snapshots/summary")
@@ -5030,8 +5534,8 @@ def refresh_daily_summary():
     DAILY_SUMMARY_DF = load_daily_summary()
 
 
-INTRADAY_TIMES = [930, 1000, 1030, 1100, 1130, 1200, 1230,
-                  1300, 1330, 1400, 1430, 1500, 1530]
+INTRADAY_TIMES = [935, 1000, 1030, 1100, 1130, 1200, 1230,
+                  1300, 1330, 1400, 1430, 1500, 1530, 1555]
 
 
 def _existing_times(ndate: int, symbol: str = "SPX") -> set:
@@ -5186,106 +5690,157 @@ def _migrate_live_snapshots_to_history(symbol: str = "SPX") -> dict:
     return {"migrated": migrated, "skipped": skipped, "dates": dates_done}
 
 
-def sync_historical(symbol: str = "SPX", max_days: int = 30) -> dict:
-    """Fetch missing historical GEX data working backwards from yesterday.
+def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str = None, target_time: str = None, max_days: int = 30) -> dict:
+    """Fetch GEX data from OptionAlpha and store only in gex_strike_window table.
 
-    First promotes any prior-day live snapshots into snapshot, then
-    fetches remaining missing slots from the OptionAlpha histgex API.
+    Modes:
+    - "all": Fetch missing data for last max_days days
+    - "date": Fetch all missing times for a specific date
+    - "datetime": Fetch a single snapshot for specific date+time
 
-    Uses market.histgex (not market.gex) — market.gex returns 501 for historical
-    dates because it only serves the current live trading day.
-
-    Fetches all 13 intraday time slots (930–1530) per date.
-    Skips a date only when all 13 slots are already present.
-
-    Returns dict with fetched, skipped, failed counts and migration summary.
+    This function intentionally does NOT touch the snapshot table or any old logic.
     """
     import time as _time_mod
     from datetime import date, timedelta
     from gex_historical_intraday import fetch_histgex
 
-    # Step 1: migrate prior-day live snapshots into snapshot first
-    migration = _migrate_live_snapshots_to_history(symbol)
+    def extract_strike_window(strikes, uprice):
+        """Extract 40 strikes around the SPX price."""
+        if not strikes:
+            return []
+        sorted_strikes = sorted(strikes, key=lambda r: r["strike"])
+        uprice_idx = min(range(len(sorted_strikes)),
+                         key=lambda i: abs(sorted_strikes[i]["strike"] - uprice))
+        exact_match = sorted_strikes[uprice_idx]["strike"] == uprice
+        if exact_match:
+            start_idx = max(0, uprice_idx - 20)
+            end_idx = min(len(sorted_strikes), uprice_idx + 20)
+            window = sorted_strikes[start_idx:end_idx]
+            if len(window) > 40:
+                if uprice_idx - start_idx >= 20 and end_idx - uprice_idx >= 19:
+                    window = sorted_strikes[uprice_idx - 20:uprice_idx + 20]
+                elif uprice_idx - start_idx >= 20:
+                    window = window[:40]
+                else:
+                    window = window[-40:]
+        else:
+            start_idx = max(0, uprice_idx - 20)
+            end_idx = min(len(sorted_strikes), uprice_idx + 21)
+            window = sorted_strikes[start_idx:end_idx]
+            if len(window) > 40:
+                window = window[:40]
+        return window
 
-    yesterday = date.today() - timedelta(days=1)
+    def _existing_gex_times(ndate: int, symbol: str = "SPX") -> set:
+        """Return ntimes already in gex_strike_window for this date."""
+        with _db() as con:
+            rows = con.execute(
+                "SELECT ntime FROM gex_strike_window WHERE ndate=? AND symbol=?",
+                (ndate, symbol),
+            ).fetchall()
+        return {r[0] for r in rows}
+
+    def _fetch_and_store(ndate: int, ntime: int) -> bool:
+        """Fetch one snapshot from OptionAlpha and store in gex_strike_window."""
+        data = fetch_histgex(symbol=symbol, ndate=ndate, ntime=ntime)
+        if not data:
+            raise ValueError(f"market.histgex returned no data for {ntime}")
+        rows = data.get("data") or []
+        if not rows:
+            raise ValueError(f"no strike rows for {ntime}")
+        uprice = data.get("uprice", 0)
+        window_strikes = extract_strike_window(rows, uprice)
+        if not window_strikes:
+            raise ValueError(f"could not extract 40-strike window for {ntime}")
+        with _db() as con:
+            con.execute(
+                "INSERT OR REPLACE INTO gex_strike_window "
+                "(ndate, ntime, symbol, source, price, data) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (ndate, ntime, symbol, 'gex', uprice, json.dumps(window_strikes))
+            )
+        return True
+
     fetched = []
     skipped = []
     failed = []
 
-    for i in range(max_days):
-        d = yesterday - timedelta(days=i)
-        iso = d.isoformat()
-        ymd = d.strftime("%Y%m%d")
-        ndate = int(ymd)
+    target_ndate = None
+    if target_date:
+        target_ndate = int(target_date.replace("-", ""))
+    target_ntime = None
+    if target_time:
+        target_ntime = int(target_time.replace(":", ""))
 
-        existing_times = _existing_times(ndate, symbol)
-        missing_times = [t for t in INTRADAY_TIMES if t not in existing_times]
-
-        if not missing_times:
-            skipped.append(iso)
-            continue
-
-        day_fetched = 0
-        day_failed = 0
-
-        for ntime in missing_times:
+    if mode == "datetime" and target_ndate and target_ntime:
+        iso = target_date
+        ndate = target_ndate
+        ntime = target_ntime
+        existing = _existing_gex_times(ndate, symbol)
+        if ntime in existing:
+            skipped.append(f"{iso}@{ntime}")
+        else:
             try:
-                data = fetch_histgex(symbol=symbol, ndate=ndate, ntime=ntime)
-                if not data:
-                    raise ValueError(f"market.histgex returned no data for {ntime}")
-                rows = data.get("data") or []
-                if not rows:
-                    raise ValueError(f"no strike rows for {ntime}")
-                uprice = data.get("uprice", 0)
-
-                # Write to SQLite with flat summary columns
-                snap = _compute_flat_summary({"uprice": uprice, "data": rows})
-                with _db() as con:
-                    con.execute(
-                        "INSERT OR IGNORE INTO snapshot "
-                        "(ndate, ntime, symbol, uprice, data, is_premarket, source, raw_json, "
-                        "sentiment, gex_ratio, net_gex, kcs, dominance, "
-                        "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
-                        "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
-                        "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
-                        "key2_strike, key2_abs, key2_call_vol, key2_put_vol, flip) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                        (ndate, ntime, symbol, uprice, json.dumps(rows), 1 if ntime < RTH_OPEN else 0, 'histgex', json.dumps(data),
-                         snap.get("sentiment_pct"), snap.get("gex_ratio"), snap.get("net_gex"), snap.get("kcs"), snap.get("key_dominance_pct"),
-                         snap.get("total_call_gex"), snap.get("total_put_gex"), snap.get("key_strike"), snap.get("key_call_gex"), snap.get("key_put_gex"),
-                         snap.get("total_call_oi"), snap.get("total_put_oi"), snap.get("key_call_oi"), snap.get("key_put_oi"),
-                         snap.get("total_call_vol"), snap.get("total_put_vol"), snap.get("key_call_vol"), snap.get("key_put_vol"),
-                         snap.get("key2_strike"), snap.get("key2_abs"), snap.get("key2_call_vol"), snap.get("key2_put_vol"), snap.get("flip")),
-                    )
-                day_fetched += 1
-                _time_mod.sleep(0.5)  # rate-limit between slots
+                _fetch_and_store(ndate, ntime)
+                fetched.append(f"{iso}@{ntime}")
             except Exception as e:
-                day_failed += 1
                 failed.append({"date": f"{iso}@{ntime}", "error": str(e)[:80]})
 
-        if day_fetched > 0:
-            fetched.append(f"{iso}({day_fetched}/{len(missing_times)} slots)")
-        if day_failed > 0 and day_fetched == 0:
-            # All slots failed — count as a failed date
-            pass  # already recorded per-slot above
+    elif mode == "date" and target_ndate:
+        iso = target_date
+        ndate = target_ndate
+        existing = _existing_gex_times(ndate, symbol)
+        missing = [t for t in INTRADAY_TIMES if t not in existing]
+        if not missing:
+            skipped.append(iso)
+        else:
+            day_fetched = 0
+            for ntime in missing:
+                try:
+                    _fetch_and_store(ndate, ntime)
+                    day_fetched += 1
+                    _time_mod.sleep(0.5)
+                except Exception as e:
+                    failed.append({"date": f"{iso}@{ntime}", "error": str(e)[:80]})
+            if day_fetched > 0:
+                fetched.append(f"{iso}({day_fetched}/{len(missing)} slots)")
 
-    return {
-        "fetched": fetched,
-        "skipped": skipped,
-        "failed": failed,
-        "migration": migration,
-    }
+    else:
+        # "all" mode
+        yesterday = date.today() - timedelta(days=1)
+        for i in range(max_days):
+            d = yesterday - timedelta(days=i)
+            iso = d.isoformat()
+            ndate = int(d.strftime("%Y%m%d"))
+            existing = _existing_gex_times(ndate, symbol)
+            missing = [t for t in INTRADAY_TIMES if t not in existing]
+            if not missing:
+                skipped.append(iso)
+                continue
+            day_fetched = 0
+            for ntime in missing:
+                try:
+                    _fetch_and_store(ndate, ntime)
+                    day_fetched += 1
+                    _time_mod.sleep(0.5)
+                except Exception as e:
+                    failed.append({"date": f"{iso}@{ntime}", "error": str(e)[:80]})
+            if day_fetched > 0:
+                fetched.append(f"{iso}({day_fetched}/{len(missing)} slots)")
+
+    return {"fetched": fetched, "skipped": skipped, "failed": failed}
 
 
 @app.route("/api/sync-historical")
 def api_sync_historical():
-    """Sync historical GEX data working backwards from yesterday."""
+    """Sync historical GEX data to gex_strike_window table only."""
     symbol = request.args.get("symbol", "SPX")
+    mode = request.args.get("mode", "all")
     max_days = int(request.args.get("max_days", 30))
-    result = sync_historical(symbol=symbol, max_days=max_days)
-    # Retrain HMM after new historical data is added
-    hmm_result = _train_hmm(force=True)
-    result["hmm_retrain"] = hmm_result
+    target_date = request.args.get("date")
+    target_time = request.args.get("time")
+    
+    result = sync_historical_gex(symbol=symbol, mode=mode, target_date=target_date, target_time=target_time, max_days=max_days)
     return jsonify(result)
 
 
@@ -5412,11 +5967,11 @@ def _api_live_fetch_inner():
 
     # HMM regime prediction — save to snapshot with regime label
     hmm = {}
-    if data["ntime"] >= 930:
+    if data["ntime"] >= 935:
         with _db() as _hcon:
             prior_rows = _hcon.execute(
                 "SELECT uprice, net_gex, kcs, sentiment, key_strike, total_put_vol "
-                "FROM snapshot WHERE ndate=? AND ntime>=930 AND source='gex' ORDER BY ntime",
+                "FROM snapshot WHERE ndate=? AND ntime>=935 AND source='gex' ORDER BY ntime",
                 (data["ndate"],)
             ).fetchall()
         prior_snaps = [
@@ -5512,13 +6067,13 @@ def _api_live_fetch_inner():
     snap["total_put_vol"] = int(total_put_vol)
 
     # HMM regime prediction — use full day's sequence for context (proper Viterbi)
-    # Only for RTH (ntime >= 930) — pre-market data is outside training distribution
+    # Only for RTH (ntime >= 935) — pre-market data is outside training distribution
     hmm = {}
-    if data["ntime"] >= 930:
+    if data["ntime"] >= 935:
         with _db() as _hcon:
             prior_rows = _hcon.execute(
                 "SELECT uprice, net_gex, kcs, sentiment, key_strike, total_put_vol "
-                "FROM snapshot WHERE ndate=? AND ntime>=930 ORDER BY ntime",
+                "FROM snapshot WHERE ndate=? AND ntime>=935 ORDER BY ntime",
                 (data["ndate"],)
             ).fetchall()
         prior_snaps = [
@@ -5797,7 +6352,7 @@ def save_live_snapshot(data: dict) -> None:
         con.execute(
             "INSERT OR REPLACE INTO snapshot (ndate, ntime, symbol, uprice, raw_json, is_premarket, source) "
             "VALUES (?, ?, 'SPX', ?, ?, ?, 'gex')",
-            (ndate, ntime, uprice, json.dumps(rows), 1 if ntime < 930 else 0),
+            (ndate, ntime, uprice, json.dumps(rows), 1 if ntime < 935 else 0),
         )
 
 

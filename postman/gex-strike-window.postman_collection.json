@@ -1,0 +1,260 @@
+{
+  "info": {
+    "name": "GEX Strike Window Admin",
+    "description": "Admin APIs for managing the gex_strike_window table",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "local_url",
+      "value": "http://localhost:5050",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Get Strike Window Entries by Date (JSON)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{local_url}}/mvc/api/gex/strike-window?date=2026-06-23&symbol=SPX&source=gex",
+          "host": ["{{local_url}}"],
+          "path": ["mvc", "api", "gex", "strike-window"],
+          "query": [
+            {
+              "key": "date",
+              "value": "2026-06-23",
+              "description": "Required: YYYY-MM-DD format"
+            },
+            {
+              "key": "symbol",
+              "value": "SPX",
+              "description": "Optional: default SPX"
+            },
+            {
+              "key": "source",
+              "value": "gex",
+              "description": "Optional: default gex"
+            }
+          ]
+        },
+        "description": "Get all gex_strike_window entries for a specific date in JSON format. Returns ndate, ntime, symbol, price, strike_count, and full strike data array for each entry."
+      }
+    },
+    {
+      "name": "Get Strike Window Entries by Date (CSV)",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{local_url}}/mvc/api/gex/strike-window/csv?date=2026-06-23&symbol=SPX&source=gex",
+          "host": ["{{local_url}}"],
+          "path": ["mvc", "api", "gex", "strike-window", "csv"],
+          "query": [
+            {
+              "key": "date",
+              "value": "2026-06-23",
+              "description": "Required: YYYY-MM-DD format"
+            },
+            {
+              "key": "symbol",
+              "value": "SPX",
+              "description": "Optional: default SPX"
+            },
+            {
+              "key": "source",
+              "value": "gex",
+              "description": "Optional: default gex"
+            }
+          ]
+        },
+        "description": "Get all gex_strike_window entries for a specific date in CSV format. Returns a table with ndate, ntime, symbol, price, strike_index, strike, cg, pg, abs, coi, poi, cvol, pvol, net for each strike."
+      }
+    },
+    {
+      "name": "Upsert GEX Strike Window (Historical Format)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"symbol\": \"SPX\",\n  \"ndate\": 20260625,\n  \"ntime\": 1400,\n  \"uprice\": 7358.22,\n  \"data\": [...]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{local_url}}/mvc/api/gex/upsert?source=gex&test=0",
+          "host": ["{{local_url}}"],
+          "path": ["mvc", "api", "gex", "upsert"],
+          "query": [
+            {
+              "key": "source",
+              "value": "gex",
+              "description": "Optional: default gex"
+            },
+            {
+              "key": "test",
+              "value": "0",
+              "description": "Optional: set to 1 to force source='test'"
+            }
+          ]
+        },
+        "description": "Upsert GEX strike window data using historical format. Extracts 40-strike window and stores in gex_strike_window table."
+      }
+    },
+    {
+      "name": "Upsert GEX Strike Window (Live Format)",
+      "request": {
+        "method": "POST",
+        "header": [],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"symbol\": \"SPX\",\n  \"last\": 7358.22,\n  \"data\": [...]\n}",
+          "options": {
+            "raw": {
+              "language": "json"
+            }
+          }
+        },
+        "url": {
+          "raw": "{{local_url}}/mvc/api/gex/upsert?date=2026-06-25&time=935&source=gex&test=0",
+          "host": ["{{local_url}}"],
+          "path": ["mvc", "api", "gex", "upsert"],
+          "query": [
+            {
+              "key": "date",
+              "value": "2026-06-25",
+              "description": "Required for live format: YYYY-MM-DD"
+            },
+            {
+              "key": "time",
+              "value": "1400",
+              "description": "Required for live format: HHMM"
+            },
+            {
+              "key": "source",
+              "value": "gex",
+              "description": "Optional: default gex"
+            },
+            {
+              "key": "test",
+              "value": "0",
+              "description": "Optional: set to 1 to force source='test'"
+            }
+          ]
+        },
+        "description": "Upsert GEX strike window data using live format. Requires date and time query params. Extracts 40-strike window and stores in gex_strike_window table."
+      }
+    },
+    {
+      "name": "Compare GEX Records",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{local_url}}/mvc/api/gex/compare?date1=2026-06-23&time1=935&symbol1=SPX&source1=gex&date2=2026-06-23&time2=935&symbol2=SPX&source2=test",
+          "host": ["{{local_url}}"],
+          "path": ["mvc", "api", "gex", "compare"],
+          "query": [
+            {
+              "key": "date1",
+              "value": "2026-06-23",
+              "description": "Required: YYYY-MM-DD format for record 1"
+            },
+            {
+              "key": "time1",
+              "value": "935",
+              "description": "Required: HHMM format for record 1"
+            },
+            {
+              "key": "symbol1",
+              "value": "SPX",
+              "description": "Optional: default SPX for record 1"
+            },
+            {
+              "key": "source1",
+              "value": "gex",
+              "description": "Optional: default gex for record 1"
+            },
+            {
+              "key": "date2",
+              "value": "2026-06-23",
+              "description": "Required: YYYY-MM-DD format for record 2"
+            },
+            {
+              "key": "time2",
+              "value": "935",
+              "description": "Required: HHMM format for record 2"
+            },
+            {
+              "key": "symbol2",
+              "value": "SPX",
+              "description": "Optional: default SPX for record 2"
+            },
+            {
+              "key": "source2",
+              "value": "test",
+              "description": "Optional: default gex for record 2"
+            }
+          ]
+        },
+        "description": "Compare two gex_strike_window records. Returns both records and a detailed comparison of strike data including differences per strike."
+      }
+    },
+    {
+      "name": "Delete GEX Records",
+      "request": {
+        "method": "DELETE",
+        "header": [],
+        "url": {
+          "raw": "{{local_url}}/mvc/api/gex/delete-gex?date=2026-06-26&time=09:35",
+          "host": ["{{local_url}}"],
+          "path": ["mvc", "api", "gex", "delete-gex"],
+          "query": [
+            {
+              "key": "date",
+              "value": "2026-06-26",
+              "description": "Required: YYYY-MM-DD format"
+            },
+            {
+              "key": "time",
+              "value": "09:35",
+              "description": "Optional: HHMM format (if omitted, deletes all times for the date)"
+            }
+          ]
+        },
+        "description": "Delete gex_strike_window records by date/time. If time is omitted, deletes all records for the date."
+      }
+    },
+    {
+      "name": "Fetch Live GEX",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{local_url}}/api/gex/fetch-live",
+          "host": ["{{local_url}}"],
+          "path": ["api", "gex", "fetch-live"]
+        },
+        "description": "Fetch live GEX data from OptionAlpha market.gex API, extract 40-strike window, and store in gex_strike_window with source='gex'. Used by the GEX tab's Fetch Live Data button."
+      }
+    },
+    {
+      "name": "Get GEX Dates",
+      "request": {
+        "method": "GET",
+        "header": [],
+        "url": {
+          "raw": "{{local_url}}/api/gex/dates",
+          "host": ["{{local_url}}"],
+          "path": ["api", "gex", "dates"]
+        },
+        "description": "Get all available dates from gex_strike_window table. Returns sorted list of ISO date strings (YYYY-MM-DD). Used by the GEX tab date dropdown."
+      }
+    }
+  ]
+}

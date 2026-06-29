@@ -22,7 +22,7 @@ class CsvController(BaseController):
         Returns:
             JSON response with summary metrics for all dates
         """
-        ntime = int(request.args.get("time", 930))
+        ntime = int(request.args.get("time", 935))
         
         try:
             # Get available dates

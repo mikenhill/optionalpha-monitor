@@ -127,7 +127,7 @@ class AdminController(BaseController):
             JSON response with the raw data blob and parsed JSON
         """
         date_iso = request.args.get("date")
-        ntime = int(request.args.get("time", 930))
+        ntime = int(request.args.get("time", 935))
         
         if not date_iso:
             return BaseController.json_response(
@@ -203,7 +203,7 @@ class AdminController(BaseController):
             JSON response with the rebuilt snapshot data
         """
         date_iso = request.args.get("date")
-        ntime = int(request.args.get("time", 930))
+        ntime = int(request.args.get("time", 935))
         
         if not date_iso:
             return BaseController.json_response(

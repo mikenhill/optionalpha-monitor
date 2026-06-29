@@ -11,7 +11,7 @@ DB = Path(r'g:\My Drive\Colab Notebooks\optionalpha-monitor\gex.db')
 # ── 1. Collect all RTH snapshots from gex_snapshots ─────────────────────────
 con = sqlite3.connect(str(DB))
 rows = con.execute(
-    "SELECT ndate, ntime FROM gex_snapshots WHERE symbol='SPX' AND ntime>=930 ORDER BY ndate, ntime"
+    "SELECT ndate, ntime FROM gex_snapshots WHERE symbol='SPX' AND ntime>=935 ORDER BY ndate, ntime"
 ).fetchall()
 con.close()
 
@@ -64,7 +64,7 @@ live = con.execute(
     "total_call_gex, total_put_gex, total_call_oi, total_put_oi, total_call_vol, total_put_vol, "
     "key_call_gex, key_put_gex, key_call_oi, key_put_oi, key_call_vol, key_put_vol, "
     "key_strike, spx_last, flip "
-    "FROM live_captures WHERE ntime>=930 ORDER BY ndate, ntime"
+    "FROM live_captures WHERE ntime>=935 ORDER BY ndate, ntime"
 ).fetchall()
 con.close()
 

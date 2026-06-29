@@ -6,7 +6,7 @@ con = sqlite3.connect(str(DB))
 
 rows = con.execute(
     "SELECT ntime, spx_last, kcs, dominance, key_strike, net_gex, sentiment "
-    "FROM live_captures WHERE ndate=20260623 AND ntime>=930 ORDER BY ntime"
+    "FROM live_captures WHERE ndate=20260623 AND ntime>=935 ORDER BY ntime"
 ).fetchall()
 con.close()
 

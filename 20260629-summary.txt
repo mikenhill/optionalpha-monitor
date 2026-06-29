@@ -1,0 +1,99 @@
+# Session Summary - 2026-06-29
+
+## New GEX Architecture
+
+**Database Layer:**
+- `gex_strike_window` table stores structured strike data (40-strike window) with primary key `(ndate, ntime, symbol, source)`
+- `source` column enables testability: `gex` for production, `test` for testing payloads
+- JSON array stores strike metrics: `cg`, `pg`, `abs`, `coi`, `poi`, `cvol`, `pvol`, `strike`, `net`
+
+**Controller Layer:**
+- `controllers/gex_calculations.py`: Pure calculation functions for each metric (sentiment, gex_ratio, net_gex, kcs, dominance, key_strike_stats, total_oi_and_vol, total_gex, flip_level)
+- `controllers/gex_controller.py`: `GexController` with `get_gex_snapshots()` reading from `gex_strike_window`
+- `controllers/snapshot_controller.py`: `upsert_gex()` API handles both OptionAlpha historical and live formats
+
+**API Layer (all under /mvc/api/gex/...):**
+- `POST /mvc/api/gex/upsert`: Unified upsert API with source/test params
+- `GET /mvc/api/gex/strike-window`: Fetch raw strike window data (JSON)
+- `GET /mvc/api/gex/strike-window/csv`: Fetch raw strike window data (CSV)
+- `GET /mvc/api/gex/compare`: Compare two records for testing
+- `GET /api/gex/snapshots`: Fetch calculated snapshots from `gex_strike_window`
+
+**UI Layer:**
+- `/gex` route with `gex.html` template (new tab)
+- All templates updated with GEX tab navigation
+
+## Field Mapping: Old vs New Architecture
+
+| Old Field | Source in New Architecture | Derivation Method |
+|-----------|--------------------------|-------------------|
+| **Direct from gex_strike_window** |
+| ndate | `gex_strike_window.ndate` | Direct |
+| ntime | `gex_strike_window.ntime` | Direct |
+| symbol | `gex_strike_window.symbol` | Direct |
+| uprice | `gex_strike_window.price` | Direct |
+| source | `gex_strike_window.source` | Direct |
+| capture_ts | Not in gex_strike_window | Use current timestamp on insert |
+| raw_json | Not in gex_strike_window | Reconstruct from gex_strike_window.data |
+| **Calculated from strike data** |
+| sentiment | `calculate_sentiment(strikes)` | % of strikes with positive net GEX |
+| gex_ratio | `calculate_gex_ratio(strikes)` | call_gex / put_gex with sign flip |
+| net_gex | `calculate_net_gex(strikes)` | call_gex + put_gex |
+| kcs | `calculate_kcs(strikes, uprice)` | Weighted formula (0.5*gex_share + 0.3*oi_share + 0.2*vol_share) * proximity * 100 |
+| dominance | `calculate_dominance(strikes, uprice)` | key_abs / total_abs * 100 |
+| total_call_gex | `calculate_total_gex(strikes)` | Sum of cg across all strikes |
+| total_put_gex | `calculate_total_gex(strikes)` | Sum of pg across all strikes |
+| key_strike | `calculate_key_strike_stats(strikes, uprice)` | Proximity-weighted max abs |
+| key_call_gex | `calculate_key_strike_stats(strikes, uprice)` | cg at key strike |
+| key_put_gex | `calculate_key_strike_stats(strikes, uprice)` | pg at key strike |
+| total_call_oi | `calculate_total_oi_and_vol(strikes)` | Sum of coi across all strikes |
+| total_put_oi | `calculate_total_oi_and_vol(strikes)` | Sum of poi across all strikes |
+| key_call_oi | `calculate_key_strike_stats(strikes, uprice)` | coi at key strike |
+| key_put_oi | `calculate_key_strike_stats(strikes, uprice)` | poi at key strike |
+| total_call_vol | `calculate_total_oi_and_vol(strikes)` | Sum of cvol across all strikes |
+| total_put_vol | `calculate_total_oi_and_vol(strikes)` | Sum of pvol across all strikes |
+| key_call_vol | `calculate_key_strike_stats(strikes, uprice)` | cvol at key strike |
+| key_put_vol | `calculate_key_strike_stats(strikes, uprice)` | pvol at key strike |
+| key2_strike | `calculate_key_strike_stats(strikes, uprice)` | Secondary key strike (excluding key) |
+| key2_abs | `calculate_key_strike_stats(strikes, uprice)` | abs at secondary key strike |
+| key2_call_vol | `calculate_key_strike_stats(strikes, uprice)` | cvol at secondary key strike |
+| key2_put_vol | `calculate_key_strike_stats(strikes, uprice)` | pvol at secondary key strike |
+| flip | `calculate_flip_level(strikes)` | Zero-crossing of cumulative net GEX |
+| **External/Other sources** |
+| is_premarket | Not in gex_strike_window | Derived from ntime (< 930 = pre-market) |
+| hmm_state | HMM model | Trained on RTH snapshots (ntime >= 930) |
+| hmm_label | HMM model | Mapped from hmm_state (Positive/Negative/Volatile/Neutral) |
+
+## DAO Usage Pattern
+
+- Use `dao.database.get_connection()` context manager for all DB operations
+- Always call `con.commit()` after INSERT/UPDATE operations
+- Controllers should be thin: delegate to calculation functions, DAOs for data access
+- Decorator `@with_test_metadata(dao_name="...")` for testability tracking
+
+## Testability Features
+
+- **Source isolation**: `source='test'` for test data, `source='gex'` for production
+- **Test param**: `?test=1` forces source='test' regardless of source param
+- **Compare API**: Compare test vs production records to validate changes
+- **Postman collection**: Both historical and live format test requests included
+- **OptionAlpha format support**: API accepts wrapped format `[{ "t": "res", "data": { ... } }]`
+
+## Calculation Fixes
+
+- **net_gex**: `call_gex + put_gex` (put_gex already negative)
+- **gex_ratio**: Compare absolute values, sign based on which is larger
+- **kcs**: Weighted formula (0.5*gex_share + 0.3*oi_share + 0.2*vol_share) * proximity * 100
+- **dominance**: `key_abs / total_abs * 100`
+- **key_strike_stats**: Proximity-weighted key strike selection
+- **flip_level**: Zero-crossing of cumulative net GEX within 40-strike window
+
+## Outstanding Issues (Low Priority)
+
+- Update `upsert_historical_snapshot` to also write to `gex_strike_window`
+- Update `upsert_live_snapshot` to also write to `gex_strike_window`
+- Convert existing logic to read from `gex_strike_window` instead of parsing `raw_json`
+
+## Completed High-Priority Tasks
+
+All 19 high-priority tasks completed including table schema, APIs, calculations, UI, Postman collection, and API route consolidation under `/mvc/api/gex/...`.

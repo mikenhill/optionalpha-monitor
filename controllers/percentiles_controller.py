@@ -9,7 +9,7 @@ from middleware.test_mode import with_test_metadata
 
 
 # Time slots for percentile comparison
-TIMES = [930, 1000, 1030, 1100, 1130, 1200, 1230, 1300, 1330, 1400, 1430, 1500, 1530, 1600]
+TIMES = [935, 1000, 1030, 1100, 1130, 1200, 1230, 1300, 1330, 1400, 1430, 1500, 1530, 1555]
 
 
 class PercentilesController(BaseController):

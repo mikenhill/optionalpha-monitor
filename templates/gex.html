@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Historical GEX</title>
+  <title>GEX (New Architecture)</title>
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
@@ -19,6 +19,9 @@
     .toolbar select { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; }
     .toolbar button { padding: 5px 12px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; background: #fff; cursor: pointer; }
     .toolbar button:hover { background: #e9ecef; }
+    .toolbar button.primary { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+    .toolbar button.primary:hover { background: #0b5ed7; }
+    .toolbar button:disabled { opacity: 0.6; cursor: not-allowed; }
     .stat-row { display: flex; gap: 30px; flex-wrap: wrap; font-size: 14px; }
     .stat-item { display: flex; flex-direction: column; }
     .stat-label { font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; }
@@ -97,12 +100,24 @@
     .signal-gen-btn { margin-left: auto; padding: 3px 10px; font-size: 12px; border: 1px solid #ced4da; border-radius: 4px; cursor: pointer; background: #fff; }
     .action-btn:hover { background: #e9ecef; }
     .action-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 10000; }
+    .modal { background: #fff; border-radius: 8px; padding: 20px; max-width: 400px; width: 90%; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .modal h3 { margin: 0 0 15px 0; font-size: 18px; color: #212529; }
+    .modal-option { margin-bottom: 12px; }
+    .modal-option label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
+    .modal-option input[type="radio"] { margin: 0; }
+    .modal-option input[type="date"], .modal-option input[type="time"] { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; margin-left: 8px; }
+    .modal-buttons { display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px; }
+    .modal-buttons button { padding: 6px 14px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; background: #fff; cursor: pointer; }
+    .modal-buttons button:hover { background: #e9ecef; }
+    .modal-buttons button.primary { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+    .modal-buttons button.primary:hover { background: #0b5ed7; }
   </style>
 </head>
 <body>
   <div class="nav">
-    <a class="active" href="/">Historical</a>
-    <a href="/gex">GEX (New)</a>
+    <a href="/">Historical</a>
+    <a class="active" href="/gex">GEX (New)</a>
     <a href="/live">Live</a>
     <a href="/analysis">Analysis</a>
     <a href="/hscatter">Distribution</a>
@@ -111,7 +126,7 @@
     <a href="/admin">Admin</a>
   </div>
 
-  <h1>Historical GEX</h1>
+  <h1>GEX (New Architecture)</h1>
 
   <div class="card">
     <div class="toolbar">
@@ -120,6 +135,7 @@
       <button onclick="prevDay()">&#8592; Prev</button>
       <button onclick="nextDay()">Next &#8594;</button>
       <button class="action-btn" onclick="syncHistorical()">&#8635; Load Missing Historical</button>
+      <button class="action-btn primary" id="fetch-live-btn" onclick="fetchLiveGex()" disabled>&#8635; Fetch Live Data</button>
       <span id="sync-status" style="font-size:13px;color:#6c757d"></span>
     </div>
     <div class="stat-row" id="hist-stats">
@@ -281,10 +297,10 @@
       delete snapCache[date];  // always re-fetch on date load
       document.getElementById('hist-snapshots').innerHTML = '<span class="loading">Loading...</span>';
       try {
-        const r = await fetch('/api/snapshots/summary?date=' + date);
+        const r = await fetch('/api/gex/snapshots?date=' + date);
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
-        const rows = d.rows || [];
+        const rows = d.snapshots || [];
 
         document.getElementById('stat-count').textContent = rows.length;
 
@@ -332,7 +348,7 @@
         const snapFetches = ntimes.map(t =>
           (snapCache[date][t]
             ? Promise.resolve(snapCache[date][t])
-            : fetch('/api/snapshot?date=' + date + '&time=' + t).then(r => r.json()).then(sd => { snapCache[date][t] = sd; return sd; })
+            : fetch('/api/gex/snapshot?date=' + date + '&time=' + t).then(r => r.json()).then(sd => { snapCache[date][t] = sd; return sd; })
           )
         );
         Promise.all(snapFetches).then(() => {
@@ -564,38 +580,90 @@ What you see depends on when RF/HMM are retrained:
       });
       document.getElementById('chart-time-label').textContent = '\u2014 ' + fmtTime(ntime);
 
-      // Fetch and render percentiles
-      const selDate = document.getElementById('date-sel').value;
-      fetch('/api/percentiles?date=' + selDate + '&time=' + ntime)
-        .then(r => r.json()).then(p => {
-          const metrics = [
-            ['Net GEX', p.net_gex], ['KCS', p.kcs], ['Dominance', p.dominance],
-            ['Call GEX', p.call_gex], ['Put GEX', p.put_gex],
-            ['Call Vol', p.call_vol], ['Put Vol', p.put_vol],
-          ];
-          document.getElementById('pct-grid').innerHTML = metrics.map(([label, m]) => {
-            if (!m) return '';
-            const pct = m.pct ?? 50;
-            const barColor = pct >= 75 ? '#dc3545' : pct >= 50 ? '#fd7e14' : '#198754';
-            return '<div class="pct-item">' +
-              '<div class="pct-label">' + label + '</div>' +
-              '<div class="pct-bar-wrap"><div class="pct-bar" style="width:' + pct + '%;background:' + barColor + '"></div></div>' +
-              '<div class="pct-val">' + pct + 'th pct</div>' +
-            '</div>';
-          }).join('');
-        }).catch(() => { document.getElementById('pct-grid').innerHTML = ''; });
+      // Fetch and render percentiles - disabled for now (needs gex_strike_window percentile history)
+      // const selDate = document.getElementById('date-sel').value;
+      // fetch('/api/percentiles?date=' + selDate + '&time=' + ntime)
+      //   .then(r => r.json()).then(p => {
+      //     const metrics = [
+      //       ['Net GEX', p.net_gex], ['KCS', p.kcs], ['Dominance', p.dominance],
+      //       ['Call GEX', p.call_gex], ['Put GEX', p.put_gex],
+      //       ['Call Vol', p.call_vol], ['Put Vol', p.put_vol],
+      //     ];
+      //     document.getElementById('pct-grid').innerHTML = metrics.map(([label, m]) => {
+      //       if (!m) return '';
+      //       const pct = m.pct ?? 50;
+      //       const barColor = pct >= 75 ? '#dc3545' : pct >= 50 ? '#fd7e14' : '#198754';
+      //       return '<div class="pct-item">' +
+      //         '<div class="pct-label">' + label + '</div>' +
+      //         '<div class="pct-bar-wrap"><div class="pct-bar" style="width:' + pct + '%;background:' + barColor + '"></div></div>' +
+      //         '<div class="pct-val">' + pct + 'th pct</div>' +
+      //       '</div>';
+      //     }).join('');
+      //   }).catch(() => { document.getElementById('pct-grid').innerHTML = ''; });
     }
 
     async function syncHistorical() {
-      const btn = event.target;
+      document.getElementById('sync-modal').style.display = 'flex';
+    }
+
+    function closeSyncModal() {
+      document.getElementById('sync-modal').style.display = 'none';
+    }
+
+    function onSyncModeChange() {
+      const mode = document.querySelector('input[name="sync-mode"]:checked').value;
+      const dateOnlyInput = document.getElementById('sync-date-only');
+      const datetimeDateInput = document.getElementById('sync-datetime-date');
+      const datetimeTimeInput = document.getElementById('sync-datetime-time');
+      
+      if (mode === 'all') {
+        dateOnlyInput.disabled = true;
+        datetimeDateInput.disabled = true;
+        datetimeTimeInput.disabled = true;
+      } else if (mode === 'date') {
+        dateOnlyInput.disabled = false;
+        datetimeDateInput.disabled = true;
+        datetimeTimeInput.disabled = true;
+      } else if (mode === 'datetime') {
+        dateOnlyInput.disabled = true;
+        datetimeDateInput.disabled = false;
+        datetimeTimeInput.disabled = false;
+      }
+    }
+
+    async function submitSync() {
+      console.log('[submitSync] Starting sync...');
+      const mode = document.querySelector('input[name="sync-mode"]:checked').value;
+      const dateOnlyInput = document.getElementById('sync-date-only').value;
+      const datetimeDateInput = document.getElementById('sync-datetime-date').value;
+      const datetimeTimeInput = document.getElementById('sync-datetime-time').value;
+      
+      console.log('[submitSync] mode:', mode, 'dateOnlyInput:', dateOnlyInput, 'datetimeDateInput:', datetimeDateInput, 'datetimeTimeInput:', datetimeTimeInput);
+      
+      closeSyncModal();
+      
+      const btn = document.querySelector('.action-btn[onclick="syncHistorical()"]');
       const status = document.getElementById('sync-status');
       btn.disabled = true;
       status.textContent = 'Syncing... (may take a minute)';
       status.style.color = '#6c757d';
+      
       try {
-        const r = await fetch('/api/sync-historical?max_days=30');
+        let url = '/api/sync-historical?mode=' + mode;
+        if (mode === 'date' && dateOnlyInput) {
+          url += '&date=' + dateOnlyInput;
+        } else if (mode === 'datetime' && datetimeDateInput && datetimeTimeInput) {
+          url += '&date=' + datetimeDateInput + '&time=' + datetimeTimeInput;
+        } else {
+          url += '&max_days=30';
+        }
+        
+        console.log('[submitSync] Fetching URL:', url);
+        const r = await fetch(url);
+        console.log('[submitSync] Response status:', r.status);
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
+        console.log('[submitSync] Response data:', d);
         const added = d.fetched ?? d.added ?? d.synced ?? '?';
         const skipped = d.skipped ?? '';
         status.textContent = '\u2713 Done — ' + added + ' added' + (skipped ? ', ' + skipped + ' skipped' : '') + '. Reloading dates...';
@@ -611,17 +679,58 @@ What you see depends on when RF/HMM are retrained:
     }
 
     async function reloadDates() {
-      const r = await fetch('/api/dates');
+      const r = await fetch('/api/gex/dates');
       dates = await r.json();
       const sel = document.getElementById('date-sel');
       const current = sel.value;
       sel.innerHTML = '';
-      [...dates].reverse().forEach(d => {
+      
+      // Always include today's date even if no data exists yet
+      const today = new Date().toISOString().slice(0, 10);
+      const allDates = new Set([...dates, today]);
+      
+      // Sort dates in descending order (newest first)
+      const sortedDates = [...allDates].sort((a, b) => b.localeCompare(a));
+      
+      sortedDates.forEach(d => {
         const o = document.createElement('option');
         o.value = d; o.textContent = d;
         sel.appendChild(o);
       });
       if (current) sel.value = current;
+      updateFetchButtonState();
+    }
+
+    function updateFetchButtonState() {
+      const sel = document.getElementById('date-sel');
+      const btn = document.getElementById('fetch-live-btn');
+      const today = new Date().toISOString().slice(0, 10);
+      btn.disabled = (sel.value !== today);
+    }
+
+    async function fetchLiveGex() {
+      const btn = document.getElementById('fetch-live-btn');
+      const status = document.getElementById('sync-status');
+      btn.disabled = true;
+      status.textContent = 'Fetching live GEX data... (may take 30s)';
+      status.style.color = '#6c757d';
+      try {
+        const r = await fetch('/api/gex/fetch-live');
+        const d = await r.json();
+        if (d.error) {
+          status.textContent = '\u2717 ' + d.error;
+          status.style.color = '#dc3545';
+        } else {
+          status.textContent = '\u2713 Fetched \u2014 reloading...';
+          status.style.color = '#198754';
+          setTimeout(() => { snapData = {}; loadDate(); status.textContent = ''; }, 1500);
+        }
+      } catch (e) {
+        status.textContent = '\u2717 ' + e.message;
+        status.style.color = '#dc3545';
+      }
+      btn.disabled = false;
+      updateFetchButtonState();
     }
 
     // Floating column tooltip
@@ -647,29 +756,78 @@ What you see depends on when RF/HMM are retrained:
     });
 
     async function init() {
-      const r = await fetch('/api/dates');
+      const r = await fetch('/api/gex/dates');
       dates = await r.json();
       const sel = document.getElementById('date-sel');
-      // dates is oldest-first; reverse for newest-first in dropdown
-      [...dates].reverse().forEach(d => {
+      
+      // Always include today's date even if no data exists yet
+      const today = new Date().toISOString().slice(0, 10);
+      const allDates = new Set([...dates, today]);
+      
+      // Sort dates in descending order (newest first)
+      const sortedDates = [...allDates].sort((a, b) => b.localeCompare(a));
+      
+      sortedDates.forEach(d => {
         const o = document.createElement('option');
         o.value = d; o.textContent = d;
         sel.appendChild(o);
       });
-      if (dates.length) {
-        // Default to yesterday's date
-        const yesterday = new Date();
-        yesterday.setDate(yesterday.getDate() - 1);
-        const yesterdayStr = yesterday.toISOString().split('T')[0];
-        // Find yesterday in the dropdown, or fall back to newest if not found
-        if (dates.includes(yesterdayStr)) {
-          sel.value = yesterdayStr;
-        }
+      if (sortedDates.length) {
+        // Default to today's date
+        sel.value = today;
         loadDate();
       }
+      updateFetchButtonState();
     }
 
     init();
   </script>
+
+  <div id="sync-modal" class="modal-overlay">
+    <div class="modal">
+      <h3>Load Historical Data</h3>
+      <div class="modal-option">
+        <label>
+          <input type="radio" name="sync-mode" value="all" checked onchange="onSyncModeChange()">
+          All historical data (last 30 days)
+        </label>
+      </div>
+      <div class="modal-option">
+        <label>
+          <input type="radio" name="sync-mode" value="date" onchange="onSyncModeChange()">
+          All snapshots for a specific date:
+          <input type="date" id="sync-date-only" disabled>
+        </label>
+      </div>
+      <div class="modal-option">
+        <label>
+          <input type="radio" name="sync-mode" value="datetime" onchange="onSyncModeChange()">
+          Single snapshot (date + time):
+          <input type="date" id="sync-datetime-date" disabled>
+          <select id="sync-datetime-time" disabled>
+            <option value="">Select time</option>
+            <option value="09:35">09:35</option>
+            <option value="10:00">10:00</option>
+            <option value="10:30">10:30</option>
+            <option value="11:00">11:00</option>
+            <option value="11:30">11:30</option>
+            <option value="12:00">12:00</option>
+            <option value="12:30">12:30</option>
+            <option value="13:00">13:00</option>
+            <option value="13:30">13:30</option>
+            <option value="14:00">14:00</option>
+            <option value="14:30">14:30</option>
+            <option value="15:00">15:00</option>
+            <option value="15:30">15:30</option>
+            <option value="15:55">15:55</option>
+          </select>
+        </label>
+      </div>
+      <div class="modal-buttons">
+        <button onclick="closeSyncModal()">Cancel</button>
+        <button class="primary" onclick="submitSync()">Load Data</button>
+      </div>
+    </div>
+  </div>
 </body>
 </html>

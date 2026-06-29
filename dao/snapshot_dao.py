@@ -532,4 +532,4 @@ class SnapshotDAO(BaseDAO):
         Returns:
             True if pre-market, False otherwise
         """
-        return ntime < 930
+        return ntime < 935

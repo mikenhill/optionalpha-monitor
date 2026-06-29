@@ -63,9 +63,9 @@ def _upsert_db(ndate: int, ntime: int, symbol: str, uprice: float, data: list):
     except Exception as e:
         print(f"  [db] warn: {e}")
 
-# Default 30-min slots 09:30 – 15:30 ET (13 snapshots per day)
-DEFAULT_TIMES = [930, 1000, 1030, 1100, 1130, 1200, 1230,
-                 1300, 1330, 1400, 1430, 1500, 1530]
+# Default 30-min slots 09:35 – 15:55 ET (14 snapshots per day)
+DEFAULT_TIMES = [935, 1000, 1030, 1100, 1130, 1200, 1230,
+                 1300, 1330, 1400, 1430, 1500, 1530, 1555]
 
 SLEEP_BETWEEN_REQUESTS = 2.0   # seconds — respect rate limits
 SUMMARY_CSV = OUTPUT_DIR / "gex_intraday_summary.csv"

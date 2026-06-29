@@ -13,14 +13,14 @@ from middleware.test_mode import with_test_metadata
 
 
 # Constants
-RTH_OPEN = 930  # Regular Trading Hours start (ET)
-TIMES = [930, 1000, 1030, 1100, 1130, 1200, 1230, 1300, 1330, 1400, 1430, 1500, 1530, 1600]
+RTH_OPEN = 935  # Regular Trading Hours start (ET)
+TIMES = [935, 1000, 1030, 1100, 1130, 1200, 1230, 1300, 1330, 1400, 1430, 1500, 1530, 1555]
 
 
 # Time regimes for filtering snapshots
 TIME_REGIMES = [
-    {"id": "pre", "label": "Pre-market", "start": 0, "end": 929},
-    {"id": "0930_1000", "label": "09:30-10:00", "start": 930, "end": 1000},
+    {"id": "pre", "label": "Pre-market", "start": 0, "end": 934},
+    {"id": "0935_1000", "label": "09:35-10:00", "start": 935, "end": 1000},
     {"id": "1001_1030", "label": "10:01-10:30", "start": 1001, "end": 1030},
     {"id": "1031_1100", "label": "10:31-11:00", "start": 1031, "end": 1100},
     {"id": "1101_1130", "label": "11:01-11:30", "start": 1101, "end": 1130},
@@ -32,7 +32,7 @@ TIME_REGIMES = [
     {"id": "1401_1430", "label": "14:01-14:30", "start": 1401, "end": 1430},
     {"id": "1431_1500", "label": "14:31-15:00", "start": 1431, "end": 1500},
     {"id": "1501_1530", "label": "15:01-15:30", "start": 1501, "end": 1530},
-    {"id": "1531_1600", "label": "15:31-16:00", "start": 1531, "end": 1600},
+    {"id": "1531_1555", "label": "15:31-15:55", "start": 1531, "end": 1555},
 ]
 
 
@@ -106,7 +106,7 @@ class SnapshotController(BaseController):
             JSON response with snapshot data including chart arrays
         """
         date_iso = request.args.get("date")
-        ntime = int(request.args.get("time", 930))
+        ntime = int(request.args.get("time", 935))
         prev_t = request.args.get("prev_time")
         
         if not date_iso:
@@ -1180,13 +1180,479 @@ class SnapshotController(BaseController):
                 "count": len(snapshots),
                 "snapshots": snapshots
             })
-                
+
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e)),
                 500
             )
-    
+
+    @staticmethod
+    @with_test_metadata(dao_name="SnapshotController")
+    def get_strike_window_entries():
+        """Get all gex_strike_window entries for a specific date.
+
+        GET /mvc/api/gex/strike-window?date=2026-06-23&symbol=SPX
+
+        Query params:
+            - date: YYYY-MM-DD format (required)
+            - symbol: optional, default "SPX"
+
+        Returns:
+            JSON response with list of strike window entries
+        """
+        try:
+            date_str = request.args.get("date")
+            if not date_str:
+                return BaseController.json_response(
+                    BaseController.error_response("Missing required parameter: date"),
+                    400
+                )
+
+            # Convert YYYY-MM-DD to YYYYMMDD
+            try:
+                from datetime import datetime
+                ndate = int(datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y%m%d"))
+            except ValueError:
+                return BaseController.json_response(
+                    BaseController.error_response("Invalid date format, use YYYY-MM-DD"),
+                    400
+                )
+
+            symbol = request.args.get("symbol", "SPX")
+            source = request.args.get("source", "gex")
+
+            # Query gex_strike_window table
+            with get_connection() as con:
+                cursor = con.execute(
+                    """SELECT ndate, ntime, symbol, price, data
+                       FROM gex_strike_window
+                       WHERE ndate=? AND symbol=? AND source=?
+                       ORDER BY ntime""",
+                    (ndate, symbol, source)
+                )
+                rows = cursor.fetchall()
+
+            entries = []
+            for row in rows:
+                ndate, ntime, sym, price, data = row
+                strikes = json.loads(data) if data else []
+                entries.append({
+                    "ndate": ndate,
+                    "ntime": ntime,
+                    "symbol": sym,
+                    "price": price,
+                    "strike_count": len(strikes),
+                    "data": strikes
+                })
+
+            return BaseController.json_response({
+                "success": True,
+                "count": len(entries),
+                "entries": entries
+            })
+
+        except Exception as e:
+            return BaseController.json_response(
+                BaseController.error_response(str(e)),
+                500
+            )
+
+    @staticmethod
+    @with_test_metadata(dao_name="SnapshotController")
+    def get_strike_window_csv():
+        """Get gex_strike_window entries for a specific date in CSV format.
+
+        GET /mvc/api/gex/strike-window/csv?date=2026-06-23&symbol=SPX
+
+        Query params:
+            - date: YYYY-MM-DD format (required)
+            - symbol: optional, default "SPX"
+
+        Returns:
+            CSV response with strike data in table format
+        """
+        try:
+            date_str = request.args.get("date")
+            if not date_str:
+                return BaseController.json_response(
+                    BaseController.error_response("Missing required parameter: date"),
+                    400
+                )
+
+            # Convert YYYY-MM-DD to YYYYMMDD
+            try:
+                from datetime import datetime
+                ndate = int(datetime.strptime(date_str, "%Y-%m-%d").strftime("%Y%m%d"))
+            except ValueError:
+                return BaseController.json_response(
+                    BaseController.error_response("Invalid date format, use YYYY-MM-DD"),
+                    400
+                )
+
+            symbol = request.args.get("symbol", "SPX")
+            source = request.args.get("source", "gex")
+
+            # Query gex_strike_window table
+            with get_connection() as con:
+                cursor = con.execute(
+                    """SELECT ndate, ntime, symbol, price, data
+                       FROM gex_strike_window
+                       WHERE ndate=? AND symbol=? AND source=?
+                       ORDER BY ntime""",
+                    (ndate, symbol, source)
+                )
+                rows = cursor.fetchall()
+
+            # Build CSV
+            import csv
+            from io import StringIO
+
+            output = StringIO()
+            writer = csv.writer(output)
+
+            # Header
+            writer.writerow(["ndate", "ntime", "symbol", "price", "strike_index", "strike", "cg", "pg", "abs", "coi", "poi", "cvol", "pvol", "net"])
+
+            # Data rows
+            for row in rows:
+                ndate, ntime, sym, price, data = row
+                strikes = json.loads(data) if data else []
+
+                for idx, strike in enumerate(strikes):
+                    writer.writerow([
+                        ndate,
+                        ntime,
+                        sym,
+                        price,
+                        idx,
+                        strike.get("strike", ""),
+                        strike.get("cg", 0),
+                        strike.get("pg", 0),
+                        strike.get("abs", 0),
+                        strike.get("coi", 0),
+                        strike.get("poi", 0),
+                        strike.get("cvol", 0),
+                        strike.get("pvol", 0),
+                        strike.get("net", 0)
+                    ])
+
+            csv_data = output.getvalue()
+            output.close()
+
+            from flask import Response
+            return Response(
+                csv_data,
+                mimetype="text/csv",
+                headers={"Content-Disposition": f"attachment; filename=strike_window_{date_str}_{symbol}.csv"}
+            )
+
+        except Exception as e:
+            return BaseController.json_response(
+                BaseController.error_response(str(e)),
+                500
+            )
+
+    @staticmethod
+    @with_test_metadata(dao_name="SnapshotController")
+    def upsert_gex():
+        """Upsert GEX strike window data from either historical or live format.
+
+        POST /mvc/api/gex/upsert
+
+        Request body (historical format):
+            {
+                "symbol": "SPX",
+                "ndate": 20260625,
+                "ntime": 1400,
+                "uprice": 7358.22,
+                "data": [...]
+            }
+
+        Request body (live format):
+            {
+                "symbol": "SPX",
+                "last": 7358.22,
+                "data": [...]
+            }
+        Query params (for live format):
+            - date: YYYY-MM-DD format (required for live format)
+            - time: HHMM format (required for live format)
+            - source: optional, default "gex"
+
+        Returns:
+            JSON response with success/error status
+        """
+        if request.method != "POST":
+            return BaseController.json_response(
+                BaseController.error_response("Method not allowed"),
+                405
+            )
+
+        try:
+            data = request.get_json()
+            if not data:
+                return BaseController.json_response(
+                    BaseController.error_response("Request body is required"),
+                    400
+                )
+
+            # Handle OptionAlpha wrapped format (array with t, tid, api, data)
+            if isinstance(data, list) and len(data) > 0:
+                data = data[0]
+                if "data" in data:
+                    data = data["data"]
+
+            # Detect format and normalize
+            if "ndate" in data and "ntime" in data:
+                # Historical format
+                is_valid, error_msg = SnapshotController._validate_historical_format(data)
+                if not is_valid:
+                    return BaseController.json_response(
+                        BaseController.error_response(error_msg),
+                        400
+                    )
+                normalized = data
+            elif "last" in data:
+                # Live format - need date/time from query params
+                date_str = request.args.get("date")
+                time_str = request.args.get("time")
+                if not date_str or not time_str:
+                    return BaseController.json_response(
+                        BaseController.error_response("date and time query parameters are required for live format"),
+                        400
+                    )
+
+                ndate = int(date_str.replace("-", ""))
+                ntime = int(time_str)
+
+                is_valid, error_msg = SnapshotController._validate_live_format(data)
+                if not is_valid:
+                    return BaseController.json_response(
+                        BaseController.error_response(error_msg),
+                        400
+                    )
+
+                normalized = SnapshotController._normalize_live_to_historical(data, ndate, ntime)
+            else:
+                return BaseController.json_response(
+                    BaseController.error_response("Invalid format: must be historical (ndate, ntime) or live (last) format"),
+                    400
+                )
+
+            # Extract fields
+            ndate = normalized["ndate"]
+            ntime = normalized["ntime"]
+            symbol = normalized["symbol"]
+            uprice = normalized.get("uprice", 0)
+            rows = normalized.get("data", [])
+            
+            # Determine source: test param overrides source param, default to 'gex'
+            if request.args.get("test") == "1":
+                source = "test"
+            else:
+                source = request.args.get("source", "gex")
+
+            if not rows:
+                return BaseController.json_response(
+                    BaseController.error_response("No strike data provided"),
+                    400
+                )
+
+            # Extract 40-strike window using the same logic
+            sorted_rows = sorted(rows, key=lambda r: r["strike"])
+            uprice_idx = min(range(len(sorted_rows)), key=lambda i: abs(sorted_rows[i]["strike"] - uprice))
+            window_rows = sorted_rows[max(0, uprice_idx - 20):min(len(sorted_rows), uprice_idx + 20)]
+
+            if not window_rows:
+                return BaseController.json_response(
+                    BaseController.error_response("Could not extract strike window"),
+                    400
+                )
+
+            # Insert into gex_strike_window
+            with get_connection() as con:
+                con.execute(
+                    """INSERT OR REPLACE INTO gex_strike_window
+                       (ndate, ntime, symbol, source, price, data)
+                       VALUES (?, ?, ?, ?, ?, ?)""",
+                    (ndate, ntime, symbol, source, uprice, json.dumps(window_rows))
+                )
+                con.commit()
+
+            return BaseController.json_response({
+                "success": True,
+                "message": "GEX strike window data upserted successfully",
+                "ndate": ndate,
+                "ntime": ntime,
+                "symbol": symbol,
+                "source": source,
+                "strike_count": len(window_rows)
+            })
+
+        except Exception as e:
+            return BaseController.json_response(
+                BaseController.error_response(str(e)),
+                500
+            )
+
+    @staticmethod
+    @with_test_metadata(dao_name="SnapshotController")
+    def compare_gex():
+        """Compare two gex_strike_window records.
+
+        GET /mvc/api/gex/compare
+            ?date1=2026-06-23&time1=1000&symbol1=SPX&source1=gex
+            &date2=2026-06-23&time2=1000&symbol2=SPX&source2=test
+
+        Query params (all required):
+            - date1, date2: YYYY-MM-DD format
+            - time1, time2: HHMM format
+            - symbol1, symbol2: symbol (e.g., SPX)
+            - source1, source2: source (e.g., gex, test)
+
+        Returns:
+            JSON response with both records and a comparison
+        """
+        try:
+            # Parse record 1
+            date1 = request.args.get("date1")
+            time1 = request.args.get("time1")
+            symbol1 = request.args.get("symbol1", "SPX")
+            source1 = request.args.get("source1", "gex")
+
+            if not date1 or not time1:
+                return BaseController.json_response(
+                    BaseController.error_response("date1 and time1 are required"),
+                    400
+                )
+
+            ndate1 = int(date1.replace("-", ""))
+            ntime1 = int(time1)
+
+            # Parse record 2
+            date2 = request.args.get("date2")
+            time2 = request.args.get("time2")
+            symbol2 = request.args.get("symbol2", "SPX")
+            source2 = request.args.get("source2", "gex")
+
+            if not date2 or not time2:
+                return BaseController.json_response(
+                    BaseController.error_response("date2 and time2 are required"),
+                    400
+                )
+
+            ndate2 = int(date2.replace("-", ""))
+            ntime2 = int(time2)
+
+            # Query both records
+            with get_connection() as con:
+                cursor1 = con.execute(
+                    """SELECT ndate, ntime, symbol, source, price, data
+                       FROM gex_strike_window
+                       WHERE ndate=? AND ntime=? AND symbol=? AND source=?""",
+                    (ndate1, ntime1, symbol1, source1)
+                )
+                row1 = cursor1.fetchone()
+
+                cursor2 = con.execute(
+                    """SELECT ndate, ntime, symbol, source, price, data
+                       FROM gex_strike_window
+                       WHERE ndate=? AND ntime=? AND symbol=? AND source=?""",
+                    (ndate2, ntime2, symbol2, source2)
+                )
+                row2 = cursor2.fetchone()
+
+            if not row1:
+                return BaseController.json_response(
+                    BaseController.error_response(f"Record 1 not found: {date1}-{time1} {symbol1} {source1}"),
+                    404
+                )
+
+            if not row2:
+                return BaseController.json_response(
+                    BaseController.error_response(f"Record 2 not found: {date2}-{time2} {symbol2} {source2}"),
+                    404
+                )
+
+            # Parse data
+            ndate1_val, ntime1_val, sym1, src1, price1, data1 = row1
+            ndate2_val, ntime2_val, sym2, src2, price2, data2 = row2
+
+            strikes1 = json.loads(data1) if data1 else []
+            strikes2 = json.loads(data2) if data2 else []
+
+            # Compare strike counts
+            count_match = len(strikes1) == len(strikes2)
+
+            # Compare individual strikes
+            strike_comparisons = []
+            for i in range(max(len(strikes1), len(strikes2))):
+                strike1 = strikes1[i] if i < len(strikes1) else None
+                strike2 = strikes2[i] if i < len(strikes2) else None
+
+                if strike1 and strike2:
+                    # Compare key fields
+                    fields_to_compare = ["strike", "cg", "pg", "abs", "coi", "poi", "cvol", "pvol", "net"]
+                    differences = []
+                    for field in fields_to_compare:
+                        val1 = strike1.get(field, 0)
+                        val2 = strike2.get(field, 0)
+                        if val1 != val2:
+                            differences.append({
+                                "field": field,
+                                "value1": val1,
+                                "value2": val2
+                            })
+
+                    strike_comparisons.append({
+                        "index": i,
+                        "strike": strike1.get("strike"),
+                        "match": len(differences) == 0,
+                        "differences": differences
+                    })
+                else:
+                    strike_comparisons.append({
+                        "index": i,
+                        "strike": strike1.get("strike") if strike1 else strike2.get("strike") if strike2 else None,
+                        "match": False,
+                        "differences": [{"field": "missing", "value1": strike1 is not None, "value2": strike2 is not None}]
+                    })
+
+            # Count differences
+            total_differences = sum(1 for sc in strike_comparisons if not sc["match"])
+
+            return BaseController.json_response({
+                "success": True,
+                "record1": {
+                    "ndate": ndate1_val,
+                    "ntime": ntime1_val,
+                    "symbol": sym1,
+                    "source": src1,
+                    "price": price1,
+                    "strike_count": len(strikes1)
+                },
+                "record2": {
+                    "ndate": ndate2_val,
+                    "ntime": ntime2_val,
+                    "symbol": sym2,
+                    "source": src2,
+                    "price": price2,
+                    "strike_count": len(strikes2)
+                },
+                "comparison": {
+                    "strike_count_match": count_match,
+                    "total_differences": total_differences,
+                    "strike_comparisons": strike_comparisons
+                }
+            })
+
+        except Exception as e:
+            return BaseController.json_response(
+                BaseController.error_response(str(e)),
+                500
+            )
+
     @staticmethod
     @with_test_metadata(dao_name="SnapshotController")
     def delete_snapshot():

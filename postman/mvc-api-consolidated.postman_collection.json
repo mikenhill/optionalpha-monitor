@@ -1,0 +1,433 @@
+{
+  "info": {
+    "name": "MVC API - Consolidated",
+    "description": "Consolidated Postman collection for all MVC APIs including GEX-specific endpoints",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "local_url",
+      "value": "http://localhost:5050",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Dates API",
+      "item": [
+        {
+          "name": "Get All Dates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/dates",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "dates"]
+            },
+            "description": "Get all available dates"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Dates (Test Mode)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/dates?test_mode=1",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "dates"],
+              "query": [
+                {"key": "test_mode", "value": "1"}
+              ]
+            },
+            "description": "Get all available dates with test metadata"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Snapshots API",
+      "item": [
+        {
+          "name": "Get Snapshots for Date",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/snapshots?date=2026-06-23",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "snapshots"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"}
+              ]
+            },
+            "description": "Get all snapshot times for a specific date"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Single Snapshot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/snapshot?date=2026-06-23&time=935",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "snapshot"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"},
+                {"key": "time", "value": "935"}
+              ]
+            },
+            "description": "Get a single snapshot for a specific date and time"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Snapshots Summary",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/snapshots/summary?date=2026-06-23",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "snapshots", "summary"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"}
+              ]
+            },
+            "description": "Get summary of all snapshots for a date"
+          },
+          "response": []
+        },
+        {
+          "name": "Get All Snapshots (Paginated)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/snapshots/all?offset=0&limit=10&regime=0935_1000",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "snapshots", "all"],
+              "query": [
+                {"key": "offset", "value": "0"},
+                {"key": "limit", "value": "10"},
+                {"key": "regime", "value": "0935_1000"}
+              ]
+            },
+            "description": "Get all snapshots with pagination and regime filter"
+          },
+          "response": []
+        },
+        {
+          "name": "Upsert Historical Snapshot",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/snapshot/historical",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "snapshot", "historical"]
+            },
+            "description": "Upsert historical snapshot from OptionAlpha market.histgex API"
+          },
+          "response": []
+        },
+        {
+          "name": "Upsert Live Snapshot",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/snapshot/live?date=2026-06-23&time=1000",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "snapshot", "live"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"},
+                {"key": "time", "value": "1000"}
+              ]
+            },
+            "description": "Upsert live snapshot from OptionAlpha market.gex API"
+          },
+          "response": []
+        },
+        {
+          "name": "Delete Snapshot",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/snapshot?date=2026-06-23&time=935&symbol=SPX",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "snapshot"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"},
+                {"key": "time", "value": "935"},
+                {"key": "symbol", "value": "SPX"}
+              ]
+            },
+            "description": "Delete a snapshot from the database"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "GEX API",
+      "item": [
+        {
+          "name": "Get Strike Window Data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/gex/strike-window?date=2026-06-23&symbol=SPX&source=gex",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "gex", "strike-window"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"},
+                {"key": "symbol", "value": "SPX"},
+                {"key": "source", "value": "gex"}
+              ]
+            },
+            "description": "Get raw strike window data for a specific date"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Strike Window CSV",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/gex/strike-window/csv?date=2026-06-23&symbol=SPX&source=gex",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "gex", "strike-window", "csv"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"},
+                {"key": "symbol", "value": "SPX"},
+                {"key": "source", "value": "gex"}
+              ]
+            },
+            "description": "Get strike window data in CSV format"
+          },
+          "response": []
+        },
+        {
+          "name": "Upsert GEX Data",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/gex/upsert?source=gex&test=0",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "gex", "upsert"],
+              "query": [
+                {"key": "source", "value": "gex"},
+                {"key": "test", "value": "0"}
+              ]
+            },
+            "description": "Upsert GEX strike window data from historical or live format"
+          },
+          "response": []
+        },
+        {
+          "name": "Compare GEX Records",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/gex/compare?date1=2026-06-23&time1=1000&symbol1=SPX&source1=gex&date2=2026-06-23&time2=1000&symbol2=SPX&source2=test",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "gex", "compare"],
+              "query": [
+                {"key": "date1", "value": "2026-06-23"},
+                {"key": "time1", "value": "1000"},
+                {"key": "symbol1", "value": "SPX"},
+                {"key": "source1", "value": "gex"},
+                {"key": "date2", "value": "2026-06-23"},
+                {"key": "time2", "value": "1000"},
+                {"key": "symbol2", "value": "SPX"},
+                {"key": "source2", "value": "test"}
+              ]
+            },
+            "description": "Compare two gex_strike_window records"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Percentiles API",
+      "item": [
+        {
+          "name": "Get Percentiles",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/percentiles?date=2026-06-23&time=935",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "percentiles"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"},
+                {"key": "time", "value": "935"}
+              ]
+            },
+            "description": "Get percentile rankings for a specific snapshot"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Trade Signals API",
+      "item": [
+        {
+          "name": "Get Trade Signals",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/trade-signals?date=2026-06-23",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "trade-signals"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"}
+              ]
+            },
+            "description": "Get trade signals for a specific date"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Narrative API",
+      "item": [
+        {
+          "name": "Get Narrative",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/narrative?date=2026-06-23",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "narrative"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"}
+              ]
+            },
+            "description": "Get AI-generated trading narrative for a specific date"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "CSV API",
+      "item": [
+        {
+          "name": "Get CSV Data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/csv-data?time=935",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "csv-data"],
+              "query": [
+                {"key": "time", "value": "935"}
+              ]
+            },
+            "description": "Get summary metrics for all historical dates at a specific time slot"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "SPX Prices API",
+      "item": [
+        {
+          "name": "Get SPX Prices",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/spx-prices?mode=eod",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "spx-prices"],
+              "query": [
+                {"key": "mode", "value": "eod"}
+              ]
+            },
+            "description": "Get SPX price history from database"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Admin API",
+      "item": [
+        {
+          "name": "Get Invalid Snapshots",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/admin/invalid-snapshots?limit=10",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "admin", "invalid-snapshots"],
+              "query": [
+                {"key": "limit", "value": "10"}
+              ]
+            },
+            "description": "Get list of snapshots with invalid/null key fields"
+          },
+          "response": []
+        },
+        {
+          "name": "Get Snapshot JSON",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/admin/snapshot-json?date=2026-06-23&time=935",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "admin", "snapshot-json"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"},
+                {"key": "time", "value": "935"}
+              ]
+            },
+            "description": "Get raw JSON data blob for a specific snapshot"
+          },
+          "response": []
+        },
+        {
+          "name": "Rebuild Snapshot",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/mvc/api/admin/rebuild-snapshot?date=2026-06-23&time=935",
+              "host": ["{{local_url}}"],
+              "path": ["mvc", "api", "admin", "rebuild-snapshot"],
+              "query": [
+                {"key": "date", "value": "2026-06-23"},
+                {"key": "time", "value": "935"}
+              ]
+            },
+            "description": "Rebuild snapshot flat columns from raw JSON data blob"
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

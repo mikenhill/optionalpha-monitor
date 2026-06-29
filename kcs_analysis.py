@@ -16,13 +16,13 @@ for date_iso in DATES:
     ndate = int(date_iso.replace("-", ""))
     con = sqlite3.connect(str(DB))
     times = [r[0] for r in con.execute(
-        "SELECT DISTINCT ntime FROM gex_snapshots WHERE ndate=? AND symbol='SPX' AND ntime>=930 ORDER BY ntime",
+        "SELECT DISTINCT ntime FROM gex_snapshots WHERE ndate=? AND symbol='SPX' AND ntime>=935 ORDER BY ntime",
         (ndate,)
     ).fetchall()]
     # Also pull live captures if available
     live_rows = con.execute(
         "SELECT ntime, spx_last, kcs, dominance, key_strike, net_gex, sentiment FROM live_captures "
-        "WHERE ndate=? AND ntime>=930 ORDER BY ntime",
+        "WHERE ndate=? AND ntime>=935 ORDER BY ntime",
         (ndate,)
     ).fetchall()
     con.close()
