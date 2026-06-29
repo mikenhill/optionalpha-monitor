@@ -1177,29 +1177,60 @@ def _backfill_hmm_labels_for_snapshot(only_null: bool = False) -> dict:
     processed, which is useful for filling labels after new snapshots are added
     without retraining the model.
     """
+    import json
+    from controllers.gex_calculations import (
+        calculate_sentiment,
+        calculate_net_gex,
+        calculate_kcs,
+        calculate_key_strike_stats,
+        calculate_total_oi_and_vol,
+    )
+    
     with _db() as con:
         if only_null:
             dates = [r[0] for r in con.execute(
-                "SELECT DISTINCT ndate FROM snapshot "
-                "WHERE symbol='SPX' AND ntime>=935 AND hmm_label IS NULL ORDER BY ndate"
+                "SELECT DISTINCT ndate FROM gex_strike_window "
+                "WHERE symbol='SPX' AND source='gex' AND ntime>=935 AND hmm_label IS NULL ORDER BY ndate"
             ).fetchall()]
         else:
             dates = [r[0] for r in con.execute(
-                "SELECT DISTINCT ndate FROM snapshot WHERE symbol='SPX' AND ntime>=935 ORDER BY ndate"
+                "SELECT DISTINCT ndate FROM gex_strike_window WHERE symbol='SPX' AND source='gex' AND ntime>=935 ORDER BY ndate"
             ).fetchall()]
     updated = 0
     for ndate in dates:
         with _db() as con:
             rows = con.execute(
-                "SELECT ntime, uprice, net_gex, kcs, sentiment, key_strike, total_put_vol "
-                "FROM snapshot WHERE ndate=? AND symbol='SPX' AND ntime>=935 ORDER BY ntime",
+                "SELECT ntime, price, data "
+                "FROM gex_strike_window WHERE ndate=? AND symbol='SPX' AND source='gex' AND ntime>=935 ORDER BY ntime",
                 (ndate,),
             ).fetchall()
-        snaps = [
-            {"uprice": r[1], "net_gex": r[2], "kcs": r[3], "sentiment_pct": r[4],
-             "key_strike": r[5], "total_put_vol": r[6]}
-            for r in rows
-        ]
+        snaps = []
+        for ntime, uprice, data_json in rows:
+            if not uprice or not data_json:
+                continue
+            try:
+                strikes = json.loads(data_json)
+            except:
+                continue
+            if not strikes:
+                continue
+            
+            # Calculate HMM features using gex_calculations module
+            sentiment = calculate_sentiment(strikes)
+            net_gex = calculate_net_gex(strikes)
+            kcs = calculate_kcs(strikes, uprice)
+            key_stats = calculate_key_strike_stats(strikes, uprice)
+            total_oi_vol = calculate_total_oi_and_vol(strikes)
+            
+            snaps.append({
+                "uprice": uprice,
+                "net_gex": net_gex,
+                "kcs": kcs,
+                "sentiment_pct": sentiment,
+                "key_strike": key_stats["key_strike"],
+                "total_put_vol": total_oi_vol["total_put_vol"],
+            })
+        
         if not snaps:
             continue
         hmm_results = predict_hmm_sequence(snaps)
@@ -1208,8 +1239,8 @@ def _backfill_hmm_labels_for_snapshot(only_null: bool = False) -> dict:
             label = hmm.get("label")
             with _db() as con:
                 con.execute(
-                    "UPDATE snapshot SET hmm_state=?, hmm_label=? "
-                    "WHERE ndate=? AND ntime=? AND symbol='SPX'",
+                    "UPDATE gex_strike_window SET hmm_state=?, hmm_label=? "
+                    "WHERE ndate=? AND ntime=? AND symbol='SPX' AND source='gex'",
                     (state, label, ndate, ntime),
                 )
             updated += 1
@@ -1375,34 +1406,62 @@ HMM_N_STATES = 4
 def _build_hmm_matrix() -> tuple:
     """Collect all RTH snapshots and build a normalised feature matrix.
 
-    Reads directly from the flat summary columns stored in snapshot, so
-    no JSON parsing or re-summarisation is needed.
+    Reads from gex_strike_window table and calculates metrics on-the-fly.
 
     Returns (X_scaled, scaler, raw_df) or (None, None, None) if insufficient data.
     """
     import numpy as np
     import pandas as pd
+    import json
     from sklearn.preprocessing import StandardScaler
+    from controllers.gex_calculations import (
+        calculate_sentiment,
+        calculate_net_gex,
+        calculate_kcs,
+        calculate_key_strike_stats,
+        calculate_total_oi_and_vol,
+    )
 
     with _db() as con:
         rows = con.execute(
-            "SELECT ndate, ntime, uprice, net_gex, kcs, sentiment, key_strike, total_put_vol "
-            "FROM snapshot "
-            "WHERE symbol='SPX' AND ntime>=930 AND net_gex IS NOT NULL "
+            "SELECT ndate, ntime, symbol, source, price, data "
+            "FROM gex_strike_window "
+            "WHERE symbol='SPX' AND source='gex' AND ntime>=930 "
             "ORDER BY ndate, ntime"
         ).fetchall()
 
     records = []
-    for ndate, ntime, uprice, net_gex, kcs, sentiment, key_strike, total_put_vol in rows:
-        if not uprice:
+    for row in rows:
+        ndate, ntime, symbol, source, uprice, data_json = row
+        
+        if not uprice or not data_json:
             continue
-        key = key_strike or uprice
+        
+        try:
+            strikes = json.loads(data_json)
+        except:
+            continue
+        
+        if not strikes:
+            continue
+        
+        # Calculate HMM features using gex_calculations module
+        sentiment = calculate_sentiment(strikes)
+        net_gex = calculate_net_gex(strikes)
+        kcs = calculate_kcs(strikes, uprice)
+        key_stats = calculate_key_strike_stats(strikes, uprice)
+        total_oi_vol = calculate_total_oi_and_vol(strikes)
+        
+        # Calculate distance feature
+        key_strike = key_stats["key_strike"] or uprice
+        dist_to_key = abs(uprice - key_strike)
+        
         records.append({
-            "net_gex":       (net_gex or 0) / 1e9,
-            "kcs":           kcs or 0,
-            "sentiment_pct": sentiment or 50,
-            "dist_to_key":   abs(uprice - key),
-            "total_put_vol": (total_put_vol or 0) / 1e3,
+            "net_gex":       net_gex / 1e9,
+            "kcs":           kcs,
+            "sentiment_pct": sentiment,
+            "dist_to_key":   dist_to_key,
+            "total_put_vol": total_oi_vol["total_put_vol"] / 1e3,
         })
 
     if len(records) < 20:
@@ -1505,15 +1564,27 @@ def _train_hmm(force: bool = False) -> dict:
 
 
 def _compute_pca() -> dict:
-    """Compute PCA over the flat summary features stored in snapshot.
+    """Compute PCA over GEX data from gex_strike_window table.
 
     Returns explained variance, cumulative variance, per-component feature
     loadings, and the list of features used. Used to visualise the independent
     dimensions that drive the HMM feature selection.
     """
     import numpy as np
+    import json
     from sklearn.preprocessing import StandardScaler
     from sklearn.decomposition import PCA
+    from controllers.gex_calculations import (
+        calculate_sentiment,
+        calculate_gex_ratio,
+        calculate_net_gex,
+        calculate_kcs,
+        calculate_dominance,
+        calculate_key_strike_stats,
+        calculate_total_oi_and_vol,
+        calculate_total_gex,
+        calculate_flip_level,
+    )
 
     FEATURES = [
         "net_gex", "total_call_gex", "total_put_gex",
@@ -1528,45 +1599,64 @@ def _compute_pca() -> dict:
 
     with _db() as con:
         rows = con.execute(
-            "SELECT uprice, net_gex, total_call_gex, total_put_gex, sentiment, gex_ratio, kcs, dominance, "
-            "total_call_oi, total_put_oi, total_call_vol, total_put_vol, "
-            "key_call_gex, key_put_gex, key_call_oi, key_put_oi, key_call_vol, key_put_vol, "
-            "key_strike, flip, key2_abs "
-            "FROM snapshot WHERE symbol='SPX' AND ntime>=935 AND net_gex IS NOT NULL"
+            "SELECT ndate, ntime, symbol, source, price, data "
+            "FROM gex_strike_window "
+            "WHERE symbol='SPX' AND source='gex' AND ntime>=935 "
+            "ORDER BY ndate, ntime"
         ).fetchall()
 
     records = []
-    for r in rows:
-        (uprice, net_gex, total_call_gex, total_put_gex, sentiment, gex_ratio, kcs, dominance,
-         total_call_oi, total_put_oi, total_call_vol, total_put_vol,
-         key_call_gex, key_put_gex, key_call_oi, key_put_oi, key_call_vol, key_put_vol,
-         key_strike, flip, key2_abs) = r
-        if not uprice:
+    for row in rows:
+        ndate, ntime, symbol, source, uprice, data_json = row
+        
+        if not uprice or not data_json:
             continue
-        key = key_strike or uprice
-        dist_to_key = abs(uprice - key)
+        
+        try:
+            strikes = json.loads(data_json)
+        except:
+            continue
+        
+        if not strikes:
+            continue
+        
+        # Calculate all PCA features using gex_calculations module
+        sentiment = calculate_sentiment(strikes)
+        gex_ratio = calculate_gex_ratio(strikes)
+        net_gex = calculate_net_gex(strikes)
+        kcs = calculate_kcs(strikes, uprice)
+        dominance = calculate_dominance(strikes, uprice)
+        key_stats = calculate_key_strike_stats(strikes, uprice)
+        total_oi_vol = calculate_total_oi_and_vol(strikes)
+        total_gex_vals = calculate_total_gex(strikes)
+        flip = calculate_flip_level(strikes)
+        
+        # Calculate distance features
+        key_strike = key_stats["key_strike"] or uprice
+        dist_to_key = abs(uprice - key_strike)
         dist_to_flip = abs(uprice - flip) if flip else 0
+        
         records.append({
-            "net_gex": net_gex or 0,
-            "total_call_gex": total_call_gex or 0,
-            "total_put_gex": total_put_gex or 0,
-            "sentiment": sentiment or 50,
-            "gex_ratio": gex_ratio or 0,
-            "kcs": kcs or 0,
-            "dominance": dominance or 0,
-            "total_call_oi": total_call_oi or 0,
-            "total_put_oi": total_put_oi or 0,
-            "total_call_vol": total_call_vol or 0,
-            "total_put_vol": total_put_vol or 0,
-            "key_call_gex": key_call_gex or 0,
-            "key_put_gex": key_put_gex or 0,
-            "key_call_oi": key_call_oi or 0,
-            "key_put_oi": key_put_oi or 0,
-            "key_call_vol": key_call_vol or 0,
-            "key_put_vol": key_put_vol or 0,
+            "net_gex": net_gex,
+            "total_call_gex": total_gex_vals["total_call_gex"],
+            "total_put_gex": total_gex_vals["total_put_gex"],
+            "sentiment": sentiment,
+            "gex_ratio": gex_ratio,
+            "kcs": kcs,
+            "dominance": dominance,
+            "total_call_oi": total_oi_vol["total_call_oi"],
+            "total_put_oi": total_oi_vol["total_put_oi"],
+            "total_call_vol": total_oi_vol["total_call_vol"],
+            "total_put_vol": total_oi_vol["total_put_vol"],
+            "key_call_gex": key_stats["key_call_gex"],
+            "key_put_gex": key_stats["key_put_gex"],
+            "key_call_oi": key_stats["key_call_oi"],
+            "key_put_oi": key_stats["key_put_oi"],
+            "key_call_vol": key_stats["key_call_vol"],
+            "key_put_vol": key_stats["key_put_vol"],
             "dist_to_key": dist_to_key,
             "dist_to_flip": dist_to_flip,
-            "key2_abs": key2_abs or 0,
+            "key2_abs": key_stats["key2_abs"],
         })
 
     if len(records) < 5:

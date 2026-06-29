@@ -1,6 +1,6 @@
-"""Train a Random Forest classifier on historical trade signals + snapshot features.
+"""Train a Random Forest classifier on historical trade signals + GEX features.
 
-Uses outcome labels (WIN/LOSS/NEUTRAL/CORRECT/MISSED) joined with snapshot GEX
+Uses outcome labels (WIN/LOSS/NEUTRAL/CORRECT/MISSED) joined with gex_strike_window
 features to predict trade signal quality. Persists the model to the rf_model table.
 """
 import sqlite3
@@ -45,21 +45,32 @@ def main():
         print("ERROR: scikit-learn not installed. Run: pip install scikit-learn", file=sys.stderr)
         return 1
 
+    # Import GEX calculation functions
+    sys.path.insert(0, os.path.dirname(__file__))
+    from controllers.gex_calculations import (
+        calculate_sentiment,
+        calculate_gex_ratio,
+        calculate_net_gex,
+        calculate_kcs,
+        calculate_dominance,
+        calculate_key_strike_stats,
+        calculate_total_oi_and_vol,
+        calculate_total_gex,
+        calculate_flip_level,
+    )
+
     con = sqlite3.connect(DB_PATH)
 
-    # Join trade_signals with snapshot features - match HMM/PCA feature set exactly
+    # Join trade_signals with gex_strike_window
     rows = con.execute("""
         SELECT
-            s.uprice, s.net_gex, s.total_call_gex, s.total_put_gex, s.sentiment, s.gex_ratio, s.kcs, s.dominance,
-            s.total_call_oi, s.total_put_oi, s.total_call_vol, s.total_put_vol,
-            s.key_call_gex, s.key_put_gex, s.key_call_oi, s.key_put_oi, s.key_call_vol, s.key_put_vol,
-            s.key2_call_vol, s.key_strike, s.flip, s.key2_abs,
+            g.ndate, g.ntime, g.price, g.data,
             t.outcome, t.setup_type, t.action
         FROM trade_signals t
-        JOIN snapshot s ON t.ndate=s.ndate AND t.ntime=s.ntime AND s.symbol='SPX'
+        JOIN gex_strike_window g ON t.ndate=g.ndate AND t.ntime=g.ntime AND g.symbol='SPX' AND g.source='gex'
         WHERE t.outcome IS NOT NULL
           AND t.outcome != ''
-          AND s.is_premarket = 0
+          AND g.ntime >= 935
     """).fetchall()
 
     con.close()
@@ -72,22 +83,37 @@ def main():
 
     X, y, meta = [], [], []
     for row in rows:
-        (uprice, net_gex, total_call_gex, total_put_gex, sentiment, gex_ratio, kcs, dominance,
-         total_call_oi, total_put_oi, total_call_vol, total_put_vol,
-         key_call_gex, key_put_gex, key_call_oi, key_put_oi, key_call_vol, key_put_vol,
-         key2_call_vol, key_strike, flip, key2_abs,
-         outcome, setup_type, action) = row
+        ndate, ntime, uprice, data_json, outcome, setup_type, action = row
 
-        if not uprice:
+        if not uprice or not data_json:
             continue
 
-        # Compute distance features exactly as in gex_viewer.py
-        key = key_strike or uprice
-        dist_to_key = abs(uprice - key)
+        try:
+            strikes = json.loads(data_json)
+        except:
+            continue
+
+        if not strikes:
+            continue
+
+        # Calculate all RF features using gex_calculations module
+        sentiment = calculate_sentiment(strikes)
+        gex_ratio = calculate_gex_ratio(strikes)
+        net_gex = calculate_net_gex(strikes)
+        kcs = calculate_kcs(strikes, uprice)
+        dominance = calculate_dominance(strikes, uprice)
+        key_stats = calculate_key_strike_stats(strikes, uprice)
+        total_oi_vol = calculate_total_oi_and_vol(strikes)
+        total_gex_vals = calculate_total_gex(strikes)
+        flip = calculate_flip_level(strikes)
+
+        # Compute distance features
+        key_strike = key_stats["key_strike"] or uprice
+        dist_to_key = abs(uprice - key_strike)
         dist_to_flip = abs(uprice - flip) if flip else 0
 
         # Compute key_net_oi (net OI at key strike: coi - poi)
-        key_net_oi = (key_call_oi or 0) - (key_put_oi or 0)
+        key_net_oi = (key_stats["key_call_oi"] or 0) - (key_stats["key_put_oi"] or 0)
 
         label = OUTCOME_MAP.get(outcome)
         if label is None:
@@ -95,28 +121,28 @@ def main():
 
         # Build feature dict exactly matching FEATURES order
         features = [
-            net_gex or 0,
-            total_call_gex or 0,
-            total_put_gex or 0,
-            sentiment or 50,
-            gex_ratio or 0,
-            kcs or 0,
-            dominance or 0,
-            total_call_oi or 0,
-            total_put_oi or 0,
-            total_call_vol or 0,
-            total_put_vol or 0,
-            key_call_gex or 0,
-            key_put_gex or 0,
-            key_call_oi or 0,
-            key_put_oi or 0,
-            key_call_vol or 0,
-            key_put_vol or 0,
-            key2_call_vol or 0,
+            net_gex,
+            total_gex_vals["total_call_gex"],
+            total_gex_vals["total_put_gex"],
+            sentiment,
+            gex_ratio,
+            kcs,
+            dominance,
+            total_oi_vol["total_call_oi"],
+            total_oi_vol["total_put_oi"],
+            total_oi_vol["total_call_vol"],
+            total_oi_vol["total_put_vol"],
+            key_stats["key_call_gex"],
+            key_stats["key_put_gex"],
+            key_stats["key_call_oi"],
+            key_stats["key_put_oi"],
+            key_stats["key_call_vol"],
+            key_stats["key_put_vol"],
+            key_stats["key2_call_vol"],
             key_net_oi,
             dist_to_key,
             dist_to_flip,
-            key2_abs or 0,
+            key_stats["key2_abs"],
         ]
 
         X.append(features)
