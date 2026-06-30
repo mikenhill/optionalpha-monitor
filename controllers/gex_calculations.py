@@ -245,6 +245,25 @@ def calculate_total_gex(strikes):
     }
 
 
+def calculate_raw_aggregates(strikes):
+    """Calculate raw aggregate sums across all strikes.
+    
+    Args:
+        strikes: List of strike dictionaries with 'pcmag', 'cotm', 'potm' fields
+        
+    Returns:
+        dict: Summed raw aggregate values
+    """
+    if not strikes:
+        return {"pcmag": 0, "cotm": 0, "potm": 0}
+    
+    return {
+        "pcmag": sum(r.get("pcmag", 0) or 0 for r in strikes),
+        "cotm": sum(r.get("cotm", 0) or 0 for r in strikes),
+        "potm": sum(r.get("potm", 0) or 0 for r in strikes),
+    }
+
+
 def calculate_flip_level(strikes):
     """Calculate GEX flip level.
     
