@@ -200,30 +200,26 @@ class GexController(BaseController):
             
             stats = {
                 "net_gex": net_gex,
-                "call_gex": total_gex_vals["total_call_gex"],
-                "put_gex": total_gex_vals["total_put_gex"],
-                "call_oi": total_oi_vol["total_call_oi"],
-                "put_oi": total_oi_vol["total_put_oi"],
-                "call_vol": total_oi_vol["total_call_vol"],
-                "put_vol": total_oi_vol["total_put_vol"],
+                "total_call_gex": total_gex_vals["total_call_gex"],
+                "total_put_gex": total_gex_vals["total_put_gex"],
+                "total_call_oi": total_oi_vol["total_call_oi"],
+                "total_put_oi": total_oi_vol["total_put_oi"],
+                "total_call_vol": total_oi_vol["total_call_vol"],
+                "total_put_vol": total_oi_vol["total_put_vol"],
                 "kcs": kcs,
                 "dominance": dominance,
             }
             
-            # Find best time slot for percentile comparison
-            best_ntime = ntime
-            best_size = 0
-            with get_connection() as con:
-                for t in TIMES:
-                    size = con.execute(
-                        "SELECT COUNT(DISTINCT ndate) FROM gex_percentile_history WHERE ntime=?",
-                        (t,)
-                    ).fetchone()[0]
-                    if size > best_size:
-                        best_size = size
-                        best_ntime = t
+            # Find nearest standard time slot for percentile comparison
+            # If requested time is in standard TIMES list, use it
+            # Otherwise, find nearest standard time slot
+            if ntime in TIMES:
+                lookup_ntime = ntime
+            else:
+                # Find nearest standard time slot
+                lookup_ntime = min(TIMES, key=lambda t: abs(t - ntime))
             
-            cache_ntime = best_ntime
+            cache_ntime = lookup_ntime
             
             # Get sample size for this time slot
             with get_connection() as con:
@@ -232,42 +228,52 @@ class GexController(BaseController):
                     (cache_ntime,)
                 ).fetchone()[0]
             
-            # Get percentiles for all metrics
-            with get_connection() as con:
-                # Calculate net_gex percentile
-                row = con.execute(
-                    "SELECT percentile FROM gex_percentile_history WHERE ndate=? AND ntime=? AND metric_name='net_gex'",
-                    (ndate, ntime)
-                ).fetchone()
-                net_pct_raw = row[0] if row else 50
-                bearish_pct = 100 - net_pct_raw
-                
-                # Helper function for size-based metrics
-                def size_entry(metric_name):
+            # Helper function for size-based metrics (defined outside with block)
+            def size_entry(con, metric_name):
+                try:
                     row = con.execute(
                         "SELECT percentile FROM gex_percentile_history WHERE ndate=? AND ntime=? AND metric_name=?",
-                        (ndate, ntime, metric_name)
+                        (ndate, lookup_ntime, metric_name)
                     ).fetchone()
                     pct = row[0] if row else 50
-                    return {"value": stats[metric_name], "pct": pct}
+                except Exception:
+                    pct = 50
+                try:
+                    value = stats[metric_name]
+                except KeyError:
+                    value = 0
+                return {"value": value, "pct": pct}
             
-            data = {
-                "sample_size": n,
-                "ntime": ntime,
-                "net_gex": {
-                    "value": stats["net_gex"],
-                    "pct_raw": net_pct_raw,
-                    "bearish_pct": bearish_pct,
-                },
-                "call_gex": size_entry("call_gex"),
-                "put_gex": size_entry("put_gex"),
-                "call_oi": size_entry("call_oi"),
-                "put_oi": size_entry("put_oi"),
-                "call_vol": size_entry("call_vol"),
-                "put_vol": size_entry("put_vol"),
-                "kcs": size_entry("kcs"),
-                "dominance": size_entry("dominance"),
-            }
+            # Get percentiles for all metrics
+            with get_connection() as con:
+                # Calculate net_gex percentile using the lookup time slot (nearest standard)
+                try:
+                    row = con.execute(
+                        "SELECT percentile FROM gex_percentile_history WHERE ndate=? AND ntime=? AND metric_name='net_gex'",
+                        (ndate, lookup_ntime)
+                    ).fetchone()
+                    net_pct_raw = row[0] if row else 50
+                except Exception:
+                    net_pct_raw = 50
+                bearish_pct = 100 - net_pct_raw
+                
+                data = {
+                    "sample_size": n,
+                    "ntime": ntime,
+                    "net_gex": {
+                        "value": stats["net_gex"],
+                        "pct_raw": net_pct_raw,
+                        "bearish_pct": bearish_pct,
+                    },
+                    "total_call_gex": size_entry(con, "total_call_gex"),
+                    "total_put_gex": size_entry(con, "total_put_gex"),
+                    "total_call_oi": size_entry(con, "total_call_oi"),
+                    "total_put_oi": size_entry(con, "total_put_oi"),
+                    "total_call_vol": size_entry(con, "total_call_vol"),
+                    "total_put_vol": size_entry(con, "total_put_vol"),
+                    "kcs": size_entry(con, "kcs"),
+                    "dominance": size_entry(con, "dominance"),
+                }
             
             return BaseController.json_response(data)
             

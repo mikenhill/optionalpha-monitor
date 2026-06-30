@@ -183,6 +183,37 @@
           }
         }
       ]
+    },
+    {
+      "name": "GEX Admin",
+      "item": [
+        {
+          "name": "Verify Strike Window Data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/api/gex/verify-strike-window",
+              "host": ["{{local_url}}"],
+              "path": ["api", "gex", "verify-strike-window"]
+            },
+            "description": "Verify that all historical dates in gex_strike_window have mandatory RTH time slots (935-1555). Returns summary and detailed results per date."
+          }
+        },
+        {
+          "name": "Verify Percentile Data",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{local_url}}/api/gex/verify-percentiles",
+              "host": ["{{local_url}}"],
+              "path": ["api", "gex", "verify-percentiles"]
+            },
+            "description": "Verify that all historical snapshots have percentile data for all metrics. Returns summary and detailed results per snapshot."
+          }
+        }
+      ]
     }
   ]
 }

@@ -25,13 +25,18 @@ METRICS = [
     "total_call_vol", "total_put_vol",
 ]
 
-def main():
+def main(target_ntimes=None):
     con = sqlite3.connect(DB_PATH)
     
     # Get all distinct (ndate, ntime) pairs from gex_strike_window
-    pairs = con.execute(
-        "SELECT DISTINCT ndate, ntime FROM gex_strike_window WHERE symbol='SPX' AND source='gex' ORDER BY ndate, ntime"
-    ).fetchall()
+    if target_ntimes:
+        query = "SELECT DISTINCT ndate, ntime FROM gex_strike_window WHERE symbol='SPX' AND source='gex' AND ntime IN ({}) ORDER BY ndate, ntime".format(
+            ','.join(str(t) for t in target_ntimes)
+        )
+    else:
+        query = "SELECT DISTINCT ndate, ntime FROM gex_strike_window WHERE symbol='SPX' AND source='gex' ORDER BY ndate, ntime"
+    
+    pairs = con.execute(query).fetchall()
     
     if not pairs:
         print("No data found in gex_strike_window")
@@ -129,4 +134,10 @@ def main():
     print(f"Populated {populated} percentile records")
 
 if __name__ == "__main__":
-    main()
+    # Accept optional time slots as command line arguments
+    import sys
+    target_ntimes = None
+    if len(sys.argv) > 1:
+        target_ntimes = [int(arg) for arg in sys.argv[1:]]
+        print(f"Processing only time slots: {target_ntimes}")
+    main(target_ntimes)

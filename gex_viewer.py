@@ -4120,6 +4120,11 @@ def gex():
     from time import time
     return render_template("gex.html", cache_bust=int(time()))
 
+@app.route("/gex-admin")
+def gex_admin():
+    from time import time
+    return render_template("gex_admin.html", cache_bust=int(time()))
+
 @app.route("/old")
 def index_old():
     from time import time
@@ -4817,6 +4822,112 @@ def api_gex_snapshot():
         return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
 
 
+@app.route("/api/gex/verify-percentiles")
+def api_verify_percentiles():
+    """Verify that all historical dates in gex_percentile_history have data for all metrics."""
+    from datetime import date, datetime
+    
+    METRICS = ["net_gex", "kcs", "sentiment", "gex_ratio", "dominance",
+               "total_call_gex", "total_put_gex",
+               "total_call_oi", "total_put_oi",
+               "total_call_vol", "total_put_vol"]
+    
+    try:
+        with _db() as con:
+            # Get all distinct (ndate, ntime) pairs from gex_strike_window (excluding today)
+            today = date.today()
+            today_ndate = int(today.strftime("%Y%m%d"))
+            
+            rows = con.execute(
+                "SELECT DISTINCT ndate, ntime FROM gex_strike_window WHERE symbol='SPX' AND source='gex' AND ndate != ? ORDER BY ndate, ntime",
+                (today_ndate,)
+            ).fetchall()
+            
+            results = []
+            for ndate, ntime in rows:
+                date_str = f"{str(ndate)[:4]}-{str(ndate)[4:6]}-{str(ndate)[6:8]}"
+                
+                # Get existing metrics for this date/time
+                existing_rows = con.execute(
+                    "SELECT metric_name FROM gex_percentile_history WHERE ndate=? AND ntime=?",
+                    (ndate, ntime)
+                ).fetchall()
+                existing_metrics = {r[0] for r in existing_rows}
+                
+                # Check which metrics are missing
+                missing = [m for m in METRICS if m not in existing_metrics]
+                
+                results.append({
+                    "date": date_str,
+                    "time": ntime,
+                    "missing": missing,
+                    "complete": len(missing) == 0
+                })
+        
+        return jsonify({
+            "total_snapshots": len(results),
+            "complete_snapshots": sum(1 for r in results if r["complete"]),
+            "incomplete_snapshots": sum(1 for r in results if not r["complete"]),
+            "results": results
+        })
+        
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+@app.route("/api/gex/verify-strike-window")
+def api_verify_strike_window():
+    """Verify that all historical dates in gex_strike_window have mandatory RTH time slots."""
+    from datetime import date, datetime
+    
+    MANDATORY_TIMES = [935, 1000, 1030, 1100, 1130, 1200, 1230, 1300, 1330, 1400, 1430, 1500, 1530, 1555]
+    
+    try:
+        with _db() as con:
+            # Get all distinct dates (excluding today)
+            today = date.today()
+            today_ndate = int(today.strftime("%Y%m%d"))
+            
+            rows = con.execute(
+                "SELECT DISTINCT ndate FROM gex_strike_window WHERE symbol='SPX' AND source='gex' AND ndate != ? ORDER BY ndate",
+                (today_ndate,)
+            ).fetchall()
+            
+            results = []
+            for row in rows:
+                ndate = row[0]
+                date_str = f"{str(ndate)[:4]}-{str(ndate)[4:6]}-{str(ndate)[6:8]}"
+                
+                # Get existing time slots for this date
+                existing_rows = con.execute(
+                    "SELECT DISTINCT ntime FROM gex_strike_window WHERE ndate=? AND symbol='SPX' AND source='gex'",
+                    (ndate,)
+                ).fetchall()
+                existing_times = {r[0] for r in existing_rows}
+                
+                # Check which mandatory times are missing
+                missing = [t for t in MANDATORY_TIMES if t not in existing_times]
+                
+                results.append({
+                    "date": date_str,
+                    "ndate": ndate,
+                    "missing": missing,
+                    "complete": len(missing) == 0
+                })
+        
+        return jsonify({
+            "total_dates": len(results),
+            "complete_dates": sum(1 for r in results if r["complete"]),
+            "incomplete_dates": sum(1 for r in results if not r["complete"]),
+            "results": results
+        })
+        
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
+
 @app.route("/api/gex/fetch-live")
 def api_gex_fetch_live():
     """Fetch live GEX data from OptionAlpha market.gex and store in gex_strike_window.
@@ -4909,6 +5020,46 @@ def api_gex_fetch_live():
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (ndate, ntime, 'SPX', 'gex', uprice, json.dumps(window_strikes))
             )
+        
+        # Calculate HMM label for RTH captures (ntime >= 935)
+        hmm_state = None
+        hmm_label = None
+        if ntime >= 935:
+            from controllers.gex_calculations import (
+                calculate_sentiment,
+                calculate_net_gex,
+                calculate_kcs,
+                calculate_key_strike_stats,
+                calculate_total_oi_and_vol,
+            )
+            
+            sentiment = calculate_sentiment(window_strikes)
+            net_gex = calculate_net_gex(window_strikes)
+            kcs = calculate_kcs(window_strikes, uprice)
+            key_stats = calculate_key_strike_stats(window_strikes, uprice)
+            total_oi_vol = calculate_total_oi_and_vol(window_strikes)
+            
+            snap_features = [{
+                "uprice": uprice,
+                "net_gex": net_gex,
+                "kcs": kcs,
+                "sentiment_pct": sentiment,
+                "key_strike": key_stats["key_strike"],
+                "total_put_vol": total_oi_vol["total_put_vol"],
+            }]
+            
+            hmm_results = predict_hmm_sequence(snap_features)
+            if hmm_results:
+                hmm_state = hmm_results[0].get("state")
+                hmm_label = hmm_results[0].get("label")
+                
+                # Update the stored record with HMM labels
+                with _db() as con:
+                    con.execute(
+                        "UPDATE gex_strike_window SET hmm_state=?, hmm_label=? "
+                        "WHERE ndate=? AND ntime=? AND symbol='SPX' AND source='gex'",
+                        (hmm_state, hmm_label, ndate, ntime),
+                    )
         
         # Recalculate percentiles for this time slot
         _recalc_gex_percentiles(ntime)
@@ -5231,37 +5382,81 @@ def api_trade_signals_generate():
     use_live = (ndate == today_ndate)
 
     with _db() as con:
-        if use_live:
-            snap_rows = con.execute(
-                "SELECT ntime, uprice, net_gex, sentiment, gex_ratio, kcs, dominance, "
-                "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
-                "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
-                "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
-                "key2_strike, key2_abs, flip, hmm_label, 0 as is_premarket "
-                "FROM snapshot WHERE ndate=? ORDER BY ntime",
-                (ndate,)
-            ).fetchall()
-        else:
-            snap_rows = con.execute(
-                "SELECT ntime, uprice, net_gex, sentiment, gex_ratio, kcs, dominance, "
-                "total_call_gex, total_put_gex, key_strike, key_call_gex, key_put_gex, "
-                "total_call_oi, total_put_oi, key_call_oi, key_put_oi, "
-                "total_call_vol, total_put_vol, key_call_vol, key_put_vol, "
-                "key2_strike, key2_abs, flip, hmm_label, is_premarket "
-                "FROM snapshot WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
-                (ndate,)
-            ).fetchall()
+        # Query gex_strike_window table for new architecture
+        snap_rows = con.execute(
+            """SELECT ndate, ntime, symbol, source, price, data, hmm_label
+               FROM gex_strike_window
+               WHERE ndate=? AND symbol='SPX' AND source='gex'
+               ORDER BY ntime""",
+            (ndate,)
+        ).fetchall()
 
     if not snap_rows:
         return jsonify({"error": "No snapshots found for date"}), 404
 
-    snap_cols = ["ntime", "uprice", "net_gex", "sentiment_pct", "gex_ratio", "kcs",
-                 "key_dominance_pct", "total_call_gex", "total_put_gex", "key_strike",
-                 "key_call_gex", "key_put_gex", "total_call_oi", "total_put_oi",
-                 "key_call_oi", "key_put_oi", "total_call_vol", "total_put_vol",
-                 "key_call_vol", "key_put_vol", "key2_strike", "key2_abs", "flip",
-                 "hmm_label", "is_premarket"]
-    snaps = [dict(zip(snap_cols, r)) for r in snap_rows]
+    # Import calculation functions
+    from controllers.gex_calculations import (
+        calculate_sentiment,
+        calculate_gex_ratio,
+        calculate_net_gex,
+        calculate_kcs,
+        calculate_dominance,
+        calculate_key_strike_stats,
+        calculate_total_oi_and_vol,
+        calculate_total_gex,
+        calculate_flip_level,
+    )
+
+    # Calculate metrics for each snapshot from raw gex_strike_window data
+    snaps = []
+    for row in snap_rows:
+        ndate, ntime, symbol, source, price, data, hmm_label = row
+        strikes = json.loads(data) if data else []
+        
+        if not strikes:
+            continue
+        
+        # Calculate all metrics
+        sentiment = calculate_sentiment(strikes)
+        gex_ratio = calculate_gex_ratio(strikes)
+        net_gex = calculate_net_gex(strikes)
+        kcs = calculate_kcs(strikes, price)
+        dominance = calculate_dominance(strikes, price)
+        key_stats = calculate_key_strike_stats(strikes, price)
+        total_oi_vol = calculate_total_oi_and_vol(strikes)
+        total_gex_vals = calculate_total_gex(strikes)
+        flip = calculate_flip_level(strikes)
+        
+        # Pre-market: times outside 09:35-15:55 range
+        is_premarket = ntime < 935 or ntime > 1555
+        
+        snaps.append({
+            "ntime": ntime,
+            "uprice": price,
+            "net_gex": net_gex,
+            "sentiment_pct": sentiment,
+            "gex_ratio": gex_ratio,
+            "kcs": kcs,
+            "key_dominance_pct": dominance,
+            "total_call_gex": total_gex_vals["total_call_gex"],
+            "total_put_gex": total_gex_vals["total_put_gex"],
+            "key_strike": key_stats["key_strike"],
+            "key_call_gex": key_stats["key_call_gex"],
+            "key_put_gex": key_stats["key_put_gex"],
+            "total_call_oi": total_oi_vol["total_call_oi"],
+            "total_put_oi": total_oi_vol["total_put_oi"],
+            "key_call_oi": key_stats["key_call_oi"],
+            "key_put_oi": key_stats["key_put_oi"],
+            "total_call_vol": total_oi_vol["total_call_vol"],
+            "total_put_vol": total_oi_vol["total_put_vol"],
+            "key_call_vol": key_stats["key_call_vol"],
+            "key_put_vol": key_stats["key_put_vol"],
+            "key2_strike": key_stats.get("key2_strike"),
+            "key2_abs": key_stats.get("key2_abs"),
+            "flip": flip,
+            "hmm_label": hmm_label,
+            "is_premarket": is_premarket,
+        })
 
     # Load existing signals for prev_outcome chain
     with _db() as con:
@@ -5932,17 +6127,23 @@ def _recalc_gex_percentiles(ntime: int) -> None:
                 )
 
 
-def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str = None, target_time: str = None, max_days: int = 30) -> dict:
+def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str = None, target_time: str = None, max_days: int = 30, year: int = None, month: int = None) -> dict:
     """Fetch GEX data from OptionAlpha and store only in gex_strike_window table.
 
     Modes:
     - "all": Fetch missing data for last max_days days
     - "date": Fetch all missing times for a specific date
     - "datetime": Fetch a single snapshot for specific date+time
+    - "timeslot": Fetch a specific time slot for all dates (uses random sleep 2-4s)
+
+    For timeslot mode:
+    - If year/month provided: fetch for that month only (Mon-Fri only)
+    - Otherwise: fetch for last max_days days
 
     This function intentionally does NOT touch the snapshot table or any old logic.
     """
     import time as _time_mod
+    import random
     from datetime import date, timedelta
     from gex_historical_intraday import fetch_histgex
 
@@ -6014,7 +6215,11 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
         target_ndate = int(target_date.replace("-", ""))
     target_ntime = None
     if target_time:
-        target_ntime = int(target_time.replace(":", ""))
+        # Convert HH:MM format to HHMM integer
+        if ":" in target_time:
+            target_ntime = int(target_time.replace(":", ""))
+        else:
+            target_ntime = int(target_time)
 
     if mode == "datetime" and target_ndate and target_ntime:
         iso = target_date
@@ -6048,6 +6253,39 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
                     failed.append({"date": f"{iso}@{ntime}", "error": str(e)[:80]})
             if day_fetched > 0:
                 fetched.append(f"{iso}({day_fetched}/{len(missing)} slots)")
+
+    elif mode == "timeslot" and target_ntime:
+        # Fetch specific time slot for all dates
+        if year and month:
+            # Process specific month (Mon-Fri only)
+            import calendar
+            last_day = calendar.monthrange(year, month)[1]
+            dates_to_process = []
+            for day in range(1, last_day + 1):
+                d = date(year, month, day)
+                # Only process Mon-Fri (weekday 0-4)
+                if d.weekday() < 5:
+                    dates_to_process.append(d)
+        else:
+            # Process last max_days days
+            yesterday = date.today() - timedelta(days=1)
+            dates_to_process = [yesterday - timedelta(days=i) for i in range(max_days)]
+        
+        for d in dates_to_process:
+            iso = d.isoformat()
+            ndate = int(d.strftime("%Y%m%d"))
+            existing = _existing_gex_times(ndate, symbol)
+            if target_ntime in existing:
+                skipped.append(f"{iso}@{target_ntime}")
+                continue
+            try:
+                _fetch_and_store(ndate, target_ntime)
+                fetched.append(f"{iso}@{target_ntime}")
+                # Random sleep 2-4 seconds to avoid detection
+                sleep_time = random.uniform(2, 4)
+                _time_mod.sleep(sleep_time)
+            except Exception as e:
+                failed.append({"date": f"{iso}@{target_ntime}", "error": str(e)[:80]})
 
     else:
         # "all" mode
@@ -6083,8 +6321,15 @@ def api_sync_historical():
     max_days = int(request.args.get("max_days", 30))
     target_date = request.args.get("date")
     target_time = request.args.get("time")
+    year = request.args.get("year")
+    month = request.args.get("month")
     
-    result = sync_historical_gex(symbol=symbol, mode=mode, target_date=target_date, target_time=target_time, max_days=max_days)
+    if year:
+        year = int(year)
+    if month:
+        month = int(month)
+    
+    result = sync_historical_gex(symbol=symbol, mode=mode, target_date=target_date, target_time=target_time, max_days=max_days, year=year, month=month)
     return jsonify(result)
 
 

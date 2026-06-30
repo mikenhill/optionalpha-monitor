@@ -118,6 +118,7 @@
   <div class="nav">
     <a href="/">Historical</a>
     <a class="active" href="/gex">GEX (New)</a>
+    <a href="/gex-admin">GEX Admin</a>
     <a href="/live">Live</a>
     <a href="/analysis">Analysis</a>
     <a href="/hscatter">Distribution</a>
@@ -191,6 +192,15 @@
       if (suffix === 'M') return sign + (abs / 1e6).toFixed(2) + 'M';
       if (suffix === 'K') return sign + (abs / 1e3).toFixed(2) + 'K';
       return n.toFixed(2);
+    }
+    function fmtHover(val) {
+      if (val === null || val === undefined) return '--';
+      const abs = Math.abs(val);
+      const sign = val < 0 ? '-' : '';
+      if (abs >= 1e9) return sign + (abs / 1e9).toFixed(2) + 'B';
+      if (abs >= 1e6) return sign + (abs / 1e6).toFixed(2) + 'M';
+      if (abs >= 1e3) return sign + (abs / 1e3).toFixed(2) + 'K';
+      return val.toFixed(2);
     }
     function getSuffixForColumn(rows, key) {
       let maxAbs = 0;
@@ -552,27 +562,38 @@ What you see depends on when RF/HMM are retrained:
           fillcolor: 'rgba(13,110,253,0.05)',
         });
       }
+      const netSuffix = Math.abs(s.net_gex || 0) >= 1e9 ? 'B' : (Math.abs(s.net_gex || 0) >= 1e6 ? 'M' : (Math.abs(s.net_gex || 0) >= 1e3 ? 'K' : ''));
       document.getElementById('gex-meta').textContent =
-        'Sentiment: ' + (s.sentiment_pct ?? '--') + '%  Ratio: ' + fmtNum(s.gex_ratio, 1) + '  Net: ' + fmtBig(s.net_gex) + (keyStrike ? '  Key: ' + keyStrike : '');
+        'Sentiment: ' + (s.sentiment_pct ?? '--') + '%  Ratio: ' + fmtNum(s.gex_ratio, 1) + '  Net: ' + fmtBig(s.net_gex, netSuffix) + (keyStrike ? '  Key: ' + keyStrike : '');
+      const cgFormatted = cg.map(fmtHover);
+      const pgFormatted = pg.map(fmtHover);
       Plotly.react('chart-gex', [
-        { name: 'Call GEX', x: strikes, y: cg, type: 'bar', marker: { color: '#198754' }, hovertemplate: '%{y:,.0f}' },
-        { name: 'Put GEX',  x: strikes, y: pg, type: 'bar', marker: { color: '#dc3545' }, hovertemplate: '%{y:,.0f}' },
+        { name: 'Call GEX', x: strikes, y: cg, type: 'bar', marker: { color: '#198754' }, text: cgFormatted, hovertemplate: '%{text}' },
+        { name: 'Put GEX',  x: strikes, y: pg, type: 'bar', marker: { color: '#dc3545' }, text: pgFormatted, hovertemplate: '%{text}' },
       ], { ...layout_base, shapes: gexShapes, yaxis: { title: 'GEX ($)', tickformat: ',.0f' } }, { responsive: true });
 
       const totalCoi = coi.reduce((a,b) => a+b, 0);
       const totalPoi = Math.abs(poi.reduce((a,b) => a+b, 0));
-      document.getElementById('oi-meta').textContent = 'Puts: ' + fmtBig(totalPoi) + '  Calls: ' + fmtBig(totalCoi);
+      const coiSuffix = Math.abs(totalCoi) >= 1e9 ? 'B' : (Math.abs(totalCoi) >= 1e6 ? 'M' : (Math.abs(totalCoi) >= 1e3 ? 'K' : ''));
+      const poiSuffix = Math.abs(totalPoi) >= 1e9 ? 'B' : (Math.abs(totalPoi) >= 1e6 ? 'M' : (Math.abs(totalPoi) >= 1e3 ? 'K' : ''));
+      document.getElementById('oi-meta').textContent = 'Puts: ' + fmtBig(totalPoi, poiSuffix) + '  Calls: ' + fmtBig(totalCoi, coiSuffix);
+      const coiFormatted = coi.map(fmtHover);
+      const poiFormatted = poi.map(fmtHover);
       Plotly.react('chart-oi', [
-        { name: 'Call OI', x: strikes, y: coi, type: 'bar', marker: { color: '#198754' }, hovertemplate: '%{y:,.0f}' },
-        { name: 'Put OI',  x: strikes, y: poi, type: 'bar', marker: { color: '#dc3545' }, hovertemplate: '%{y:,.0f}' },
+        { name: 'Call OI', x: strikes, y: coi, type: 'bar', marker: { color: '#198754' }, text: coiFormatted, hovertemplate: '%{text}' },
+        { name: 'Put OI',  x: strikes, y: poi, type: 'bar', marker: { color: '#dc3545' }, text: poiFormatted, hovertemplate: '%{text}' },
       ], { ...layout_base, yaxis: { title: 'Open Interest', tickformat: ',.0f' } }, { responsive: true });
 
       const totalCvol = cvol.reduce((a,b) => a+b, 0);
       const totalPvol = Math.abs(pvol.reduce((a,b) => a+b, 0));
-      document.getElementById('vol-meta').textContent = 'Puts: ' + fmtBig(totalPvol) + '  Calls: ' + fmtBig(totalCvol);
+      const cvolSuffix = Math.abs(totalCvol) >= 1e9 ? 'B' : (Math.abs(totalCvol) >= 1e6 ? 'M' : (Math.abs(totalCvol) >= 1e3 ? 'K' : ''));
+      const pvolSuffix = Math.abs(totalPvol) >= 1e9 ? 'B' : (Math.abs(totalPvol) >= 1e6 ? 'M' : (Math.abs(totalPvol) >= 1e3 ? 'K' : ''));
+      document.getElementById('vol-meta').textContent = 'Puts: ' + fmtBig(totalPvol, pvolSuffix) + '  Calls: ' + fmtBig(totalCvol, cvolSuffix);
+      const cvolFormatted = cvol.map(fmtHover);
+      const pvolFormatted = pvol.map(fmtHover);
       Plotly.react('chart-vol', [
-        { name: 'Call Vol', x: strikes, y: cvol, type: 'bar', marker: { color: '#198754' }, hovertemplate: '%{y:,.0f}' },
-        { name: 'Put Vol',  x: strikes, y: pvol, type: 'bar', marker: { color: '#dc3545' }, hovertemplate: '%{y:,.0f}' },
+        { name: 'Call Vol', x: strikes, y: cvol, type: 'bar', marker: { color: '#198754' }, text: cvolFormatted, hovertemplate: '%{text}' },
+        { name: 'Put Vol',  x: strikes, y: pvol, type: 'bar', marker: { color: '#dc3545' }, text: pvolFormatted, hovertemplate: '%{text}' },
       ], { ...layout_base, yaxis: { title: 'Volume', tickformat: ',.0f' } }, { responsive: true });
 
       document.querySelectorAll('.snap-btn').forEach(b => {
@@ -615,19 +636,38 @@ What you see depends on when RF/HMM are retrained:
       const dateOnlyInput = document.getElementById('sync-date-only');
       const datetimeDateInput = document.getElementById('sync-datetime-date');
       const datetimeTimeInput = document.getElementById('sync-datetime-time');
+      const timeslotTimeInput = document.getElementById('sync-timeslot-time');
+      const timeslotYearInput = document.getElementById('sync-timeslot-year');
+      const timeslotMonthInput = document.getElementById('sync-timeslot-month');
       
       if (mode === 'all') {
         dateOnlyInput.disabled = true;
         datetimeDateInput.disabled = true;
         datetimeTimeInput.disabled = true;
+        timeslotTimeInput.disabled = true;
+        timeslotYearInput.disabled = true;
+        timeslotMonthInput.disabled = true;
       } else if (mode === 'date') {
         dateOnlyInput.disabled = false;
         datetimeDateInput.disabled = true;
         datetimeTimeInput.disabled = true;
+        timeslotTimeInput.disabled = true;
+        timeslotYearInput.disabled = true;
+        timeslotMonthInput.disabled = true;
       } else if (mode === 'datetime') {
         dateOnlyInput.disabled = true;
         datetimeDateInput.disabled = false;
         datetimeTimeInput.disabled = false;
+        timeslotTimeInput.disabled = true;
+        timeslotYearInput.disabled = true;
+        timeslotMonthInput.disabled = true;
+      } else if (mode === 'timeslot') {
+        dateOnlyInput.disabled = true;
+        datetimeDateInput.disabled = true;
+        datetimeTimeInput.disabled = true;
+        timeslotTimeInput.disabled = false;
+        timeslotYearInput.disabled = false;
+        timeslotMonthInput.disabled = false;
       }
     }
 
@@ -637,8 +677,11 @@ What you see depends on when RF/HMM are retrained:
       const dateOnlyInput = document.getElementById('sync-date-only').value;
       const datetimeDateInput = document.getElementById('sync-datetime-date').value;
       const datetimeTimeInput = document.getElementById('sync-datetime-time').value;
+      const timeslotTimeInput = document.getElementById('sync-timeslot-time').value;
+      const timeslotYearInput = document.getElementById('sync-timeslot-year').value;
+      const timeslotMonthInput = document.getElementById('sync-timeslot-month').value;
       
-      console.log('[submitSync] mode:', mode, 'dateOnlyInput:', dateOnlyInput, 'datetimeDateInput:', datetimeDateInput, 'datetimeTimeInput:', datetimeTimeInput);
+      console.log('[submitSync] mode:', mode, 'dateOnlyInput:', dateOnlyInput, 'datetimeDateInput:', datetimeDateInput, 'datetimeTimeInput:', datetimeTimeInput, 'timeslotTimeInput:', timeslotTimeInput, 'timeslotYearInput:', timeslotYearInput, 'timeslotMonthInput:', timeslotMonthInput);
       
       closeSyncModal();
       
@@ -654,6 +697,13 @@ What you see depends on when RF/HMM are retrained:
           url += '&date=' + dateOnlyInput;
         } else if (mode === 'datetime' && datetimeDateInput && datetimeTimeInput) {
           url += '&date=' + datetimeDateInput + '&time=' + datetimeTimeInput;
+        } else if (mode === 'timeslot' && timeslotTimeInput) {
+          url += '&time=' + timeslotTimeInput;
+          if (timeslotYearInput && timeslotMonthInput) {
+            url += '&year=' + timeslotYearInput + '&month=' + timeslotMonthInput;
+          } else {
+            url += '&max_days=30';
+          }
         } else {
           url += '&max_days=30';
         }
@@ -820,6 +870,47 @@ What you see depends on when RF/HMM are retrained:
             <option value="15:00">15:00</option>
             <option value="15:30">15:30</option>
             <option value="15:55">15:55</option>
+          </select>
+        </label>
+      </div>
+      <div class="modal-option">
+        <label>
+          <input type="radio" name="sync-mode" value="timeslot" onchange="onSyncModeChange()">
+          Load missing time slot for all dates:
+          <select id="sync-timeslot-time" disabled>
+            <option value="">Select time</option>
+            <option value="09:35">09:35</option>
+            <option value="10:00">10:00</option>
+            <option value="10:30">10:30</option>
+            <option value="11:00">11:00</option>
+            <option value="11:30">11:30</option>
+            <option value="12:00">12:00</option>
+            <option value="12:30">12:30</option>
+            <option value="13:00">13:00</option>
+            <option value="13:30">13:30</option>
+            <option value="14:00">14:00</option>
+            <option value="14:30">14:30</option>
+            <option value="15:00">15:00</option>
+            <option value="15:30">15:30</option>
+            <option value="15:55">15:55</option>
+          </select>
+          <br>
+          <small>Optional: Specify year/month (Mon-Fri only)</small><br>
+          Year: <input type="number" id="sync-timeslot-year" min="2024" max="2030" value="2026" disabled style="width: 70px;">
+          Month: <select id="sync-timeslot-month" disabled>
+            <option value="">All</option>
+            <option value="1">Jan</option>
+            <option value="2">Feb</option>
+            <option value="3">Mar</option>
+            <option value="4">Apr</option>
+            <option value="5">May</option>
+            <option value="6">Jun</option>
+            <option value="7">Jul</option>
+            <option value="8">Aug</option>
+            <option value="9">Sep</option>
+            <option value="10">Oct</option>
+            <option value="11">Nov</option>
+            <option value="12">Dec</option>
           </select>
         </label>
       </div>

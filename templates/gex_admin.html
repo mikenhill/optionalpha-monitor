@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEX Admin</title>
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    }
+    h1 {
+      color: #333;
+      margin-bottom: 20px;
+    }
+    .section {
+      margin-bottom: 30px;
+      padding: 20px;
+      border: 1px solid #ddd;
+      border-radius: 6px;
+    }
+    .section h2 {
+      margin-top: 0;
+      color: #555;
+    }
+    button {
+      padding: 10px 20px;
+      background: #0d6efd;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #0b5ed7;
+    }
+    button:disabled {
+      background: #6c757d;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 15px;
+      padding: 10px;
+      border-radius: 4px;
+    }
+    .status.success {
+      background: #d4edda;
+      color: #155724;
+    }
+    .status.error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+    .status.info {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+    .results {
+      margin-top: 20px;
+    }
+    .results table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+    .results th, .results td {
+      padding: 8px;
+      text-align: left;
+      border-bottom: 1px solid #ddd;
+    }
+    .results th {
+      background: #f8f9fa;
+    }
+    .missing {
+      color: #dc3545;
+      font-weight: bold;
+    }
+    .complete {
+      color: #198754;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>GEX Admin</h1>
+    
+    <div class="section">
+      <h2>Data Verification</h2>
+      <p>Verify that all historical dates in gex_strike_window have the mandatory RTH time slots (935-1555).</p>
+      <button id="verify-btn" onclick="verifyData()">Verify Data</button>
+      <div id="verify-status" class="status" style="display: none;"></div>
+      <div id="verify-results" class="results"></div>
+    </div>
+    
+    <div class="section">
+      <h2>HMM Training</h2>
+      <p>Train the Hidden Markov Model on all historical RTH GEX snapshots to populate regime labels.</p>
+      <button id="train-hmm-btn" onclick="trainHMM()">Train HMM</button>
+      <div id="train-hmm-status" class="status" style="display: none;"></div>
+    </div>
+    
+    <div class="section">
+      <h2>Percentile Verification</h2>
+      <p>Verify that all historical snapshots have percentile data for all metrics.</p>
+      <button id="verify-pct-btn" onclick="verifyPercentiles()">Verify Percentiles</button>
+      <div id="verify-pct-status" class="status" style="display: none;"></div>
+      <div id="verify-pct-results" class="results"></div>
+    </div>
+  </div>
+
+  <script>
+    async function verifyData() {
+      const btn = document.getElementById('verify-btn');
+      const status = document.getElementById('verify-status');
+      const results = document.getElementById('verify-results');
+      
+      btn.disabled = true;
+      status.style.display = 'block';
+      status.className = 'status info';
+      status.textContent = 'Verifying data...';
+      results.innerHTML = '';
+      
+      try {
+        const r = await fetch('/api/gex/verify-strike-window');
+        const d = await r.json();
+        
+        if (d.error) {
+          status.className = 'status error';
+          status.textContent = 'Error: ' + d.error;
+        } else {
+          status.className = 'status success';
+          status.textContent = 'Verification complete';
+          
+          // Display results
+          let html = '<table><thead><tr><th>Date</th><th>Status</th><th>Missing Time Slots</th></tr></thead><tbody>';
+          
+          for (const date_result of d.results) {
+            if (date_result.missing.length === 0) {
+              html += `<tr><td>${date_result.date}</td><td class="complete">Complete</td><td>-</td></tr>`;
+            } else {
+              html += `<tr><td>${date_result.date}</td><td class="missing">Incomplete</td><td>${date_result.missing.join(', ')}</td></tr>`;
+            }
+          }
+          
+          html += '</tbody></table>';
+          results.innerHTML = html;
+        }
+      } catch (e) {
+        status.className = 'status error';
+        status.textContent = 'Error: ' + e.message;
+      }
+      
+      btn.disabled = false;
+    }
+    
+    async function trainHMM() {
+      const btn = document.getElementById('train-hmm-btn');
+      const status = document.getElementById('train-hmm-status');
+      
+      btn.disabled = true;
+      status.style.display = 'block';
+      status.className = 'status info';
+      status.textContent = 'Training HMM... (this may take a minute)';
+      
+      try {
+        const r = await fetch('/api/hmm/train', { method: 'POST' });
+        const d = await r.json();
+        
+        if (d.error) {
+          status.className = 'status error';
+          status.textContent = 'Error: ' + d.error;
+        } else {
+          status.className = 'status success';
+          status.textContent = 'HMM Training complete. Trained on ' + d.n_samples + ' samples with ' + d.n_states + ' states.';
+        }
+      } catch (e) {
+        status.className = 'status error';
+        status.textContent = 'Error: ' + e.message;
+      }
+      
+      btn.disabled = false;
+    }
+    
+    async function verifyPercentiles() {
+      const btn = document.getElementById('verify-pct-btn');
+      const status = document.getElementById('verify-pct-status');
+      const results = document.getElementById('verify-pct-results');
+      
+      btn.disabled = true;
+      status.style.display = 'block';
+      status.className = 'status info';
+      status.textContent = 'Verifying percentiles...';
+      results.innerHTML = '';
+      
+      try {
+        const r = await fetch('/api/gex/verify-percentiles');
+        const d = await r.json();
+        
+        if (d.error) {
+          status.className = 'status error';
+          status.textContent = 'Error: ' + d.error;
+        } else {
+          status.className = 'status success';
+          status.textContent = 'Verification complete';
+          
+          // Display results
+          let html = '<table><thead><tr><th>Date</th><th>Time</th><th>Status</th><th>Missing Metrics</th></tr></thead><tbody>';
+          
+          for (const result of d.results) {
+            if (result.missing.length === 0) {
+              html += `<tr><td>${result.date}</td><td>${result.time}</td><td class="complete">Complete</td><td>-</td></tr>`;
+            } else {
+              html += `<tr><td>${result.date}</td><td>${result.time}</td><td class="missing">Incomplete</td><td>${result.missing.join(', ')}</td></tr>`;
+            }
+          }
+          
+          html += '</tbody></table>';
+          results.innerHTML = html;
+        }
+      } catch (e) {
+        status.className = 'status error';
+        status.textContent = 'Error: ' + e.message;
+      }
+      
+      btn.disabled = false;
+    }
+  </script>
+</body>
+</html>

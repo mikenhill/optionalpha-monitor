@@ -1,0 +1,39 @@
+Category,Metric Name,Type,Description,Source,Percentile Tracked,Frontend Exposed
+Raw JSON,strike,int,Strike price,Option Alpha API,No,No
+Raw JSON,cg,float,Call Gamma (positive value),Option Alpha API,No,No
+Raw JSON,pg,float,Put Gamma (negative value),Option Alpha API,No,No
+Raw JSON,total,float,Net GEX at strike (cg + pg),Option Alpha API,No,No
+Raw JSON,coi,int,Call Open Interest,Option Alpha API,No,No
+Raw JSON,poi,int,Put Open Interest,Option Alpha API,No,No
+Raw JSON,cvol,int,Call Volume,Option Alpha API,No,No
+Raw JSON,pvol,int,Put Volume,Option Alpha API,No,No
+Raw JSON,abs,float,Absolute total GEX (abs(total)),Option Alpha API,No,No
+Raw JSON,pcmag,float,Put/Call magnitude ratio,Option Alpha API,No,No
+Raw JSON,cotm,float,Call time multiplier,Option Alpha API,No,No
+Raw JSON,potm,float,Put time multiplier,Option Alpha API,No,No
+Raw JSON,net,float,Same as total (net GEX at strike),Option Alpha API,No,No
+Derived,sentiment,float,Sentiment percentage (0-100) - % of strikes with net > 0,calculate_sentiment(),Yes,Yes
+Derived,gex_ratio float,Signed call/put GEX ratio with sign flip,calculate_gex_ratio(),Yes,Yes
+Derived,net_gex,float,Total net GEX across window,calculate_net_gex(),Yes,Yes
+Derived,kcs,float,Key Confluence Score (0-15 typically) - weighted score,calculate_kcs(),Yes,Yes
+Derived,dominance,float,Key strike's % of total absolute GEX,calculate_dominance(),Yes,Yes
+Derived,key_strike,int,Strike with highest abs * proximity weighted,calculate_key_strike_stats(),No,Yes
+Derived,key_call_gex,float,Call GEX at key strike,calculate_key_strike_stats(),No,Yes
+Derived,key_put_gex,float,Put GEX at key strike,calculate_key_strike_stats(),No,Yes
+Derived,key_call_oi,int,Call OI at key strike,calculate_key_strike_stats(),No,Yes
+Derived,key_put_oi,int,Put OI at key strike,calculate_key_strike_stats(),No,Yes
+Derived,key_call_vol,int,Call volume at key strike,calculate_key_strike_stats(),No,Yes
+Derived,key_put_vol,int,Put volume at key strike,calculate_key_strike_stats(),No,Yes
+Derived,key2_strike,int,Secondary key strike (highest abs * proximity, excluding key_strike),calculate_key_strike_stats(),No,Yes
+Derived,key2_abs,float,Absolute GEX at secondary key strike,calculate_key_strike_stats(),No,Yes
+Derived,key2_call_vol,int,Call volume at secondary key strike,calculate_key_strike_stats(),No,Yes
+Derived,key2_put_vol,int,Put volume at secondary key strike,calculate_key_strike_stats(),No,Yes
+Derived,total_call_oi,int,Sum of call OI across window,calculate_total_oi_and_vol(),Yes,Yes
+Derived,total_put_oi,int,Sum of put OI across window,calculate_total_oi_and_vol(),Yes,Yes
+Derived,total_call_vol,int,Sum of call volume across window,calculate_total_oi_and_vol(),Yes,Yes
+Derived,total_put_vol,int,Sum of put volume across window,calculate_total_oi_and_vol(),Yes,Yes
+Derived,total_call_gex,float,Sum of call GEX across window,calculate_total_gex(),Yes,Yes
+Derived,total_put_gex,float,Sum of put GEX across window,calculate_total_gex(),Yes,Yes
+Derived,flip,float,Strike where cumulative net GEX crosses zero,calculate_flip_level(),No,No
+Other,uprice,float,SPX price,gex_strike_window.price,No,Yes
+Other,hmm_label,string,HMM regime classification,predict_hmm_sequence(),No,Yes
