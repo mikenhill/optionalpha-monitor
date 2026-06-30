@@ -22,7 +22,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, redirect
 
 app = Flask(__name__)
 
@@ -1391,11 +1391,12 @@ def _ensure_hmm_tables() -> None:
                 model_blob  BLOB NOT NULL
             )
         """)
-        caps = [r[1] for r in con.execute("PRAGMA table_info(snapshot)").fetchall()]
-        if "hmm_state" not in caps:
-            con.execute("ALTER TABLE snapshot ADD COLUMN hmm_state INTEGER")
-        if "hmm_label" not in caps:
-            con.execute("ALTER TABLE snapshot ADD COLUMN hmm_label TEXT")
+        # REMOVED: snapshot table no longer exists
+        # caps = [r[1] for r in con.execute("PRAGMA table_info(snapshot)").fetchall()]
+        # if "hmm_state" not in caps:
+        #     con.execute("ALTER TABLE snapshot ADD COLUMN hmm_state INTEGER")
+        # if "hmm_label" not in caps:
+        #     con.execute("ALTER TABLE snapshot ADD COLUMN hmm_label TEXT")
 
 
 # HMM feature set (5 features covering the 5 independent PCA dimensions)
@@ -4112,8 +4113,7 @@ SPX_DF = pd.DataFrame()  # SPX price data sourced from snapshot DB, not CSV
 
 @app.route("/")
 def index():
-    from time import time
-    return render_template("historical.html", cache_bust=int(time()))
+    return redirect("/gex")
 
 @app.route("/gex")
 def gex():
