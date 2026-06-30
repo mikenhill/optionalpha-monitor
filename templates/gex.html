@@ -729,8 +729,8 @@ What you see depends on when RF/HMM are retrained:
     async function reloadDates() {
       const r = await fetch('/api/gex/dates');
       dates = await r.json();
-      const sel = document.getE || localStorage.getItem('gex-selected-date')lementById('date-sel');
-      const current = sel.value;
+      const sel = document.getElementById('date-sel');
+      const current = sel.value || localStorage.getItem('gex-selected-date');
       sel.innerHTML = '';
       
       // Always include today's date even if no data exists yet
@@ -744,8 +744,8 @@ What you see depends on when RF/HMM are retrained:
         const o = document.createElement('option');
         o.value = d; o.textContent = d;
         sel.appendChild(o);
-      }) (current &&;sortedDates.includes)
-      if (current) sel.value = current;
+      });
+      if (current && sortedDates.includes(current)) sel.value = current;
       updateFetchButtonState();
     }
 
