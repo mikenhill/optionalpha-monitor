@@ -14,68 +14,78 @@
     h1 { font-size: 20px; margin: 0 0 15px 0; }
     .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
     .toolbar label { font-size: 13px; font-weight: bold; }
-    .toolbar select { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; }
-    .toolbar input { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; width: 140px; }
+    .toolbar select, .toolbar input[type=date] { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; }
+    .toolbar input[type=text] { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; width: 140px; }
     .toolbar button { padding: 5px 12px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; background: #fff; cursor: pointer; }
     .toolbar button:hover { background: #e9ecef; }
+    .mode-toggle { display: flex; gap: 0; border: 1px solid #ced4da; border-radius: 4px; overflow: hidden; }
+    .mode-toggle button { border: none; border-radius: 0; padding: 5px 14px; font-size: 13px; background: #fff; cursor: pointer; }
+    .mode-toggle button.active { background: #0d6efd; color: #fff; }
     .loading { color: #6c757d; font-style: italic; }
     .error { color: #dc3545; }
     .tbl-wrap { overflow-x: auto; max-height: 600px; overflow-y: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    thead th { background: #343a40; color: #fff; padding: 6px 8px; text-align: right; white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+    thead th { background: #343a40; color: #fff; padding: 6px 8px; text-align: right; white-space: nowrap; position: sticky; top: 0; z-index: 2; cursor: pointer; user-select: none; }
+    thead th:hover { background: #495057; }
+    thead th.sort-asc::after { content: ' ▲'; font-size: 10px; }
+    thead th.sort-desc::after { content: ' ▼'; font-size: 10px; }
     thead th:first-child, thead th:nth-child(2) { text-align: left; }
     td { border-bottom: 1px solid #dee2e6; padding: 5px 8px; text-align: right; }
     td:first-child, td:nth-child(2) { text-align: left; }
     tr:hover td { background: #f0f4ff; }
     .neg { color: #dc3545; } .pos { color: #198754; }
     #row-count { font-size: 12px; color: #6c757d; margin-left: 10px; }
+    #mode-cross .intraday-only, #mode-intraday .cross-only { display: none; }
   </style>
 </head>
 <body>
   <div class="nav">
-    <a href="/">Historical</a>
-    <a href="/gex">GEX (New)</a>
-    <a href="/live">Live</a>
+    <a href="/gex">GEX</a>
+    <a href="/gex-admin">GEX Admin</a>
+    <a href="/gex-distribution">GEX Distribution</a>
     <a href="/analysis">Analysis</a>
-    <a href="/hscatter">Distribution</a>
     <a href="/spx">SPX Prices</a>
     <a class="active" href="/csv">CSV</a>
-    <a href="/admin">Admin</a>
   </div>
 
   <h1>CSV Summary Data</h1>
 
   <div class="card">
     <div class="toolbar">
-      <label>Time slot:</label>
-      <select id="time-sel" onchange="loadCSV()">
-        <option value="930">09:30</option>
-        <option value="1000">10:00</option>
-        <option value="1030">10:30</option>
-        <option value="1100">11:00</option>
-        <option value="1130">11:30</option>
-        <option value="1200">12:00</option>
-        <option value="1230">12:30</option>
-        <option value="1300">13:00</option>
-        <option value="1330">13:30</option>
-        <option value="1400">14:00</option>
-        <option value="1430">14:30</option>
-        <option value="1500">15:00</option>
-        <option value="1530">15:30</option>
-      </select>
+      <div class="mode-toggle">
+        <button id="btn-cross" class="active" onclick="setMode('cross')">Cross-Sectional</button>
+        <button id="btn-intraday" onclick="setMode('intraday')">Intraday</button>
+      </div>
+
+      <!-- Cross-sectional: date context + time slot -->
+      <span class="cross-only">
+        <label>Ref Date:</label>
+        <input type="date" id="cross-date">
+      </span>
+      <span class="cross-only">
+        <label>Time slot:</label>
+        <select id="cross-time" onchange="load()"><option>-- select date --</option></select>
+      </span>
+
+      <!-- Intraday: date only -->
+      <span class="intraday-only">
+        <label>Date:</label>
+        <input type="date" id="intraday-date" onchange="load()">
+      </span>
+
       <label>Filter:</label>
       <input id="filter-input" type="text" placeholder="Search any column..." oninput="applyFilter()">
       <button onclick="exportCSV()">&#8681; Export CSV</button>
       <span id="row-count"></span>
     </div>
     <div class="tbl-wrap" id="tbl-wrap">
-      <p class="loading" id="csv-status">Loading...</p>
+      <p class="loading">Loading...</p>
     </div>
   </div>
 
   <script>
-    let allRows = [];
-    let columns = [];
+    let allRows = [], columns = [], mode = 'cross', selectedDate = '';
+    let sortCol = null, sortDir = 1;
 
     function fmtCell(val) {
       if (val === null || val === undefined || val === '') return '--';
@@ -89,62 +99,130 @@
       }
       return val;
     }
+
     function numClass(col, val) {
       if (typeof val !== 'number') return '';
-      if (col.includes('net') || col.includes('gex')) return val < 0 ? ' class="neg"' : (val > 0 ? ' class="pos"' : '');
+      if (col.includes('net') || col === 'net_gex' || col === 'gex_ratio') return val < 0 ? ' class="neg"' : (val > 0 ? ' class="pos"' : '');
       return '';
+    }
+
+    function sortBy(col) {
+      if (sortCol === col) { sortDir *= -1; } else { sortCol = col; sortDir = 1; }
+      const q = document.getElementById('filter-input').value.toLowerCase();
+      const filtered = q ? allRows.filter(r => columns.some(c => String(r[c] ?? '').toLowerCase().includes(q))) : allRows;
+      renderTable(filtered);
+    }
+
+    function renderTable(rows) {
+      if (sortCol) {
+        rows = [...rows].sort((a, b) => {
+          const av = a[sortCol], bv = b[sortCol];
+          if (av === null || av === undefined) return 1;
+          if (bv === null || bv === undefined) return -1;
+          return av < bv ? -sortDir : av > bv ? sortDir : 0;
+        });
+      }
+      document.getElementById('tbl-wrap').innerHTML = buildTable(rows);
+      document.getElementById('row-count').textContent = rows.length + ' rows';
     }
 
     function buildTable(rows) {
       if (!rows.length) return '<p>No data.</p>';
-      const head = '<thead><tr>' + columns.map(c => '<th>' + c + '</th>').join('') + '</tr></thead>';
-      const body = '<tbody>' + rows.map(row =>
-        '<tr>' + columns.map(c => '<td' + numClass(c, row[c]) + '>' + fmtCell(row[c]) + '</td>').join('') + '</tr>'
-      ).join('') + '</tbody>';
+      const head = '<thead><tr>' + columns.map(c => {
+        const cls = sortCol === c ? (sortDir === 1 ? ' class="sort-asc"' : ' class="sort-desc"') : '';
+        return `<th${cls} onclick="sortBy('${c}')">${c}</th>`;
+      }).join('') + '</tr></thead>';
+      const body = '<tbody>' + rows.map(row => {
+        const highlight = (mode === 'cross' && row.date === selectedDate) ? ' style="background:#fff3cd;font-weight:bold;"' : '';
+        return '<tr' + highlight + '>' + columns.map(c => '<td' + numClass(c, row[c]) + '>' + fmtCell(row[c]) + '</td>').join('') + '</tr>';
+      }).join('') + '</tbody>';
       return '<table>' + head + body + '</table>';
     }
 
     function applyFilter() {
       const q = document.getElementById('filter-input').value.toLowerCase();
-      const filtered = q ? allRows.filter(row =>
-        columns.some(c => String(row[c] ?? '').toLowerCase().includes(q))
-      ) : allRows;
-      document.getElementById('tbl-wrap').innerHTML = buildTable(filtered);
-      document.getElementById('row-count').textContent = filtered.length + ' rows';
+      const filtered = q ? allRows.filter(r => columns.some(c => String(r[c] ?? '').toLowerCase().includes(q))) : allRows;
+      renderTable(filtered);
     }
 
     function exportCSV() {
       const q = document.getElementById('filter-input').value.toLowerCase();
-      const rows = q ? allRows.filter(row => columns.some(c => String(row[c] ?? '').toLowerCase().includes(q))) : allRows;
+      const rows = q ? allRows.filter(r => columns.some(c => String(r[c] ?? '').toLowerCase().includes(q))) : allRows;
       const lines = [columns.join(',')];
-      rows.forEach(row => lines.push(columns.map(c => JSON.stringify(row[c] ?? '')).join(',')));
+      rows.forEach(r => lines.push(columns.map(c => JSON.stringify(r[c] ?? '')).join(',')));
       const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
-      const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
-      a.download = 'gex_summary_' + document.getElementById('time-sel').value + '.csv';
-      a.click();
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+      a.download = `gex_${mode}_${new Date().toISOString().split('T')[0]}.csv`; a.click();
     }
 
-    async function loadCSV() {
-      const time = document.getElementById('time-sel').value;
-      document.getElementById('tbl-wrap').innerHTML = '<p class="loading" id="csv-status">Loading...</p>';
-      document.getElementById('row-count').textContent = '';
+    async function loadCrossTimes() {
+      selectedDate = document.getElementById('cross-date').value;
+      const sel = document.getElementById('cross-time');
+      sel.innerHTML = '<option>Loading...</option>';
       try {
-        const r = await fetch('/api/csv-data?time=' + time);
+        const r = await fetch('/api/gex/snapshots?date=' + selectedDate);
+        const d = await r.json();
+        const snaps = (d.snapshots || []).filter(s => !s.is_premarket);
+        sel.innerHTML = snaps.map(s => {
+          const h = String(Math.floor(s.ntime / 100)).padStart(2, '0');
+          const m = String(s.ntime % 100).padStart(2, '0');
+          return `<option value="${s.ntime}">${h}:${m}</option>`;
+        }).join('');
+        load();
+      } catch(e) { sel.innerHTML = '<option>Error</option>'; }
+    }
+
+    async function load() {
+      document.getElementById('tbl-wrap').innerHTML = '<p class="loading">Loading...</p>';
+      document.getElementById('row-count').textContent = '';
+      document.getElementById('filter-input').value = '';
+      try {
+        let url;
+        if (mode === 'cross') {
+          const time = document.getElementById('cross-time').value;
+          if (!time || isNaN(time)) return;
+          selectedDate = document.getElementById('cross-date').value;
+          url = '/api/csv-data?time=' + time;
+        } else {
+          const date = document.getElementById('intraday-date').value;
+          if (!date) return;
+          url = '/api/csv-intraday?date=' + date;
+        }
+        const r = await fetch(url);
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
-        columns = d.columns || [];
-        allRows = (d.rows || []).reverse();
-        document.getElementById('tbl-wrap').innerHTML = buildTable(allRows);
-        document.getElementById('row-count').textContent = allRows.length + ' rows';
-        document.getElementById('filter-input').value = '';
-      } catch (e) {
+        columns = d.columns || Object.keys((d.rows || [{}])[0] || {});
+        allRows = d.rows || [];
+        sortCol = null; sortDir = 1;
+        renderTable(allRows);
+        // Scroll highlighted row into view (cross-sectional mode)
+        const sel = document.querySelector('tr[style*="background:#fff3cd"]');
+        if (sel) sel.scrollIntoView({ block: 'center' });
+      } catch(e) {
         document.getElementById('tbl-wrap').innerHTML = '<p class="error">Error: ' + e.message + '</p>';
-        console.error(e);
       }
     }
 
-    loadCSV();
+    function setMode(m) {
+      mode = m;
+      document.getElementById('btn-cross').classList.toggle('active', m === 'cross');
+      document.getElementById('btn-intraday').classList.toggle('active', m === 'intraday');
+      document.querySelectorAll('.cross-only').forEach(el => el.style.display = m === 'cross' ? '' : 'none');
+      document.querySelectorAll('.intraday-only').forEach(el => el.style.display = m === 'intraday' ? '' : 'none');
+      load();
+    }
+
+    // Init: get latest date, populate cross-date, load times
+    (async () => {
+      const dr = await fetch('/api/gex/dates');
+      const dd = await dr.json();
+      const dates = dd.dates || [];
+      const latest = dates[dates.length - 1] || new Date().toISOString().split('T')[0];
+      document.getElementById('cross-date').value = latest;
+      document.getElementById('intraday-date').value = latest;
+      document.getElementById('cross-date').addEventListener('change', loadCrossTimes);
+      await loadCrossTimes();
+    })();
   </script>
 </body>
 </html>
