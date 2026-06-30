@@ -606,13 +606,17 @@ What you see depends on when RF/HMM are retrained:
 
       // Fetch and render percentiles using on-the-fly calculation
       const selDate = document.getElementById('date-sel').value;
-      const metrics = ['net_gex', 'kcs', 'dominance', 'total_call_gex', 'total_put_gex', 'total_call_vol', 'total_put_vol'];
+      const metrics = ['net_gex', 'kcs', 'dominance', 'sentiment', 'gex_ratio', 'total_call_gex', 'total_put_gex', 'total_call_oi', 'total_put_oi', 'total_call_vol', 'total_put_vol'];
       const metricLabels = {
         'net_gex': 'Net GEX',
         'kcs': 'KCS',
         'dominance': 'Dominance',
+        'sentiment': 'Sentiment',
+        'gex_ratio': 'GEX Ratio',
         'total_call_gex': 'Call GEX',
         'total_put_gex': 'Put GEX',
+        'total_call_oi': 'Call OI',
+        'total_put_oi': 'Put OI',
         'total_call_vol': 'Call Vol',
         'total_put_vol': 'Put Vol'
       };
