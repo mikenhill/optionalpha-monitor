@@ -116,10 +116,8 @@
 </head>
 <body>
   <div class="nav">
-    <a href="/">Historical</a>
     <a class="active" href="/gex">GEX (New)</a>
     <a href="/gex-admin">GEX Admin</a>
-    <a href="/live">Live</a>
     <a href="/analysis">Analysis</a>
     <a href="/hscatter">Distribution</a>
     <a href="/spx">SPX Prices</a>
@@ -137,9 +135,7 @@
       <button onclick="nextDay()">Next &#8594;</button>
       <button class="action-btn" onclick="syncHistorical()">&#8635; Load Missing Historical</button>
       <button class="action-btn primary" id="fetch-live-btn" onclick="fetchLiveGex()" disabled>&#8635; Fetch Live Data</button>
-      <span id="sync-status" style="font-size:13px;color:#6c757d"></span>
-    </div>
-    <div class="stat-row" id="hist-stats">
+      <v class="stat-row" id="hist-stats">
       <div class="stat-item"><span class="stat-label">Snapshots</span><span class="stat-value" id="stat-count">--</span></div>
       <div class="stat-item"><span class="stat-label">First Time (ET)</span><span class="stat-value" id="stat-first">--</span></div>
       <div class="stat-item"><span class="stat-label">Last Time (ET)</span><span class="stat-value" id="stat-last">--</span></div>
