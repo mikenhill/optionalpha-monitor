@@ -2973,16 +2973,27 @@ def api_ml_session_range():
     # Get today's ML prediction
     ml_pred = None
     with _db() as con:
-        p = con.execute(
-            "SELECT vol_regime, direction, trade_code, confidence, vol_proba, dir_proba "
-            "FROM ml_predictions WHERE ndate=? ORDER BY ntime DESC LIMIT 1",
-            (ndate,)
-        ).fetchone()
-        if p:
-            ml_pred = {
-                "vol_regime": p[0], "direction": p[1], "trade_code": p[2],
-                "confidence": p[3], "vol_proba": p[4], "dir_proba": p[5],
-            }
+        # Inspect actual columns to handle schema variations
+        cols = [r[1] for r in con.execute("PRAGMA table_info(ml_predictions)").fetchall()]
+        if cols and "ndate" in cols:
+            try:
+                p = con.execute(
+                    "SELECT * FROM ml_predictions WHERE ndate=? ORDER BY ntime DESC LIMIT 1",
+                    (ndate,)
+                ).fetchone()
+                if p:
+                    row = dict(zip(cols, p))
+                    ml_pred = {
+                        "vol_regime": row.get("vol_regime_pred"),
+                        "direction":  row.get("direction_pred"),
+                        "trade":      row.get("trade_pred"),
+                        "trade_code": row.get("trade_code"),
+                        "confidence": row.get("confidence"),
+                        "vol_proba":  row.get("vol_regime_proba"),
+                        "dir_proba":  row.get("direction_proba"),
+                    }
+            except Exception:
+                pass
 
     # Run live prediction if no stored prediction yet
     if not ml_pred and strikes and uprice:
@@ -3038,17 +3049,21 @@ def api_ml_session_range():
     def build_bucket(items):
         if not items:
             return None
-        r2  = [x["range_2hr"] for x in items]
-        reod= [x["range_eod"] for x in items]
-        p2  = [x["pct_2hr"] for x in items]
+        r2  = [x["range_2hr"] for x in items if x["range_2hr"] is not None]
+        reod= [x["range_eod"] for x in items if x["range_eod"] is not None]
+        p2  = [x["pct_2hr"]   for x in items if x["pct_2hr"]   is not None]
         # Direction breakdown
         dir_counts = {}
         for x in items:
-            dir_counts[x["direction"]] = dir_counts.get(x["direction"], 0) + 1
-        # Scatter sample (last 120 for chart)
-        scatter = [{"date": x["date"], "pct_2hr": round(x["pct_2hr"], 3),
+            dk = x["direction"] or "UNKNOWN"
+            dir_counts[dk] = dir_counts.get(dk, 0) + 1
+        # Scatter sample (last 120 for chart) — skip rows with null pct/range
+        scatter = [{"date": x["date"],
+                    "pct_2hr": round(x["pct_2hr"], 3),
                     "range_2hr": round(x["range_2hr"], 1),
-                    "direction": x["direction"]} for x in items[-120:]]
+                    "direction": x["direction"]}
+                   for x in items[-120:]
+                   if x["pct_2hr"] is not None and x["range_2hr"] is not None]
         return {
             "n": len(items),
             "range_2hr":  percentiles(r2),
