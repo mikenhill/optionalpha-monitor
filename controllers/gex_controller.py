@@ -470,3 +470,169 @@ class GexController(BaseController):
                 BaseController.error_response(str(e)),
                 500
             )
+    
+    @staticmethod
+    def calculate_on_the_fly_percentile():
+        """Calculate percentile for a metric on-the-fly using recent historical data.
+        
+        Approach:
+        1. Map snapshot time to nearest standard time slot (935, 1000, 1030, etc.)
+        2. Query last N days of data for that specific time slot
+        3. Calculate percentile against those historical values
+        
+        Query params:
+            date: ISO date string (YYYY-MM-DD)
+            time: time in HHMM format (default 1000)
+            metric: metric name (default net_gex)
+            days: number of days to look back (default 90)
+            
+        Returns:
+            JSON response with value, percentile, and sample size
+        """
+        from datetime import datetime, timedelta
+        
+        date_iso = request.args.get("date")
+        ntime = int(request.args.get("time", 1000))
+        metric = request.args.get("metric", "net_gex")
+        days = int(request.args.get("days", 90))
+        
+        if not date_iso:
+            return BaseController.json_response(
+                BaseController.error_response("date required"),
+                400
+            )
+        
+        ndate = int(date_iso.replace("-", ""))
+        
+        # Map to nearest standard time slot
+        if ntime in TIMES:
+            lookup_ntime = ntime
+        else:
+            lookup_ntime = min(TIMES, key=lambda t: abs(t - ntime))
+        
+        try:
+            # Get the current snapshot's metric value
+            with get_connection() as con:
+                row = con.execute(
+                    """SELECT price, data FROM gex_strike_window
+                       WHERE ndate=? AND ntime=? AND symbol='SPX' AND source='gex'""",
+                    (ndate, ntime)
+                ).fetchone()
+            
+            if not row:
+                return BaseController.json_response(
+                    BaseController.error_response("No snapshot found"),
+                    404
+                )
+            
+            price, data = row
+            strikes = json.loads(data) if data else []
+            
+            if not strikes:
+                return BaseController.json_response(
+                    BaseController.error_response("No strike data"),
+                    400
+                )
+            
+            # Calculate the metric value for current snapshot
+            if metric == "net_gex":
+                current_value = calculate_net_gex(strikes)
+            elif metric == "total_call_gex":
+                current_value = calculate_total_gex(strikes)["total_call_gex"]
+            elif metric == "total_put_gex":
+                current_value = calculate_total_gex(strikes)["total_put_gex"]
+            elif metric == "kcs":
+                current_value = calculate_kcs(strikes, price)
+            elif metric == "dominance":
+                current_value = calculate_dominance(strikes, price)
+            elif metric == "sentiment":
+                current_value = calculate_sentiment(strikes)
+            elif metric == "gex_ratio":
+                current_value = calculate_gex_ratio(strikes)
+            elif metric == "total_call_oi":
+                current_value = calculate_total_oi_and_vol(strikes)["total_call_oi"]
+            elif metric == "total_put_oi":
+                current_value = calculate_total_oi_and_vol(strikes)["total_put_oi"]
+            elif metric == "total_call_vol":
+                current_value = calculate_total_oi_and_vol(strikes)["total_call_vol"]
+            elif metric == "total_put_vol":
+                current_value = calculate_total_oi_and_vol(strikes)["total_put_vol"]
+            else:
+                return BaseController.json_response(
+                    BaseController.error_response(f"Unknown metric: {metric}"),
+                    400
+                )
+            
+            # Get historical values for the same time slot over last N days
+            cutoff_date = datetime.strptime(date_iso, "%Y-%m-%d") - timedelta(days=days)
+            cutoff_ndate = int(cutoff_date.strftime("%Y%m%d"))
+            
+            with get_connection() as con:
+                rows = con.execute(
+                    """SELECT price, data FROM gex_strike_window
+                       WHERE ndate>=? AND ndate<? AND ntime=? AND symbol='SPX' AND source='gex'
+                       ORDER BY ndate DESC""",
+                    (cutoff_ndate, ndate, lookup_ntime)
+                ).fetchall()
+            
+            historical_values = []
+            for row in rows:
+                hist_price, hist_data = row
+                hist_strikes = json.loads(hist_data) if hist_data else []
+                
+                if not hist_strikes:
+                    continue
+                
+                # Calculate the same metric for historical snapshot
+                if metric == "net_gex":
+                    hist_value = calculate_net_gex(hist_strikes)
+                elif metric == "total_call_gex":
+                    hist_value = calculate_total_gex(hist_strikes)["total_call_gex"]
+                elif metric == "total_put_gex":
+                    hist_value = calculate_total_gex(hist_strikes)["total_put_gex"]
+                elif metric == "kcs":
+                    hist_value = calculate_kcs(hist_strikes, hist_price)
+                elif metric == "dominance":
+                    hist_value = calculate_dominance(hist_strikes, hist_price)
+                elif metric == "sentiment":
+                    hist_value = calculate_sentiment(hist_strikes)
+                elif metric == "gex_ratio":
+                    hist_value = calculate_gex_ratio(hist_strikes)
+                elif metric == "total_call_oi":
+                    hist_value = calculate_total_oi_and_vol(hist_strikes)["total_call_oi"]
+                elif metric == "total_put_oi":
+                    hist_value = calculate_total_oi_and_vol(hist_strikes)["total_put_oi"]
+                elif metric == "total_call_vol":
+                    hist_value = calculate_total_oi_and_vol(hist_strikes)["total_call_vol"]
+                elif metric == "total_put_vol":
+                    hist_value = calculate_total_oi_and_vol(hist_strikes)["total_put_vol"]
+                
+                if hist_value is not None:
+                    historical_values.append(hist_value)
+            
+            if not historical_values:
+                return BaseController.json_response({
+                    "value": current_value,
+                    "percentile": 50,
+                    "sample_size": 0,
+                    "message": "No historical data available"
+                })
+            
+            # Calculate percentile
+            sorted_values = sorted(historical_values)
+            rank = sum(1 for v in sorted_values if v <= current_value)
+            percentile = round(rank / len(sorted_values) * 100, 1)
+            
+            return BaseController.json_response({
+                "value": current_value,
+                "percentile": percentile,
+                "sample_size": len(historical_values),
+                "lookup_time": lookup_ntime,
+                "days": days
+            })
+            
+        except Exception as e:
+            return BaseController.json_response(
+                BaseController.error_response(str(e)),
+                500
+            )

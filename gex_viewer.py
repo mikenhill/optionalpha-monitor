@@ -4503,6 +4503,25 @@ def api_gex_percentiles():
     return GexController.get_gex_percentiles()
 
 
+@app.route("/api/gex/percentile")
+def api_gex_percentile():
+    """Calculate percentile for a single metric on-the-fly using recent historical data.
+    
+    Approach:
+    1. Map snapshot time to nearest standard time slot (935, 1000, 1030, etc.)
+    2. Query last N days of data for that specific time slot
+    3. Calculate percentile against those historical values
+    
+    Query params:
+        date: ISO date (YYYY-MM-DD)
+        time: ntime (HHMM format, default 1000)
+        metric: metric name (default net_gex)
+        days: number of days to look back (default 90)
+    """
+    from controllers.gex_controller import GexController
+    return GexController.calculate_on_the_fly_percentile()
+
+
 @app.route("/api/gex/recalc-percentiles")
 def api_recalc_gex_percentiles():
     """Manually recalculate percentiles for a specific time slot.
