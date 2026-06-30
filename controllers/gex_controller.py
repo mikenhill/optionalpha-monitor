@@ -22,6 +22,24 @@ from dao.database import get_connection
 # Time slots for percentile comparison
 TIMES = [935, 1000, 1030, 1100, 1130, 1200, 1230, 1300, 1330, 1400, 1430, 1500, 1530, 1555]
 
+# Time regimes for distribution filtering
+TIME_REGIMES = [
+    {"id": "pre", "label": "Pre-Market", "start": 0, "end": 934},
+    {"id": "0935_1000", "label": "09:35-10:00", "start": 935, "end": 1000},
+    {"id": "1001_1030", "label": "10:01-10:30", "start": 1001, "end": 1030},
+    {"id": "1031_1100", "label": "10:31-11:00", "start": 1031, "end": 1100},
+    {"id": "1101_1130", "label": "11:01-11:30", "start": 1101, "end": 1130},
+    {"id": "1131_1200", "label": "11:31-12:00", "start": 1131, "end": 1200},
+    {"id": "1201_1230", "label": "12:01-12:30", "start": 1201, "end": 1230},
+    {"id": "1231_1300", "label": "12:31-13:00", "start": 1231, "end": 1300},
+    {"id": "1301_1330", "label": "13:01-13:30", "start": 1301, "end": 1330},
+    {"id": "1331_1400", "label": "13:31-14:00", "start": 1331, "end": 1400},
+    {"id": "1401_1430", "label": "14:01-14:30", "start": 1401, "end": 1430},
+    {"id": "1431_1500", "label": "14:31-15:00", "start": 1431, "end": 1500},
+    {"id": "1501_1530", "label": "15:01-15:30", "start": 1501, "end": 1530},
+    {"id": "1531_1600", "label": "15:31-16:00", "start": 1531, "end": 1600},
+]
+
 
 class GexController(BaseController):
     """Controller for GEX data from gex_strike_window table."""
@@ -124,6 +142,176 @@ class GexController(BaseController):
                 "snapshots": snapshots
             })
             
+        except Exception as e:
+            return BaseController.json_response(
+                BaseController.error_response(str(e)),
+                500
+            )
+    
+    @staticmethod
+    def get_distribution_snapshots():
+        """Get snapshots from gex_strike_window for distribution table with pagination.
+
+        Query params:
+            offset: pagination offset (default 0)
+            limit: page size (default 200)
+            regime: time regime filter (e.g., "0935_1000", "pre")
+        """
+        offset = int(request.args.get("offset", 0))
+        limit = int(request.args.get("limit", 200))
+        regime_id = request.args.get("regime", "0935_1000")
+
+        # Get time range for selected regime
+        regime = next((r for r in TIME_REGIMES if r["id"] == regime_id), TIME_REGIMES[1])
+        time_start = regime["start"]
+        time_end = regime["end"]
+
+        try:
+            with get_connection() as con:
+                # Get total count
+                count_result = con.execute("""
+                    SELECT COUNT(*) FROM gex_strike_window
+                    WHERE symbol='SPX' AND ntime>=? AND ntime<=?
+                """, (time_start, time_end)).fetchone()
+                total = count_result[0]
+
+                # Get paginated snapshots with raw data
+                rows = con.execute("""
+                    SELECT ndate, ntime, price, data
+                    FROM gex_strike_window
+                    WHERE symbol='SPX' AND ntime>=? AND ntime<=?
+                    ORDER BY ndate DESC, ntime DESC
+                    LIMIT ? OFFSET ?
+                """, (time_start, time_end, limit, offset)).fetchall()
+
+            snapshots = []
+            for row in rows:
+                ndate, ntime, price, data = row
+                date_str = f"{ndate//10000}-{(ndate//100)%100:02d}-{ndate%100:02d}"
+                time_str = f"{ntime//100:02d}:{ntime%100:02d}"
+                
+                strikes = json.loads(data) if data else []
+                
+                if strikes:
+                    # Calculate metrics from strike data
+                    sentiment = calculate_sentiment(strikes)
+                    gex_ratio = calculate_gex_ratio(strikes)
+                    net_gex = calculate_net_gex(strikes)
+                    kcs = calculate_kcs(strikes, price)
+                    dominance = calculate_dominance(strikes, price)
+                    total_oi_vol = calculate_total_oi_and_vol(strikes)
+                    total_gex_vals = calculate_total_gex(strikes)
+                    
+                    snapshots.append({
+                        "date": date_str,
+                        "time": time_str,
+                        "ndate": ndate,
+                        "ntime": ntime,
+                        "uprice": price,
+                        "net_gex": net_gex,
+                        "total_call_gex": total_gex_vals["total_call_gex"],
+                        "total_put_gex": total_gex_vals["total_put_gex"],
+                        "kcs": kcs,
+                        "dominance": dominance,
+                        "sentiment": sentiment,
+                        "gex_ratio": gex_ratio,
+                        "total_call_oi": total_oi_vol["total_call_oi"],
+                        "total_put_oi": total_oi_vol["total_put_oi"],
+                        "total_call_vol": total_oi_vol["total_call_vol"],
+                        "total_put_vol": total_oi_vol["total_put_vol"],
+                    })
+
+            has_more = offset + limit < total
+
+            return BaseController.json_response({
+                "snapshots": snapshots,
+                "total": total,
+                "has_more": has_more,
+            })
+        except Exception as e:
+            return BaseController.json_response(
+                BaseController.error_response(str(e)),
+                500
+            )
+    
+    @staticmethod
+    def get_distribution_all_values():
+        """Return all historical values for a metric from gex_strike_window.
+
+        Query params:
+            metric: metric name (e.g., net_gex, sentiment)
+            regime: time regime filter (e.g., "0930_1000", "pre")
+        """
+        metric = request.args.get("metric", "net_gex")
+        regime_id = request.args.get("regime", "0935_1000")
+
+        # Get time range for selected regime
+        regime = next((r for r in TIME_REGIMES if r["id"] == regime_id), TIME_REGIMES[1])
+        time_start = regime["start"]
+        time_end = regime["end"]
+
+        try:
+            with get_connection() as con:
+                rows = con.execute("""
+                    SELECT price, data
+                    FROM gex_strike_window
+                    WHERE symbol='SPX' AND ntime>=? AND ntime<=?
+                """, (time_start, time_end)).fetchall()
+
+            all_values = []
+            for row in rows:
+                price, data = row
+                strikes = json.loads(data) if data else []
+                
+                if not strikes:
+                    continue
+                
+                # Calculate the requested metric
+                if metric == "net_gex":
+                    value = calculate_net_gex(strikes)
+                elif metric == "total_call_gex":
+                    value = calculate_total_gex(strikes)["total_call_gex"]
+                elif metric == "total_put_gex":
+                    value = calculate_total_gex(strikes)["total_put_gex"]
+                elif metric == "kcs":
+                    value = calculate_kcs(strikes, price)
+                elif metric == "dominance":
+                    value = calculate_dominance(strikes, price)
+                elif metric == "sentiment":
+                    value = calculate_sentiment(strikes)
+                elif metric == "gex_ratio":
+                    value = calculate_gex_ratio(strikes)
+                elif metric == "total_call_oi":
+                    value = calculate_total_oi_and_vol(strikes)["total_call_oi"]
+                elif metric == "total_put_oi":
+                    value = calculate_total_oi_and_vol(strikes)["total_put_oi"]
+                elif metric == "total_call_vol":
+                    value = calculate_total_oi_and_vol(strikes)["total_call_vol"]
+                elif metric == "total_put_vol":
+                    value = calculate_total_oi_and_vol(strikes)["total_put_vol"]
+                else:
+                    continue
+                
+                if value is not None:
+                    all_values.append(value)
+
+            # Scale for display
+            if metric in ["gex_ratio", "sentiment", "dominance", "kcs"]:
+                scale = 1
+            elif "gex" in metric:
+                scale = 1e9
+            elif "oi" in metric or "vol" in metric:
+                scale = 1e3
+            else:
+                scale = 1
+
+            scaled_values = [round(v / scale, 3) for v in all_values]
+
+            return BaseController.json_response({
+                "metric": metric,
+                "values": scaled_values,
+                "n_samples": len(scaled_values),
+            })
         except Exception as e:
             return BaseController.json_response(
                 BaseController.error_response(str(e)),
