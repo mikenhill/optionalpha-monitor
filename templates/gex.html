@@ -125,7 +125,7 @@
     <a href="/gex-distribution">GEX Distribution</a>
     <a href="/analysis">Analysis</a>
     <a href="/spx">SPX Prices</a>
-    <a href="/csv">CSV</a>
+    <a href="/csv">CSV</a>`n    <a href="/ml">ML</a>
   </div>
 
   <h1>GEX (New Architecture)</h1>
@@ -137,7 +137,9 @@
       <button onclick="prevDay()">&#8592; Prev</button>
       <button onclick="nextDay()">Next &#8594;</button>
       <button class="action-btn" onclick="syncHistorical()">&#8635; Load Missing Historical</button>
+      <button class="action-btn" id="capture-session-btn" onclick="captureSession()">&#128274; Capture Session</button>
       <button class="action-btn primary" id="fetch-live-btn" onclick="fetchLiveGex()" disabled>&#8635; Fetch Live Data</button>
+      <span id="session-status" style="font-size:12px;color:#6c757d;align-self:center"></span>
       <v class="stat-row" id="hist-stats">
       <div class="stat-item"><span class="stat-label">Snapshots</span><span class="stat-value" id="stat-count">--</span></div>
       <div class="stat-item"><span class="stat-label">First Time (ET)</span><span class="stat-value" id="stat-first">--</span></div>
@@ -146,8 +148,13 @@
       <div class="stat-item"><span class="stat-label">Net GEX (last)</span><span class="stat-value" id="stat-net">--</span> <span class="stat-percentile" id="stat-net-pct"></span></div>
       <div class="stat-item"><span class="stat-label">Wall (last)</span><span class="stat-value" id="stat-wall">--</span></div>
       <div class="stat-item"><span class="stat-label">Regime (last)</span><span class="stat-value" id="stat-regime">--</span></div>
+      <div class="stat-item" id="ml-signal-item" style="display:none">
+        <span class="stat-label">ML Signal</span>
+        <span class="stat-value" id="ml-signal-badge" style="cursor:pointer" onclick="window.open('/ml','_blank')" title="Click to open ML Analysis"></span>
+      </div>
     </div>
   </div>
+  <div id="ml-signal-detail" style="display:none;background:#f8f9fa;border:1px solid #dee2e6;border-radius:6px;padding:10px 16px;margin:-5px 0 10px 0;font-size:13px"></div>
 
   <div class="card">
     <h2>Snapshots</h2>
@@ -767,11 +774,14 @@ What you see depends on when RF/HMM are retrained:
       updateFetchButtonState();
     }
 
+    let _sessionExists = false;
     function updateFetchButtonState() {
       const sel = document.getElementById('date-sel');
       const btn = document.getElementById('fetch-live-btn');
       const today = new Date().toISOString().slice(0, 10);
-      btn.disabled = (sel.value !== today);
+      const localToday = new Date(Date.now() - new Date().getTimezoneOffset()*60000).toISOString().slice(0,10);
+      const isToday = (sel.value === today || sel.value === localToday);
+      btn.disabled = !(isToday && _sessionExists);
     }
 
     async function loadPercentile(date, ntime, metric) {
@@ -797,6 +807,50 @@ What you see depends on when RF/HMM are retrained:
       }
     }
 
+    async function captureSession() {
+      const btn = document.getElementById('capture-session-btn');
+      const status = document.getElementById('session-status');
+      btn.disabled = true;
+      btn.textContent = '⏳ Opening browser...';
+      status.textContent = '';
+      try {
+        const r = await fetch('/api/gex/capture-session');
+        const d = await r.json();
+        if (d.error) {
+          status.textContent = '✗ ' + d.error;
+          status.style.color = '#dc3545';
+        } else {
+          status.textContent = d.message;
+          status.style.color = '#fd7e14';
+          // Poll session status after 22s to confirm it saved
+          setTimeout(async () => {
+            await refreshSessionStatus();
+            btn.disabled = false;
+            btn.textContent = '🔒 Capture Session';
+          }, 22000);
+          return;
+        }
+      } catch(e) {
+        status.textContent = '✗ ' + e.message;
+        status.style.color = '#dc3545';
+      }
+      btn.disabled = false;
+      btn.textContent = '🔒 Capture Session';
+    }
+
+    async function refreshSessionStatus() {
+      try {
+        const r = await fetch('/api/gex/session-status');
+        const d = await r.json();
+        const el = document.getElementById('session-status');
+        el.textContent = d.message;
+        el.style.color = d.fresh ? '#198754' : (d.exists ? '#fd7e14' : '#dc3545');
+        // Enable fetch button only if session exists
+        _sessionExists = d.exists;
+        updateFetchButtonState();
+      } catch(e) {}
+    }
+
     async function fetchLiveGex() {
       const btn = document.getElementById('fetch-live-btn');
       const status = document.getElementById('sync-status');
@@ -812,6 +866,32 @@ What you see depends on when RF/HMM are retrained:
         } else {
           status.textContent = '\u2713 Fetched \u2014 reloading...';
           status.style.color = '#198754';
+          // Show ML signal badge
+          if (d.ml_signal && !d.ml_signal.error) {
+            const sig = d.ml_signal;
+            const isLow = sig.confidence === 'LOW';
+            const confColour = sig.confidence === 'HIGH' ? '#198754' : (sig.confidence === 'MEDIUM' ? '#fd7e14' : '#adb5bd');
+            const badgeEl = document.getElementById('ml-signal-badge');
+            const itemEl  = document.getElementById('ml-signal-item');
+            const detail  = document.getElementById('ml-signal-detail');
+            if (isLow) {
+              // LOW confidence — show dimmed badge, no trade
+              badgeEl.innerHTML = `<span style="color:#adb5bd;font-size:11px">[${sig.vol_regime}] [${sig.direction}] ●○○ Low confidence — no trade</span>`;
+              detail.style.display = 'none';
+            } else {
+              const viableStr = sig.viable_rate != null ? ` &nbsp;<span title="Historical trade viability rate" style="font-size:11px;background:#e9ecef;padding:1px 5px;border-radius:3px">${sig.viable_rate}% hist viable</span>` : '';
+              badgeEl.innerHTML = `<span style="color:${confColour};font-weight:bold">${sig.signal_text}</span>${viableStr}`;
+              detail.style.display = '';
+              detail.innerHTML = `<strong>ML Signal</strong> &nbsp;|&nbsp;`
+                + ` Vol: <strong>${sig.vol_regime}</strong> (${(sig.vol_regime_proba*100).toFixed(0)}%)`
+                + ` &nbsp;|&nbsp; Dir: <strong>${sig.direction}</strong> (${(sig.direction_proba*100).toFixed(0)}%)`
+                + ` &nbsp;|&nbsp; Trade: <strong style="color:${confColour}">${sig.trade}</strong>`
+                + (sig.viable_rate != null ? ` &nbsp;<span style="color:#6c757d">(${sig.viable_rate}% viable historically)</span>` : '')
+                + ` &nbsp;|&nbsp; Confidence: <strong style="color:${confColour}">${sig.confidence}</strong>`
+                + ` &nbsp;<a href="/ml" target="_blank" style="font-size:11px">[Full ML \u2192]</a>`;
+            }
+            itemEl.style.display = '';
+          }
           setTimeout(() => { snapData = {}; loadDate(); status.textContent = ''; }, 1500);
         }
       } catch (e) {
@@ -870,6 +950,7 @@ What you see depends on when RF/HMM are retrained:
     }
 
     init();
+    refreshSessionStatus();
   </script>
 
   <div id="sync-modal" class="modal-overlay">
@@ -961,3 +1042,4 @@ What you see depends on when RF/HMM are retrained:
   </div>
 </body>
 </html>
+
