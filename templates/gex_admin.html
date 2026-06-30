@@ -135,8 +135,8 @@
       <h2>Percentile Debug</h2>
       <p>View the full historical breakdown for any metric's percentile calculation.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
-        <label>Date: <input type="date" id="pct-debug-date" value="2026-06-29"></label>
-        <label>Time: <input type="number" id="pct-debug-time" value="1005" style="width:70px"></label>
+        <label>Date: <input type="date" id="pct-debug-date" value="2026-06-29" onchange="loadPctDebugTimes()"></label>
+        <label>Time: <select id="pct-debug-time"><option>-- select date first --</option></select></label>
         <label>Metric:
           <select id="pct-debug-metric">
             <option value="net_gex">Net GEX</option>
@@ -160,6 +160,24 @@
   </div>
 
   <script>
+    async function loadPctDebugTimes() {
+      const date = document.getElementById('pct-debug-date').value;
+      const sel = document.getElementById('pct-debug-time');
+      sel.innerHTML = '<option>Loading...</option>';
+      try {
+        const r = await fetch('/api/gex/snapshots?date=' + date);
+        const d = await r.json();
+        const snaps = (d.snapshots || []).filter(s => !s.is_premarket);
+        sel.innerHTML = snaps.map(s => {
+          const h = String(Math.floor(s.ntime / 100)).padStart(2,'0');
+          const m = String(s.ntime % 100).padStart(2,'0');
+          return `<option value="${s.ntime}">${h}:${m}</option>`;
+        }).join('');
+      } catch(e) {
+        sel.innerHTML = '<option>Error loading</option>';
+      }
+    }
+
     function openPercentileDebug() {
       const date = document.getElementById('pct-debug-date').value;
       const time = document.getElementById('pct-debug-time').value;
@@ -167,6 +185,9 @@
       const days = document.getElementById('pct-debug-days').value;
       window.open(`/gex/percentile-debug?date=${date}&time=${time}&metric=${metric}&days=${days}`, '_blank');
     }
+
+    // Load times for the default date on page load
+    window.addEventListener('DOMContentLoaded', loadPctDebugTimes);
 
     async function verifyData() {
       const btn = document.getElementById('verify-btn');
