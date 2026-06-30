@@ -1317,6 +1317,805 @@ def _promote_live_to_historical() -> dict:
     return {"promoted": promoted, "skipped": skipped}
 
 
+def _ensure_spx_ohlc_table() -> None:
+    """Create spx_ohlc_5min table if it does not exist."""
+    with _db() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS spx_ohlc_5min (
+                ndate INTEGER NOT NULL,
+                ntime INTEGER NOT NULL,
+                open  REAL,
+                high  REAL,
+                low   REAL,
+                close REAL,
+                PRIMARY KEY (ndate, ntime)
+            )
+        """)
+
+
+def _update_spx_ohlc_from_yfinance() -> dict:
+    """Fetch missing SPX 5-min bars from yfinance and append to spx_ohlc_5min.
+
+    Yahoo Finance provides up to 60 days of 5-min intraday data for ^GSPC.
+    Only fetches bars for dates not already in the table.
+    Returns a summary dict.
+    """
+    try:
+        import yfinance as yf
+    except ImportError:
+        return {"status": "error", "reason": "yfinance not installed"}
+
+    from datetime import datetime, timedelta, timezone
+
+    with _db() as con:
+        row = con.execute("SELECT MAX(ndate) FROM spx_ohlc_5min").fetchone()
+    last_ndate = row[0] if row and row[0] else 20260101
+
+    # Convert ndate to date string
+    last_str = str(last_ndate)
+    last_dt  = datetime(int(last_str[:4]), int(last_str[4:6]), int(last_str[6:8]))
+    start_dt = last_dt + timedelta(days=1)
+    end_dt   = datetime.now() + timedelta(days=1)
+
+    if start_dt.date() >= end_dt.date():
+        return {"status": "skipped", "reason": "already up to date", "last_date": last_ndate}
+
+    try:
+        ticker = yf.Ticker("^GSPC")
+        df = ticker.history(
+            start=start_dt.strftime("%Y-%m-%d"),
+            end=end_dt.strftime("%Y-%m-%d"),
+            interval="5m",
+            auto_adjust=True,
+        )
+    except Exception as e:
+        return {"status": "error", "reason": str(e)}
+
+    if df is None or df.empty:
+        return {"status": "skipped", "reason": "no new data from yfinance"}
+
+    rows = []
+    for ts, row in df.iterrows():
+        try:
+            # Handle timezone-aware timestamps
+            if hasattr(ts, "tz_localize"):
+                dt = ts.to_pydatetime()
+            else:
+                dt = ts.to_pydatetime()
+            ndate = int(dt.strftime("%Y%m%d"))
+            ntime = dt.hour * 100 + dt.minute
+            rows.append((ndate, ntime, float(row["Open"]), float(row["High"]),
+                          float(row["Low"]), float(row["Close"])))
+        except Exception:
+            continue
+
+    if not rows:
+        return {"status": "skipped", "reason": "no parseable rows"}
+
+    with _db() as con:
+        con.executemany(
+            "INSERT OR IGNORE INTO spx_ohlc_5min (ndate,ntime,open,high,low,close) VALUES (?,?,?,?,?,?)",
+            rows
+        )
+
+    inserted = len(rows)
+    new_dates = len(set(r[0] for r in rows))
+    return {"status": "ok", "inserted": inserted, "new_dates": new_dates}
+
+
+def _ensure_ml_labels_current() -> dict:
+    """Append ml_labels rows for any dates that have GEX snapshots but no labels yet.
+
+    Uses spx_ohlc_5min for precise OHLC. Skips today (labels not yet complete).
+    Returns a summary dict.
+    """
+    import json, statistics
+    from collections import defaultdict
+    from datetime import datetime, date as ddate
+
+    today_ndate = int(datetime.now().strftime("%Y%m%d"))
+
+    with _db() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS ml_labels (
+                ndate           INTEGER NOT NULL,
+                ntime           INTEGER NOT NULL,
+                spx_at_snap     REAL,
+                spx_next        REAL,
+                spx_eod         REAL,
+                range_to_eod    REAL,
+                move_to_next    REAL,
+                move_to_eod     REAL,
+                pct_to_next     REAL,
+                pct_to_eod      REAL,
+                direction_next  TEXT,
+                direction_eod   TEXT,
+                flip_level      REAL,
+                flip_breached   INTEGER,
+                range_regime    TEXT,
+                hmm_label       TEXT,
+                PRIMARY KEY (ndate, ntime)
+            )
+        """)
+
+        # Find GEX snapshot dates that have no ml_labels yet (exclude today)
+        missing = con.execute("""
+            SELECT DISTINCT g.ndate FROM gex_strike_window g
+            WHERE g.symbol='SPX' AND g.source='gex' AND g.ntime>=935
+              AND g.ndate < ?
+              AND NOT EXISTS (SELECT 1 FROM ml_labels m WHERE m.ndate=g.ndate)
+            ORDER BY g.ndate
+        """, (today_ndate,)).fetchall()
+
+        if not missing:
+            return {"status": "skipped", "reason": "ml_labels already current"}
+
+        missing_dates = [r[0] for r in missing]
+
+        # Load OHLC bars for those dates
+        placeholders = ",".join("?" * len(missing_dates))
+        bars_raw = con.execute(
+            f"SELECT ndate, ntime, open, high, low, close FROM spx_ohlc_5min WHERE ndate IN ({placeholders}) ORDER BY ndate, ntime",
+            missing_dates
+        ).fetchall()
+
+        bars_by_date = defaultdict(dict)
+        for nd, nt, o, h, l, c in bars_raw:
+            bars_by_date[nd][nt] = {"open": o, "high": h, "low": l, "close": c}
+
+        # Load GEX snapshots for missing dates
+        snaps = con.execute(
+            f"SELECT ndate, ntime, price, data FROM gex_strike_window "
+            f"WHERE symbol='SPX' AND source='gex' AND ntime>=935 AND ntime<=1555 "
+            f"AND ndate IN ({placeholders}) ORDER BY ndate, ntime",
+            missing_dates
+        ).fetchall()
+
+        # Flip level is always calculated on-the-fly from raw strike data in gex_strike_window
+        flip_cache = {}
+
+    # Compute 20-day rolling median range for range_regime
+    with _db() as con:
+        all_dates = [r[0] for r in con.execute(
+            "SELECT DISTINCT ndate FROM spx_ohlc_5min ORDER BY ndate"
+        ).fetchall()]
+        date_ranges = {}
+        for nd in all_dates:
+            day_bars = con.execute(
+                "SELECT high, low FROM spx_ohlc_5min WHERE ndate=? AND ntime>=935 AND ntime<=1600",
+                (nd,)
+            ).fetchall()
+            if day_bars:
+                date_ranges[nd] = max(r[0] for r in day_bars) - min(r[1] for r in day_bars)
+
+    def range_regime_label(nd, rng):
+        if not rng:
+            return "NORMAL"
+        idx = all_dates.index(nd) if nd in all_dates else 0
+        window = [date_ranges[d] for d in all_dates[max(0, idx - 20):idx] if d in date_ranges]
+        if not window:
+            return "NORMAL"
+        med = statistics.median(window)
+        if rng < med * 0.7:
+            return "TIGHT"
+        elif rng > med * 1.4:
+            return "WIDE"
+        return "NORMAL"
+
+    def next_bar_time(ntime):
+        h, m = divmod(ntime, 100)
+        m += 5
+        if m >= 60:
+            m -= 60
+            h += 1
+        return h * 100 + m
+
+    def ntime_plus(ntime, minutes):
+        h = ntime // 100
+        m = ntime % 100 + minutes
+        h += m // 60
+        m  = m % 60
+        return h * 100 + m
+
+    def find_bar_close(day, target_ntime, tolerance=15):
+        if target_ntime in day:
+            return day[target_ntime]["close"]
+        candidates = {t: v for t, v in day.items() if abs(t - target_ntime) <= tolerance}
+        if not candidates:
+            return None
+        return candidates[min(candidates, key=lambda t: abs(t - target_ntime))]["close"]
+
+    def bars_in_window(day, start_ntime, minutes):
+        end_ntime = ntime_plus(start_ntime, minutes)
+        return {t: v for t, v in day.items() if start_ntime <= t <= min(end_ntime, 1600)}
+
+    def flip_held_in_window(window_bars, flip_level, spx_at_snap):
+        if not flip_level or not window_bars:
+            return None
+        above = spx_at_snap >= flip_level
+        for v in window_bars.values():
+            if above and v["high"] < flip_level:
+                return 0
+            if not above and v["low"] > flip_level:
+                return 0
+        return 1
+
+    def direction(pct, thresh):
+        if pct is None:
+            return None
+        return "UP" if pct > thresh else ("DOWN" if pct < -thresh else "FLAT")
+
+    def get_flip_from_strikes(strikes, uprice):
+        if not strikes:
+            return None
+        sorted_s = sorted(strikes, key=lambda r: r.get("strike", 0))
+        cum = 0
+        prev_cum = None
+        for s in sorted_s:
+            net = s.get("net", 0) or 0
+            if prev_cum is not None and ((prev_cum > 0 and cum + net <= 0) or (prev_cum < 0 and cum + net >= 0)):
+                return s.get("strike")
+            prev_cum = cum
+            cum += net
+        return None
+
+    label_rows = []
+    for ndate, ntime, uprice, data_json in snaps:
+        if not uprice:
+            continue
+        try:
+            strikes = json.loads(data_json) if data_json else []
+        except Exception:
+            strikes = []
+
+        day = bars_by_date.get(ndate, {})
+        if not day:
+            # Fall back to using gex snapshot prices if no OHLC available
+            continue
+
+        # SPX at snapshot
+        bar = day.get(ntime) or day.get(min(day.keys(), key=lambda t: abs(t - ntime), default=ntime))
+        spx_at_snap = bar["close"] if bar else uprice
+
+        # Next bar
+        nb = next_bar_time(ntime)
+        spx_next = day.get(nb, {}).get("close") or day.get(next_bar_time(nb), {}).get("close")
+
+        # EOD price (last bar <= 1600)
+        eod_bars = {t: v for t, v in day.items() if 1500 <= t <= 1600}
+        spx_eod = eod_bars[max(eod_bars)]["close"] if eod_bars else None
+
+        # Range from snapshot to EOD
+        future_bars = {t: v for t, v in day.items() if t >= ntime and t <= 1600}
+        range_to_eod = (
+            max(v["high"] for v in future_bars.values()) - min(v["low"] for v in future_bars.values())
+            if future_bars else None
+        )
+
+        move_to_next = (spx_next - spx_at_snap) if spx_next else None
+        move_to_eod  = (spx_eod  - spx_at_snap) if spx_eod  else None
+        pct_to_next  = round(move_to_next / spx_at_snap * 100, 4) if move_to_next and spx_at_snap else None
+        pct_to_eod   = round(move_to_eod  / spx_at_snap * 100, 4) if move_to_eod  and spx_at_snap else None
+
+        flip = flip_cache.get((ndate, ntime)) or get_flip_from_strikes(strikes, uprice)
+        flip_breached = None
+        if flip and future_bars:
+            highs = [v["high"] for v in future_bars.values()]
+            lows  = [v["low"]  for v in future_bars.values()]
+            flip_breached = 1 if (min(lows) <= flip <= max(highs)) else 0
+
+        rr = range_regime_label(ndate, range_to_eod)
+
+        # Multi-horizon outcomes
+        w1 = bars_in_window(day, ntime, 60)
+        w2 = bars_in_window(day, ntime, 120)
+        spx_1hr = find_bar_close(day, ntime_plus(ntime, 60))
+        spx_2hr = find_bar_close(day, ntime_plus(ntime, 120))
+        pct_1hr = round((spx_1hr - spx_at_snap) / spx_at_snap * 100, 4) if spx_1hr else None
+        pct_2hr = round((spx_2hr - spx_at_snap) / spx_at_snap * 100, 4) if spx_2hr else None
+        range_1hr = (max(v["high"] for v in w1.values()) - min(v["low"] for v in w1.values())) if w1 else None
+        range_2hr = (max(v["high"] for v in w2.values()) - min(v["low"] for v in w2.values())) if w2 else None
+        fh1 = flip_held_in_window(w1, flip, spx_at_snap)
+        fh2 = flip_held_in_window(w2, flip, spx_at_snap)
+
+        # Trade viability flags (2hr horizon)
+        IC_THRESH = 30.0
+        tv_ic  = (1 if range_2hr is not None and range_2hr < IC_THRESH and fh2 == 1 else 0) if range_2hr is not None else None
+        tv_sps = (1 if pct_2hr is not None and pct_2hr >  0.10 else 0) if pct_2hr is not None else None
+        tv_scs = (1 if pct_2hr is not None and pct_2hr < -0.10 else 0) if pct_2hr is not None else None
+        tv_lcs = (1 if pct_2hr is not None and pct_2hr >  0.35 else 0) if pct_2hr is not None else None
+        tv_lps = (1 if pct_2hr is not None and pct_2hr < -0.35 else 0) if pct_2hr is not None else None
+
+        label_rows.append((
+            ndate, ntime, spx_at_snap, spx_next, spx_eod,
+            range_to_eod, move_to_next, move_to_eod,
+            pct_to_next, pct_to_eod,
+            direction(pct_to_next, 0.10), direction(pct_to_eod, 0.20),
+            flip, flip_breached, rr, None,
+            pct_1hr, pct_2hr, range_1hr, range_2hr,
+            direction(pct_1hr, 0.15), direction(pct_2hr, 0.20),
+            fh1, fh2, tv_ic, tv_sps, tv_scs, tv_lcs, tv_lps,
+        ))
+
+    if not label_rows:
+        return {"status": "skipped", "reason": "no new labels to add"}
+
+    with _db() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS ml_labels (
+                ndate INTEGER NOT NULL, ntime INTEGER NOT NULL,
+                spx_at_snap REAL, spx_next REAL, spx_eod REAL,
+                range_to_eod REAL, move_to_next REAL, move_to_eod REAL,
+                pct_to_next REAL, pct_to_eod REAL,
+                direction_next TEXT, direction_eod TEXT,
+                flip_level REAL, flip_breached INTEGER,
+                range_regime TEXT, hmm_label TEXT,
+                pct_1hr REAL, pct_2hr REAL, range_1hr REAL, range_2hr REAL,
+                direction_1hr TEXT, direction_2hr TEXT,
+                flip_held_1hr INTEGER, flip_held_2hr INTEGER,
+                trade_viable_ic INTEGER, trade_viable_sps INTEGER,
+                trade_viable_scs INTEGER, trade_viable_lcs INTEGER,
+                trade_viable_lps INTEGER,
+                PRIMARY KEY (ndate, ntime)
+            )
+        """)
+        # Ensure new columns exist on already-created tables
+        existing_cols = {r[1] for r in con.execute("PRAGMA table_info(ml_labels)").fetchall()}
+        for col, dtype in [
+            ("pct_1hr","REAL"),("pct_2hr","REAL"),("range_1hr","REAL"),("range_2hr","REAL"),
+            ("direction_1hr","TEXT"),("direction_2hr","TEXT"),
+            ("flip_held_1hr","INTEGER"),("flip_held_2hr","INTEGER"),
+            ("trade_viable_ic","INTEGER"),("trade_viable_sps","INTEGER"),
+            ("trade_viable_scs","INTEGER"),("trade_viable_lcs","INTEGER"),
+            ("trade_viable_lps","INTEGER"),
+        ]:
+            if col not in existing_cols:
+                con.execute(f"ALTER TABLE ml_labels ADD COLUMN {col} {dtype}")
+        con.executemany("""
+            INSERT OR REPLACE INTO ml_labels
+            (ndate, ntime, spx_at_snap, spx_next, spx_eod,
+             range_to_eod, move_to_next, move_to_eod,
+             pct_to_next, pct_to_eod, direction_next, direction_eod,
+             flip_level, flip_breached, range_regime, hmm_label,
+             pct_1hr, pct_2hr, range_1hr, range_2hr,
+             direction_1hr, direction_2hr, flip_held_1hr, flip_held_2hr,
+             trade_viable_ic, trade_viable_sps, trade_viable_scs,
+             trade_viable_lcs, trade_viable_lps)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        """, label_rows)
+
+    return {"status": "ok", "inserted": len(label_rows), "dates": len(missing_dates)}
+
+
+def _ensure_ml_predictions_table() -> None:
+    """Create ml_predictions table for storing real-time predictions and their outcomes."""
+    with _db() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS ml_predictions (
+                ndate               INTEGER NOT NULL,
+                ntime               INTEGER NOT NULL,
+                predicted_at        TEXT NOT NULL,
+                vol_regime_pred     TEXT,
+                vol_regime_proba    REAL,
+                direction_pred      TEXT,
+                direction_proba     REAL,
+                trade_pred          TEXT,
+                trade_code          TEXT,
+                confidence          TEXT,
+                -- Actuals filled in by _backfill_prediction_outcomes()
+                vol_regime_actual   TEXT,
+                direction_1hr_actual TEXT,
+                direction_2hr_actual TEXT,
+                direction_eod_actual TEXT,
+                trade_viable_actual INTEGER,
+                vol_correct         INTEGER,
+                direction_1hr_correct INTEGER,
+                direction_2hr_correct INTEGER,
+                outcome_filled_at   TEXT,
+                PRIMARY KEY (ndate, ntime)
+            )
+        """)
+
+
+def _save_prediction(ndate, ntime, signal: dict) -> None:
+    """Persist a real-time ML prediction to ml_predictions table."""
+    if not signal or signal.get("error"):
+        return
+    from datetime import datetime as _dt
+    predicted_at = _dt.now().strftime("%Y-%m-%dT%H:%M:%S")
+    with _db() as con:
+        con.execute("""
+            INSERT OR REPLACE INTO ml_predictions
+            (ndate, ntime, predicted_at, vol_regime_pred, vol_regime_proba,
+             direction_pred, direction_proba, trade_pred, trade_code, confidence)
+            VALUES (?,?,?,?,?,?,?,?,?,?)
+        """, (ndate, ntime, predicted_at,
+              signal.get("vol_regime"), signal.get("vol_regime_proba"),
+              signal.get("direction"), signal.get("direction_proba"),
+              signal.get("trade"), signal.get("trade_code"),
+              signal.get("confidence")))
+
+
+def _backfill_prediction_outcomes() -> dict:
+    """Match stored predictions to actual ml_labels outcomes.
+
+    Run on startup after _ensure_ml_labels_current() so yesterday's
+    predictions get their actuals filled in automatically.
+    """
+    from datetime import datetime as _dt
+    with _db() as con:
+        # Find predictions with no outcome yet, where labels now exist
+        rows = con.execute("""
+            SELECT p.ndate, p.ntime,
+                   p.vol_regime_pred, p.direction_pred, p.trade_code,
+                   l.range_regime, l.direction_1hr, l.direction_2hr, l.direction_eod,
+                   l.trade_viable_ic, l.trade_viable_sps, l.trade_viable_scs,
+                   l.trade_viable_lcs, l.trade_viable_lps
+            FROM ml_predictions p
+            JOIN ml_labels l ON l.ndate=p.ndate AND l.ntime=p.ntime
+            WHERE p.outcome_filled_at IS NULL
+        """).fetchall()
+
+    if not rows:
+        return {"status": "skipped", "reason": "no pending predictions to fill"}
+
+    filled = 0
+    now_str = _dt.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+    _TRADE_VIABLE_MAP = {
+        "IC":  "trade_viable_ic",
+        "IB":  "trade_viable_ic",
+        "SPS": "trade_viable_sps",
+        "SCS": "trade_viable_scs",
+        "LCS": "trade_viable_lcs",
+        "LPS": "trade_viable_lps",
+    }
+
+    with _db() as con:
+        for row in rows:
+            (ndate, ntime, vol_pred, dir_pred, trade_code,
+             vol_actual, dir_1hr, dir_2hr, dir_eod,
+             tv_ic, tv_sps, tv_scs, tv_lcs, tv_lps) = row
+
+            viable_col = _TRADE_VIABLE_MAP.get(trade_code)
+            viable_map = {"trade_viable_ic": tv_ic, "trade_viable_sps": tv_sps,
+                          "trade_viable_scs": tv_scs, "trade_viable_lcs": tv_lcs,
+                          "trade_viable_lps": tv_lps}
+            trade_viable = viable_map.get(viable_col) if viable_col else None
+
+            vol_correct   = 1 if vol_pred == vol_actual else 0
+            dir1_correct  = 1 if dir_pred == dir_1hr else 0
+            dir2_correct  = 1 if dir_pred == dir_2hr else 0
+
+            con.execute("""
+                UPDATE ml_predictions SET
+                    vol_regime_actual=?, direction_1hr_actual=?,
+                    direction_2hr_actual=?, direction_eod_actual=?,
+                    trade_viable_actual=?, vol_correct=?,
+                    direction_1hr_correct=?, direction_2hr_correct=?,
+                    outcome_filled_at=?
+                WHERE ndate=? AND ntime=?
+            """, (vol_actual, dir_1hr, dir_2hr, dir_eod,
+                  trade_viable, vol_correct, dir1_correct, dir2_correct,
+                  now_str, ndate, ntime))
+            filled += 1
+
+    return {"status": "ok", "filled": filled}
+
+
+# Feature set used for ML models (subset of full PCA features — top ranked, non-redundant)
+ML_FEATURES = [
+    "net_gex", "total_call_gex", "total_put_gex",
+    "sentiment", "gex_ratio", "kcs", "dominance",
+    "key_call_gex", "key_put_gex",
+    "key_call_oi", "key_put_oi",
+    "key_call_vol", "key_put_vol",
+    "total_call_oi", "total_put_oi",
+    "total_call_vol", "total_put_vol",
+    "oi_ratio", "vol_ratio",
+    "dist_to_key", "dist_to_flip",
+]
+
+# Trade recommendation matrix: (vol_regime, direction) → trade type
+_TRADE_MATRIX = {
+    ("TIGHT",  "NEUTRAL"): ("Iron Condor",        "IC"),
+    ("TIGHT",  "FLAT"):    ("Iron Condor",         "IC"),
+    ("TIGHT",  "UP"):      ("Short Put Spread",    "SPS"),
+    ("TIGHT",  "DOWN"):    ("Short Call Spread",   "SCS"),
+    ("WIDE",   "NEUTRAL"): ("Iron Butterfly",      "IB"),
+    ("WIDE",   "UP"):      ("Long Call Spread",    "LCS"),
+    ("WIDE",   "DOWN"):    ("Long Put Spread",     "LPS"),
+}
+
+
+def _ensure_ml_models_table() -> None:
+    """Create ml_models table for storing trained model blobs."""
+    with _db() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS ml_models (
+                model_name  TEXT PRIMARY KEY,
+                trained_at  TEXT NOT NULL,
+                n_samples   INTEGER NOT NULL,
+                features    TEXT NOT NULL,
+                classes     TEXT NOT NULL,
+                accuracy    REAL,
+                model_blob  BLOB NOT NULL
+            )
+        """)
+
+
+def _extract_gex_features(strikes, uprice) -> dict:
+    """Extract all ML features from a strike list and SPX price.
+
+    Returns a dict keyed by ML_FEATURES names, or None if insufficient data.
+    """
+    from controllers.gex_calculations import (
+        calculate_sentiment, calculate_gex_ratio, calculate_net_gex,
+        calculate_kcs, calculate_dominance, calculate_key_strike_stats,
+        calculate_total_oi_and_vol, calculate_total_gex, calculate_flip_level,
+    )
+    if not strikes or not uprice:
+        return None
+
+    sentiment    = calculate_sentiment(strikes)
+    gex_ratio    = calculate_gex_ratio(strikes)
+    net_gex      = calculate_net_gex(strikes)
+    kcs          = calculate_kcs(strikes, uprice)
+    dominance    = calculate_dominance(strikes, uprice)
+    key_stats    = calculate_key_strike_stats(strikes, uprice)
+    oi_vol       = calculate_total_oi_and_vol(strikes)
+    total_gex    = calculate_total_gex(strikes)
+    flip         = calculate_flip_level(strikes)
+
+    tcoi  = oi_vol["total_call_oi"] or 0
+    tpoi  = oi_vol["total_put_oi"]  or 0
+    tcvol = oi_vol["total_call_vol"] or 0
+    tpvol = oi_vol["total_put_vol"]  or 0
+
+    return {
+        "net_gex":       net_gex,
+        "total_call_gex": total_gex["total_call_gex"],
+        "total_put_gex":  total_gex["total_put_gex"],
+        "sentiment":     sentiment,
+        "gex_ratio":     gex_ratio,
+        "kcs":           kcs,
+        "dominance":     dominance,
+        "key_call_gex":  key_stats["key_call_gex"],
+        "key_put_gex":   key_stats["key_put_gex"],
+        "key_call_oi":   key_stats["key_call_oi"],
+        "key_put_oi":    key_stats["key_put_oi"],
+        "key_call_vol":  key_stats["key_call_vol"],
+        "key_put_vol":   key_stats["key_put_vol"],
+        "total_call_oi": tcoi,
+        "total_put_oi":  tpoi,
+        "total_call_vol": tcvol,
+        "total_put_vol":  tpvol,
+        "oi_ratio":      round(tcoi / tpoi, 4) if tpoi else 0,
+        "vol_ratio":     round(tcvol / tpvol, 4) if tpvol else 0,
+        "dist_to_key":   abs(uprice - (key_stats["key_strike"] or uprice)),
+        "dist_to_flip":  abs(uprice - flip) if flip else 0,
+    }
+
+
+def _train_ml_models() -> dict:
+    """Train Vol Regime and Direction classifiers on ml_labels + GEX features.
+
+    Stores model blobs in ml_models table. Returns a summary dict.
+    Uses RandomForest with class_weight='balanced' to handle label imbalance.
+    Minimum 30 labelled samples required.
+    """
+    import pickle
+    import numpy as np
+
+    try:
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.preprocessing import StandardScaler
+        from sklearn.model_selection import cross_val_score
+    except ImportError:
+        return {"status": "error", "reason": "scikit-learn not installed"}
+
+    # Pull labelled snapshots joined to GEX features
+    with _db() as con:
+        rows = con.execute("""
+            SELECT g.ndate, g.ntime, g.price, g.data,
+                   l.range_regime, l.direction_2hr
+            FROM gex_strike_window g
+            JOIN ml_labels l ON l.ndate=g.ndate AND l.ntime=g.ntime
+            WHERE g.symbol='SPX' AND g.source='gex' AND g.ntime>=935
+              AND l.range_regime IS NOT NULL AND l.direction_2hr IS NOT NULL
+            ORDER BY g.ndate, g.ntime
+        """).fetchall()
+
+    if len(rows) < 30:
+        return {"status": "error", "reason": f"insufficient labelled data ({len(rows)} rows, need 30+)"}
+
+    import json as _json
+    X, y_regime, y_direction = [], [], []
+    for ndate, ntime, uprice, data_json, range_regime, direction_2hr in rows:
+        try:
+            strikes = _json.loads(data_json) if data_json else []
+        except Exception:
+            continue
+        feats = _extract_gex_features(strikes, uprice)
+        if feats is None:
+            continue
+        X.append([feats[f] for f in ML_FEATURES])
+        # Collapse NORMAL→TIGHT: model predicts WIDE (dangerous) vs TIGHT (safe to sell premium)
+        regime_label = "WIDE" if range_regime == "WIDE" else "TIGHT"
+        y_regime.append(regime_label)
+        y_direction.append(direction_2hr)
+
+    if len(X) < 30:
+        return {"status": "error", "reason": f"insufficient valid feature rows ({len(X)})"}
+
+    import numpy as np
+    X = np.array(X, dtype=float)
+    # Replace any NaN/inf
+    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    trained_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
+    results = {}
+
+    for model_name, y in [("vol_regime", y_regime), ("direction", y_direction)]:
+        clf = RandomForestClassifier(
+            n_estimators=200,
+            max_depth=8,
+            class_weight="balanced",
+            random_state=42,
+            n_jobs=-1,
+        )
+        clf.fit(X_scaled, y)
+
+        # Cross-validated accuracy (3-fold)
+        try:
+            cv_scores = cross_val_score(clf, X_scaled, y, cv=3, scoring="accuracy")
+            accuracy = round(float(cv_scores.mean()), 4)
+        except Exception:
+            accuracy = None
+
+        blob = pickle.dumps({"clf": clf, "scaler": scaler, "features": ML_FEATURES})
+        classes = sorted(set(y))
+
+        with _db() as con:
+            con.execute("""
+                INSERT OR REPLACE INTO ml_models
+                (model_name, trained_at, n_samples, features, classes, accuracy, model_blob)
+                VALUES (?,?,?,?,?,?,?)
+            """, (model_name, trained_at, len(X), json.dumps(ML_FEATURES),
+                  json.dumps(classes), accuracy, blob))
+
+        results[model_name] = {
+            "samples": len(X), "classes": classes, "accuracy": accuracy
+        }
+
+    return {"status": "ok", "trained_at": trained_at, "models": results}
+
+
+def _load_ml_model(model_name: str):
+    """Load a trained ML model from DB. Returns (clf, scaler, features) or (None, None, None)."""
+    import pickle
+    with _db() as con:
+        row = con.execute(
+            "SELECT model_blob, features FROM ml_models WHERE model_name=?",
+            (model_name,)
+        ).fetchone()
+    if not row:
+        return None, None, None
+    payload = pickle.loads(row[0])
+    return payload["clf"], payload["scaler"], payload["features"]
+
+
+def _predict_snapshot(strikes, uprice) -> dict:
+    """Run Vol Regime + Direction predictions for a snapshot.
+
+    Returns a dict with:
+        vol_regime, vol_regime_proba   - TIGHT/NORMAL/WIDE + confidence
+        direction, direction_proba     - UP/FLAT/DOWN + confidence
+        trade, trade_code              - recommended trade type
+        confidence                     - LOW/MEDIUM/HIGH (based on both probas)
+        signal_text                    - compact badge text
+    """
+    import numpy as np
+
+    feats = _extract_gex_features(strikes, uprice)
+    if feats is None:
+        return {"error": "insufficient features"}
+
+    X = np.array([[feats[f] for f in ML_FEATURES]], dtype=float)
+    X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
+
+    results = {}
+    for model_name in ("vol_regime", "direction"):
+        clf, scaler, features = _load_ml_model(model_name)
+        if clf is None:
+            return {"error": f"{model_name} model not trained yet"}
+        X_scaled = scaler.transform(X)
+        pred = clf.predict(X_scaled)[0]
+        proba = clf.predict_proba(X_scaled)[0]
+        max_proba = float(max(proba))
+        results[model_name] = {"label": pred, "confidence": max_proba}
+
+    vol   = results["vol_regime"]["label"]
+    dirn  = results["direction"]["label"]
+    vc    = results["vol_regime"]["confidence"]
+    dc    = results["direction"]["confidence"]
+    min_conf = min(vc, dc)
+
+    trade, trade_code = _TRADE_MATRIX.get((vol, dirn), ("No clear signal", "---"))
+
+    if min_conf >= 0.65:
+        conf_label = "HIGH"
+        dots = "●●●"
+    elif min_conf >= 0.45:
+        conf_label = "MEDIUM"
+        dots = "●●○"
+    else:
+        conf_label = "LOW"
+        dots = "●○○"
+
+    # Suppress trade recommendation for LOW confidence
+    show_trade = conf_label in ("HIGH", "MEDIUM")
+    if not show_trade:
+        trade = "Low confidence"
+        trade_code = "---"
+
+    # Look up historical viable rate for this trade code
+    viable_rate = None
+    if trade_code not in ("---", None):
+        _tc_col = {"IC": "trade_viable_ic", "IB": "trade_viable_ic",
+                   "SPS": "trade_viable_sps", "SCS": "trade_viable_scs",
+                   "LCS": "trade_viable_lcs", "LPS": "trade_viable_lps"}.get(trade_code)
+        if _tc_col:
+            try:
+                with _db() as _con:
+                    _r = _con.execute(
+                        f"SELECT ROUND(AVG({_tc_col})*100,1) FROM ml_labels WHERE {_tc_col} IS NOT NULL"
+                    ).fetchone()
+                    viable_rate = _r[0] if _r else None
+            except Exception:
+                pass
+
+    signal_text = f"[{vol}] [{dirn}] → {trade} {dots}"
+    if viable_rate is not None:
+        signal_text += f" {viable_rate}% hist"
+
+    return {
+        "vol_regime":        vol,
+        "vol_regime_proba":  round(vc, 3),
+        "direction":         dirn,
+        "direction_proba":   round(dc, 3),
+        "trade":             trade,
+        "trade_code":        trade_code,
+        "confidence":        conf_label,
+        "viable_rate":       viable_rate,
+        "signal_text":       signal_text,
+    }
+
+
+def _maybe_retrain_ml_models() -> dict:
+    """Retrain ML models if they are missing or the labelled dataset has grown by 5+ new days."""
+    with _db() as con:
+        row = con.execute(
+            "SELECT trained_at, n_samples FROM ml_models WHERE model_name='vol_regime'"
+        ).fetchone()
+        current_samples = con.execute(
+            "SELECT COUNT(*) FROM ml_labels WHERE range_regime IS NOT NULL AND direction_eod IS NOT NULL"
+        ).fetchone()[0]
+
+    if row is None:
+        return _train_ml_models()
+
+    # Roughly 14 snapshots per trading day — retrain if grown by ~5 days worth
+    trained_samples = row[1]
+    if current_samples - trained_samples >= 70:
+        return _train_ml_models()
+
+    return {"status": "skipped", "reason": "models up to date", "samples": current_samples}
+
+
 def _ensure_spx_open_prices_table() -> None:
     """Create spx_open_prices table for manually entered daily open prices."""
     with _db() as con:
@@ -1585,18 +2384,47 @@ def _compute_pca() -> dict:
         calculate_total_oi_and_vol,
         calculate_total_gex,
         calculate_flip_level,
+        calculate_raw_aggregates,
     )
 
+    # Full feature set covering all raw aggregates, derived metrics and distance features
     FEATURES = [
+        # GEX
         "net_gex", "total_call_gex", "total_put_gex",
-        "sentiment", "gex_ratio", "kcs", "dominance",
-        "total_call_oi", "total_put_oi",
-        "total_call_vol", "total_put_vol",
+        # Regime / sentiment
+        "sentiment", "gex_ratio",
+        # Key strike derived
+        "kcs", "dominance",
         "key_call_gex", "key_put_gex",
         "key_call_oi", "key_put_oi",
         "key_call_vol", "key_put_vol",
-        "dist_to_key", "dist_to_flip", "key2_abs",
+        # Secondary key
+        "key2_abs", "key2_call_vol", "key2_put_vol",
+        # Total OI / Vol
+        "total_call_oi", "total_put_oi",
+        "total_call_vol", "total_put_vol",
+        # OI and Vol ratios (call/put imbalance)
+        "oi_ratio", "vol_ratio",
+        # Raw aggregates
+        "pcmag", "cotm", "potm",
+        # Distance features
+        "dist_to_key", "dist_to_flip",
     ]
+
+    FEATURE_GROUPS = {
+        "net_gex": "GEX", "total_call_gex": "GEX", "total_put_gex": "GEX",
+        "sentiment": "Regime", "gex_ratio": "Regime",
+        "kcs": "Key Strike", "dominance": "Key Strike",
+        "key_call_gex": "Key Strike", "key_put_gex": "Key Strike",
+        "key_call_oi": "Key Strike", "key_put_oi": "Key Strike",
+        "key_call_vol": "Key Strike", "key_put_vol": "Key Strike",
+        "key2_abs": "Key2", "key2_call_vol": "Key2", "key2_put_vol": "Key2",
+        "total_call_oi": "OI/Vol", "total_put_oi": "OI/Vol",
+        "total_call_vol": "OI/Vol", "total_put_vol": "OI/Vol",
+        "oi_ratio": "OI/Vol", "vol_ratio": "OI/Vol",
+        "pcmag": "Raw", "cotm": "Raw", "potm": "Raw",
+        "dist_to_key": "Distance", "dist_to_flip": "Distance",
+    }
 
     with _db() as con:
         rows = con.execute(
@@ -1631,12 +2459,21 @@ def _compute_pca() -> dict:
         total_oi_vol = calculate_total_oi_and_vol(strikes)
         total_gex_vals = calculate_total_gex(strikes)
         flip = calculate_flip_level(strikes)
-        
-        # Calculate distance features
+        raw = calculate_raw_aggregates(strikes)
+
+        # Distance features
         key_strike = key_stats["key_strike"] or uprice
         dist_to_key = abs(uprice - key_strike)
         dist_to_flip = abs(uprice - flip) if flip else 0
-        
+
+        # OI and Vol ratios (call/put imbalance — avoid div/0)
+        tcoi = total_oi_vol["total_call_oi"] or 0
+        tpoi = total_oi_vol["total_put_oi"] or 0
+        tcvol = total_oi_vol["total_call_vol"] or 0
+        tpvol = total_oi_vol["total_put_vol"] or 0
+        oi_ratio = round(tcoi / tpoi, 4) if tpoi else 0
+        vol_ratio = round(tcvol / tpvol, 4) if tpvol else 0
+
         records.append({
             "net_gex": net_gex,
             "total_call_gex": total_gex_vals["total_call_gex"],
@@ -1645,19 +2482,26 @@ def _compute_pca() -> dict:
             "gex_ratio": gex_ratio,
             "kcs": kcs,
             "dominance": dominance,
-            "total_call_oi": total_oi_vol["total_call_oi"],
-            "total_put_oi": total_oi_vol["total_put_oi"],
-            "total_call_vol": total_oi_vol["total_call_vol"],
-            "total_put_vol": total_oi_vol["total_put_vol"],
             "key_call_gex": key_stats["key_call_gex"],
             "key_put_gex": key_stats["key_put_gex"],
             "key_call_oi": key_stats["key_call_oi"],
             "key_put_oi": key_stats["key_put_oi"],
             "key_call_vol": key_stats["key_call_vol"],
             "key_put_vol": key_stats["key_put_vol"],
+            "key2_abs": key_stats["key2_abs"],
+            "key2_call_vol": key_stats["key2_call_vol"],
+            "key2_put_vol": key_stats["key2_put_vol"],
+            "total_call_oi": tcoi,
+            "total_put_oi": tpoi,
+            "total_call_vol": tcvol,
+            "total_put_vol": tpvol,
+            "oi_ratio": oi_ratio,
+            "vol_ratio": vol_ratio,
+            "pcmag": raw["pcmag"],
+            "cotm": raw["cotm"],
+            "potm": raw["potm"],
             "dist_to_key": dist_to_key,
             "dist_to_flip": dist_to_flip,
-            "key2_abs": key_stats["key2_abs"],
         })
 
     if len(records) < 5:
@@ -1682,19 +2526,654 @@ def _compute_pca() -> dict:
             "pc": i + 1,
             "variance": evr[i],
             "cumulative": cumulative[i],
-            "top_features": [{"feature": f, "loading": round(l, 3)} for f, l in loadings[:5]],
+            "top_features": [{"feature": f, "loading": round(l, 3)} for f, l in loadings[:6]],
+            "all_loadings": [{"feature": f, "loading": round(l, 4)} for f, l in zip(FEATURES, pca.components_[i])],
         })
+
+    # Ranked feature importance (weighted loading across all significant PCs)
+    n90 = next((i + 1 for i, c in enumerate(cumulative) if c >= 0.90), len(FEATURES))
+    feature_importance = {f: 0.0 for f in FEATURES}
+    for i in range(n90):
+        for j, f in enumerate(FEATURES):
+            feature_importance[f] += abs(pca.components_[i, j]) * evr[i]
+    max_score = max(feature_importance.values()) or 1
+    ranked_features = sorted([
+        {
+            "feature": f,
+            "score": round(score, 4),
+            "score_pct": round(score / max_score * 100, 1),
+            "group": FEATURE_GROUPS.get(f, "Other"),
+            "verdict": "HIGH" if score >= max_score * 0.5 else ("MODERATE" if score >= max_score * 0.25 else "LOW"),
+        }
+        for f, score in feature_importance.items()
+    ], key=lambda x: -x["score"])
+
+    # Correlation matrix (upper triangle, |r| > 0.7 only)
+    corr = df.corr().round(3)
+    high_corr = []
+    for i in range(len(FEATURES)):
+        for j in range(i + 1, len(FEATURES)):
+            r = corr.iloc[i, j]
+            if abs(r) > 0.7:
+                high_corr.append({
+                    "a": FEATURES[i], "b": FEATURES[j],
+                    "r": round(r, 3),
+                    "verdict": "DROP one" if abs(r) > 0.95 else ("REDUNDANT" if abs(r) > 0.85 else "HIGH"),
+                })
+    high_corr.sort(key=lambda x: -abs(x["r"]))
+
+    # Full correlation matrix for heatmap
+    corr_matrix = {
+        "features": FEATURES,
+        "values": corr.values.tolist(),
+    }
 
     return {
         "status": "ok",
         "n_samples": len(records),
         "n_features": len(FEATURES),
         "features": FEATURES,
+        "feature_groups": FEATURE_GROUPS,
         "hmm_features": HMM_FEATURES,
         "explained_variance_ratio": evr,
         "cumulative_variance": cumulative,
+        "n90": n90,
         "components": component_details,
+        "ranked_features": ranked_features,
+        "high_correlations": high_corr,
+        "correlation_matrix": corr_matrix,
     }
+
+
+@app.route("/api/ml/predictions")
+def api_ml_predictions():
+    """Return prediction history with outcomes. Query: limit=N (default 100)"""
+    limit = min(int(request.args.get("limit", 200)), 500)
+    with _db() as con:
+        rows = con.execute("""
+            SELECT ndate, ntime, predicted_at,
+                   vol_regime_pred, vol_regime_proba, direction_pred, direction_proba,
+                   trade_pred, trade_code, confidence,
+                   vol_regime_actual, direction_1hr_actual, direction_2hr_actual,
+                   direction_eod_actual, trade_viable_actual,
+                   vol_correct, direction_1hr_correct, direction_2hr_correct,
+                   outcome_filled_at
+            FROM ml_predictions
+            ORDER BY ndate DESC, ntime DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        total = con.execute("SELECT COUNT(*) FROM ml_predictions").fetchone()[0]
+        filled = con.execute("SELECT COUNT(*) FROM ml_predictions WHERE outcome_filled_at IS NOT NULL").fetchone()[0]
+        # Accuracy stats
+        stats = con.execute("""
+            SELECT
+                ROUND(AVG(vol_correct)*100,1) as vol_acc,
+                ROUND(AVG(direction_1hr_correct)*100,1) as dir1_acc,
+                ROUND(AVG(direction_2hr_correct)*100,1) as dir2_acc,
+                ROUND(AVG(trade_viable_actual)*100,1) as trade_acc
+            FROM ml_predictions WHERE outcome_filled_at IS NOT NULL
+        """).fetchone()
+    cols = ["ndate","ntime","predicted_at",
+            "vol_regime_pred","vol_regime_proba","direction_pred","direction_proba",
+            "trade_pred","trade_code","confidence",
+            "vol_regime_actual","direction_1hr_actual","direction_2hr_actual",
+            "direction_eod_actual","trade_viable_actual",
+            "vol_correct","direction_1hr_correct","direction_2hr_correct",
+            "outcome_filled_at"]
+    return jsonify({
+        "total": total, "filled": filled,
+        "accuracy": {"vol_regime": stats[0], "direction_1hr": stats[1],
+                     "direction_2hr": stats[2], "trade_viable": stats[3]},
+        "predictions": [dict(zip(cols, r)) for r in rows],
+    })
+
+
+@app.route("/api/ml/backtest-accuracy")
+def api_ml_backtest_accuracy():
+    """Run the trained models over all labelled historical snapshots and return accuracy stats.
+
+    Expensive first call (~5-10s); results are not cached — call once on tab load.
+    """
+    import numpy as np
+
+    clf_v, scaler_v, _ = _load_ml_model("vol_regime")
+    clf_d, scaler_d, _ = _load_ml_model("direction")
+    if clf_v is None or clf_d is None:
+        return jsonify({"error": "models not trained yet"}), 404
+
+    with _db() as con:
+        rows = con.execute("""
+            SELECT g.ndate, g.ntime, g.price, g.data,
+                   l.range_regime, l.direction_2hr,
+                   l.trade_viable_ic, l.trade_viable_sps, l.trade_viable_scs,
+                   l.trade_viable_lcs, l.trade_viable_lps,
+                   l.pct_2hr, l.range_2hr
+            FROM gex_strike_window g
+            JOIN ml_labels l ON l.ndate=g.ndate AND l.ntime=g.ntime
+            WHERE g.symbol='SPX' AND g.source='gex' AND g.ntime>=935
+              AND l.range_regime IS NOT NULL AND l.direction_2hr IS NOT NULL
+            ORDER BY g.ndate, g.ntime
+        """).fetchall()
+
+    if not rows:
+        return jsonify({"error": "no labelled data"}), 404
+
+    records = []
+    X_list, y_vol, y_dir = [], [], []
+    meta = []
+
+    for row in rows:
+        ndate, ntime, uprice, data_json, range_regime, dir_2hr, \
+            tv_ic, tv_sps, tv_scs, tv_lcs, tv_lps, pct_2hr, range_2hr = row
+        try:
+            strikes = json.loads(data_json) if data_json else []
+        except Exception:
+            continue
+        feats = _extract_gex_features(strikes, uprice)
+        if feats is None:
+            continue
+        X_list.append([feats[f] for f in ML_FEATURES])
+        y_vol.append("WIDE" if range_regime == "WIDE" else "TIGHT")
+        y_dir.append(dir_2hr)
+        meta.append({
+            "ndate": ndate, "ntime": ntime,
+            "tv_ic": tv_ic, "tv_sps": tv_sps, "tv_scs": tv_scs,
+            "tv_lcs": tv_lcs, "tv_lps": tv_lps,
+            "pct_2hr": pct_2hr, "range_2hr": range_2hr,
+        })
+
+    X = np.nan_to_num(np.array(X_list, dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+    X_v = scaler_v.transform(X)
+    X_d = scaler_d.transform(X)
+
+    preds_vol = clf_v.predict(X_v).tolist()
+    preds_dir = clf_d.predict(X_d).tolist()
+    proba_vol = clf_v.predict_proba(X_v).max(axis=1).tolist()
+    proba_dir = clf_d.predict_proba(X_d).max(axis=1).tolist()
+
+    _TV_MAP = {"IC": "tv_ic", "IB": "tv_ic", "SPS": "tv_sps",
+               "SCS": "tv_scs", "LCS": "tv_lcs", "LPS": "tv_lps"}
+
+    # Build per-row result and aggregate stats
+    vol_correct, dir_correct, trade_viable_list = [], [], []
+    by_date = {}
+    detail_rows = []
+
+    for i, m in enumerate(meta):
+        pv = preds_vol[i]; pd_ = preds_dir[i]
+        trade, trade_code = _TRADE_MATRIX.get((pv, pd_), ("No signal", "---"))
+        min_conf = min(proba_vol[i], proba_dir[i])
+        confidence = "HIGH" if min_conf >= 0.65 else ("MEDIUM" if min_conf >= 0.45 else "LOW")
+
+        vc = 1 if pv == y_vol[i] else 0
+        dc = 1 if pd_ == y_dir[i] else 0
+        tv_col = _TV_MAP.get(trade_code)
+        tv = m.get(tv_col) if tv_col else None
+
+        vol_correct.append(vc)
+        dir_correct.append(dc)
+        if tv is not None:
+            trade_viable_list.append(tv)
+
+        nd = str(m["ndate"])
+        date_iso = f"{nd[:4]}-{nd[4:6]}-{nd[6:]}"
+        by_date.setdefault(date_iso, {"vc": [], "dc": [], "tv": []})
+        by_date[date_iso]["vc"].append(vc)
+        by_date[date_iso]["dc"].append(dc)
+        if tv is not None:
+            by_date[date_iso]["tv"].append(tv)
+
+        detail_rows.append({
+            "date": date_iso,
+            "time": m["ntime"],
+            "vol_pred": pv, "vol_actual": y_vol[i], "vol_correct": vc,
+            "dir_pred": pd_, "dir_actual": y_dir[i], "dir_correct": dc,
+            "trade": trade, "trade_code": trade_code,
+            "trade_viable": tv, "confidence": confidence,
+            "pct_2hr": round(m["pct_2hr"], 3) if m["pct_2hr"] else None,
+        })
+
+    # Daily accuracy series for chart
+    daily = sorted([{
+        "date": d,
+        "vol_acc": round(sum(v["vc"]) / len(v["vc"]) * 100, 1),
+        "dir_acc": round(sum(v["dc"]) / len(v["dc"]) * 100, 1),
+        "trade_viable_pct": round(sum(v["tv"]) / len(v["tv"]) * 100, 1) if v["tv"] else None,
+        "n": len(v["vc"]),
+    } for d, v in by_date.items()], key=lambda x: x["date"])
+
+    # Confusion matrices
+    vol_classes = sorted(set(y_vol))
+    dir_classes = sorted(set(y_dir))
+
+    def confusion(y_true, y_pred, classes):
+        m = {c: {c2: 0 for c2 in classes} for c in classes}
+        for t, p in zip(y_true, y_pred):
+            if t in m and p in m[t]:
+                m[t][p] += 1
+        return {"classes": classes, "matrix": [[m[r][c] for c in classes] for r in classes]}
+
+    return jsonify({
+        "n_samples": len(meta),
+        "overall": {
+            "vol_accuracy": round(sum(vol_correct) / len(vol_correct) * 100, 1),
+            "dir_accuracy": round(sum(dir_correct) / len(dir_correct) * 100, 1),
+            "trade_viable_pct": round(sum(trade_viable_list) / len(trade_viable_list) * 100, 1) if trade_viable_list else None,
+        },
+        "vol_confusion": confusion(y_vol, preds_vol, vol_classes),
+        "dir_confusion": confusion(y_dir, preds_dir, dir_classes),
+        "daily_series": daily,
+        "detail": detail_rows[-200:],  # last 200 rows for table
+    })
+
+
+@app.route("/api/ml/anomaly")
+def api_ml_anomaly():
+    """PCA-based anomaly detection over all historical GEX snapshots.
+
+    Fits PCA on the full historical feature matrix, then computes the
+    reconstruction error (MSE) for every snapshot. High reconstruction error
+    = the day's GEX structure is unusual vs the historical distribution.
+
+    Returns:
+      - scores: [{date, time, error, z_score, label}] for every snapshot
+      - thresholds: z-score cutoffs for UNUSUAL / EXTREME
+      - today: latest snapshot score if available
+    """
+    import numpy as np
+    import json as _json
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.decomposition import PCA
+    from controllers.gex_calculations import (
+        calculate_sentiment, calculate_gex_ratio, calculate_net_gex,
+        calculate_kcs, calculate_dominance, calculate_key_strike_stats,
+        calculate_total_oi_and_vol, calculate_total_gex,
+        calculate_flip_level, calculate_raw_aggregates,
+    )
+
+    FEATURES = [
+        "net_gex", "total_call_gex", "total_put_gex",
+        "sentiment", "gex_ratio", "kcs", "dominance",
+        "key_call_gex", "key_put_gex", "key_call_oi", "key_put_oi",
+        "key_call_vol", "key_put_vol", "key2_abs", "key2_call_vol", "key2_put_vol",
+        "total_call_oi", "total_put_oi", "total_call_vol", "total_put_vol",
+        "oi_ratio", "vol_ratio", "pcmag", "cotm", "potm",
+        "dist_to_key", "dist_to_flip",
+    ]
+
+    with _db() as con:
+        rows = con.execute(
+            "SELECT ndate, ntime, price, data FROM gex_strike_window "
+            "WHERE symbol='SPX' AND source='gex' AND ntime>=935 "
+            "ORDER BY ndate, ntime"
+        ).fetchall()
+
+    if len(rows) < 10:
+        return jsonify({"error": "insufficient data (<10 snapshots)"}), 404
+
+    meta, X_list = [], []
+    for ndate, ntime, uprice, data_json in rows:
+        if not uprice or not data_json:
+            continue
+        try:
+            strikes = _json.loads(data_json)
+        except Exception:
+            continue
+        if not strikes:
+            continue
+
+        sentiment   = calculate_sentiment(strikes)
+        gex_ratio   = calculate_gex_ratio(strikes)
+        net_gex     = calculate_net_gex(strikes)
+        kcs         = calculate_kcs(strikes, uprice)
+        dominance   = calculate_dominance(strikes, uprice)
+        key_stats   = calculate_key_strike_stats(strikes, uprice)
+        total_oi_vol= calculate_total_oi_and_vol(strikes)
+        total_gex_v = calculate_total_gex(strikes)
+        flip        = calculate_flip_level(strikes)
+        raw         = calculate_raw_aggregates(strikes)
+        key_strike  = key_stats["key_strike"] or uprice
+        tcoi = total_oi_vol["total_call_oi"] or 0
+        tpoi = total_oi_vol["total_put_oi"] or 0
+        tcvol= total_oi_vol["total_call_vol"] or 0
+        tpvol= total_oi_vol["total_put_vol"] or 0
+
+        vec = [
+            net_gex, total_gex_v["total_call_gex"], total_gex_v["total_put_gex"],
+            sentiment, gex_ratio, kcs, dominance,
+            key_stats["key_call_gex"], key_stats["key_put_gex"],
+            key_stats["key_call_oi"],  key_stats["key_put_oi"],
+            key_stats["key_call_vol"], key_stats["key_put_vol"],
+            key_stats["key2_abs"], key_stats["key2_call_vol"], key_stats["key2_put_vol"],
+            tcoi, tpoi, tcvol, tpvol,
+            (tcoi/tpoi if tpoi else 0), (tcvol/tpvol if tpvol else 0),
+            raw["pcmag"], raw["cotm"], raw["potm"],
+            abs(uprice - key_strike), (abs(uprice - flip) if flip else 0),
+        ]
+        X_list.append(vec)
+        nd = str(ndate)
+        meta.append({"date": f"{nd[:4]}-{nd[4:6]}-{nd[6:]}", "time": ntime})
+
+    X = np.nan_to_num(np.array(X_list, dtype=float), nan=0.0, posinf=0.0, neginf=0.0)
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+
+    # Fit PCA retaining 95% variance
+    pca = PCA(n_components=0.95, svd_solver="full")
+    pca.fit(X_scaled)
+    n_comp = pca.n_components_
+
+    # Reconstruction error = MSE between original and PCA-reconstructed
+    X_proj  = pca.transform(X_scaled)
+    X_recon = pca.inverse_transform(X_proj)
+    errors  = np.mean((X_scaled - X_recon) ** 2, axis=1)
+
+    mu, sigma = float(errors.mean()), float(errors.std())
+    z_scores = ((errors - mu) / sigma).tolist()
+    errors   = errors.tolist()
+
+    THRESH_UNUSUAL = 2.0
+    THRESH_EXTREME = 3.0
+
+    def label(z):
+        if z >= THRESH_EXTREME: return "EXTREME"
+        if z >= THRESH_UNUSUAL: return "UNUSUAL"
+        return "NORMAL"
+
+    scores = []
+    for i, m in enumerate(meta):
+        scores.append({
+            "date":    m["date"],
+            "time":    m["time"],
+            "error":   round(errors[i], 5),
+            "z_score": round(z_scores[i], 2),
+            "label":   label(z_scores[i]),
+        })
+
+    # Aggregate to daily: use max z_score per day
+    by_date = {}
+    for s in scores:
+        d = s["date"]
+        if d not in by_date or s["z_score"] > by_date[d]["z_score"]:
+            by_date[d] = s
+
+    daily = sorted(by_date.values(), key=lambda x: x["date"])
+
+    # Most recent snapshot = "today"
+    today = scores[-1] if scores else None
+
+    # Top 10 most anomalous snapshots
+    top_anomalies = sorted(scores, key=lambda x: x["z_score"], reverse=True)[:10]
+
+    return jsonify({
+        "n_snapshots":    len(scores),
+        "n_components":   int(n_comp),
+        "variance_kept":  round(float(pca.explained_variance_ratio_.sum()), 3),
+        "thresholds":     {"unusual": THRESH_UNUSUAL, "extreme": THRESH_EXTREME},
+        "scores":         scores,
+        "daily":          daily,
+        "today":          today,
+        "top_anomalies":  top_anomalies,
+    })
+
+
+@app.route("/api/ml/session-range")
+def api_ml_session_range():
+    """Session Range Forecast: given today's vol regime + direction, return historical
+    distribution of 2hr and EOD ranges, plus key/flip strike levels for strike selection.
+
+    Query params:
+        date: YYYY-MM-DD (default today)
+        time: HHMM snapshot time (default earliest today)
+
+    Returns per vol_regime bucket:
+        - range_2hr distribution (p10/p25/p50/p75/p90)
+        - range_eod distribution
+        - trade_viable rates by trade type
+        - scatter of historical instances (date, pct_2hr, range_2hr)
+        - today's snapshot key_strike, flip_level, uprice, ml_signal
+    """
+    import numpy as np
+    import json as _json
+    from datetime import date as _date
+
+    date_str = request.args.get("date", _date.today().isoformat())
+    try:
+        ndate = int(date_str.replace("-", ""))
+    except Exception:
+        return jsonify({"error": "invalid date"}), 400
+
+    # Get today's latest RTH snapshot
+    with _db() as con:
+        snap = con.execute(
+            "SELECT ntime, price, data FROM gex_strike_window "
+            "WHERE ndate=? AND symbol='SPX' AND source='gex' AND ntime>=935 "
+            "ORDER BY ntime DESC LIMIT 1",
+            (ndate,)
+        ).fetchone()
+
+    if not snap:
+        return jsonify({"error": f"No RTH snapshot found for {date_str}"}), 404
+
+    ntime, uprice, data_json = snap
+    try:
+        strikes = _json.loads(data_json) if data_json else []
+    except Exception:
+        strikes = []
+
+    # Get key strike and flip level for today
+    from controllers.gex_calculations import (
+        calculate_key_strike_stats, calculate_flip_level
+    )
+    key_stats  = calculate_key_strike_stats(strikes, uprice) if strikes else {}
+    flip_level = calculate_flip_level(strikes) if strikes else None
+    key_strike = key_stats.get("key_strike")
+    key2_strike= key_stats.get("key2_strike")
+
+    # Get today's ML prediction
+    ml_pred = None
+    with _db() as con:
+        p = con.execute(
+            "SELECT vol_regime, direction, trade_code, confidence, vol_proba, dir_proba "
+            "FROM ml_predictions WHERE ndate=? ORDER BY ntime DESC LIMIT 1",
+            (ndate,)
+        ).fetchone()
+        if p:
+            ml_pred = {
+                "vol_regime": p[0], "direction": p[1], "trade_code": p[2],
+                "confidence": p[3], "vol_proba": p[4], "dir_proba": p[5],
+            }
+
+    # Run live prediction if no stored prediction yet
+    if not ml_pred and strikes and uprice:
+        try:
+            ml_pred = _predict_snapshot(strikes, uprice)
+        except Exception:
+            pass
+
+    # Pull all historical ml_labels with range data
+    with _db() as con:
+        rows = con.execute("""
+            SELECT l.ndate, l.ntime, l.range_regime, l.direction_2hr,
+                   l.range_2hr, l.pct_2hr, l.range_to_eod,
+                   l.trade_viable_ic, l.trade_viable_sps, l.trade_viable_scs,
+                   l.trade_viable_lcs, l.trade_viable_lps
+            FROM ml_labels l
+            WHERE l.range_2hr IS NOT NULL AND l.range_to_eod IS NOT NULL
+              AND l.ndate != ?
+            ORDER BY l.ndate DESC
+        """, (ndate,)).fetchall()
+
+    if not rows:
+        return jsonify({"error": "insufficient historical label data"}), 404
+
+    # Collapse NORMAL→TIGHT to match model
+    def _regime(r): return "WIDE" if r == "WIDE" else "TIGHT"
+
+    # Aggregate by regime bucket
+    buckets = {"TIGHT": [], "WIDE": []}
+    for row in rows:
+        nd, nt, rr, d2, r2, p2, reod, tv_ic, tv_sps, tv_scs, tv_lcs, tv_lps = row
+        nd_str = str(nd)
+        buckets[_regime(rr)].append({
+            "date": f"{nd_str[:4]}-{nd_str[4:6]}-{nd_str[6:]}",
+            "direction": d2,
+            "range_2hr": r2,
+            "pct_2hr": p2,
+            "range_eod": reod,
+            "tv_ic": tv_ic, "tv_sps": tv_sps, "tv_scs": tv_scs,
+            "tv_lcs": tv_lcs, "tv_lps": tv_lps,
+        })
+
+    def percentiles(vals, qs=(10, 25, 50, 75, 90)):
+        if not vals:
+            return {f"p{q}": None for q in qs}
+        arr = np.array(vals, dtype=float)
+        return {f"p{q}": round(float(np.percentile(arr, q)), 1) for q in qs}
+
+    def viable_rate(items, col):
+        vals = [x[col] for x in items if x[col] is not None]
+        return round(sum(vals) / len(vals) * 100, 1) if vals else None
+
+    def build_bucket(items):
+        if not items:
+            return None
+        r2  = [x["range_2hr"] for x in items]
+        reod= [x["range_eod"] for x in items]
+        p2  = [x["pct_2hr"] for x in items]
+        # Direction breakdown
+        dir_counts = {}
+        for x in items:
+            dir_counts[x["direction"]] = dir_counts.get(x["direction"], 0) + 1
+        # Scatter sample (last 120 for chart)
+        scatter = [{"date": x["date"], "pct_2hr": round(x["pct_2hr"], 3),
+                    "range_2hr": round(x["range_2hr"], 1),
+                    "direction": x["direction"]} for x in items[-120:]]
+        return {
+            "n": len(items),
+            "range_2hr":  percentiles(r2),
+            "range_eod":  percentiles(reod),
+            "pct_2hr":    percentiles(p2),
+            "direction_counts": dir_counts,
+            "trade_viable": {
+                "IC":  viable_rate(items, "tv_ic"),
+                "SPS": viable_rate(items, "tv_sps"),
+                "SCS": viable_rate(items, "tv_scs"),
+                "LCS": viable_rate(items, "tv_lcs"),
+                "LPS": viable_rate(items, "tv_lps"),
+            },
+            "scatter": scatter,
+        }
+
+    # Also split by direction within today's predicted regime
+    pred_regime = None
+    pred_dir = None
+    if ml_pred:
+        pred_regime = "WIDE" if ml_pred.get("vol_regime") == "WIDE" else "TIGHT"
+        pred_dir = ml_pred.get("direction")
+
+    filtered_items = []
+    if pred_regime and pred_dir:
+        filtered_items = [x for x in buckets[pred_regime] if x["direction"] == pred_dir]
+
+    return jsonify({
+        "date":        date_str,
+        "ntime":       ntime,
+        "uprice":      uprice,
+        "key_strike":  key_strike,
+        "key2_strike": key2_strike,
+        "flip_level":  flip_level,
+        "ml_signal":   ml_pred,
+        "buckets":     {k: build_bucket(v) for k, v in buckets.items()},
+        "filtered":    build_bucket(filtered_items) if filtered_items else None,
+        "filtered_label": f"{pred_regime} + {pred_dir}" if pred_regime and pred_dir else None,
+    })
+
+
+@app.route("/api/ml/retrain")
+def api_ml_retrain():
+    """Manually trigger ML model retraining."""
+    result = _train_ml_models()
+    return jsonify(result)
+
+
+@app.route("/api/ml/predict")
+def api_ml_predict():
+    """Run ML prediction for a stored snapshot. Query: date=YYYY-MM-DD&time=HHMM"""
+    date_str = request.args.get("date", "")
+    time_str = request.args.get("time", "")
+    if not date_str or not time_str:
+        return jsonify({"error": "date and time required"}), 400
+    try:
+        ndate = int(date_str.replace("-", ""))
+        ntime = int(time_str.replace(":", ""))
+    except ValueError:
+        return jsonify({"error": "invalid date/time format"}), 400
+    with _db() as con:
+        row = con.execute(
+            "SELECT price, data FROM gex_strike_window WHERE ndate=? AND ntime=? AND symbol='SPX'",
+            (ndate, ntime)
+        ).fetchone()
+    if not row:
+        return jsonify({"error": "snapshot not found"}), 404
+    uprice, data_json = row
+    try:
+        strikes = json.loads(data_json) if data_json else []
+    except Exception:
+        return jsonify({"error": "invalid strike data"}), 500
+    result = _predict_snapshot(strikes, uprice)
+    return jsonify(result)
+
+
+@app.route("/api/ml/models-status")
+def api_ml_models_status():
+    """Return status of trained ML models."""
+    with _db() as con:
+        rows = con.execute(
+            "SELECT model_name, trained_at, n_samples, classes, accuracy FROM ml_models"
+        ).fetchall()
+    models = [{"name": r[0], "trained_at": r[1], "samples": r[2],
+               "classes": json.loads(r[3]), "accuracy": r[4]} for r in rows]
+    return jsonify({"models": models})
+
+
+@app.route("/api/ml/update-ohlc")
+def api_ml_update_ohlc():
+    """Fetch latest SPX 5-min bars from yfinance and update ml_labels."""
+    ohlc_result = _update_spx_ohlc_from_yfinance()
+    label_result = _ensure_ml_labels_current()
+    return jsonify({"ohlc": ohlc_result, "labels": label_result})
+
+
+@app.route("/api/ml/labels-summary")
+def api_ml_labels_summary():
+    """Return summary statistics for ml_labels table."""
+    with _db() as con:
+        total = con.execute("SELECT COUNT(*) FROM ml_labels").fetchone()[0]
+        with_eod = con.execute("SELECT COUNT(*) FROM ml_labels WHERE spx_eod IS NOT NULL").fetchone()[0]
+        dates = con.execute("SELECT COUNT(DISTINCT ndate) FROM ml_labels").fetchone()[0]
+        last = con.execute("SELECT MAX(ndate) FROM ml_labels").fetchone()[0]
+        dirs = con.execute(
+            "SELECT direction_eod, COUNT(*) FROM ml_labels WHERE direction_eod IS NOT NULL GROUP BY direction_eod"
+        ).fetchall()
+        regimes = con.execute(
+            "SELECT range_regime, COUNT(*) FROM ml_labels WHERE range_regime IS NOT NULL GROUP BY range_regime"
+        ).fetchall()
+        flips = con.execute(
+            "SELECT flip_breached, COUNT(*) FROM ml_labels WHERE flip_breached IS NOT NULL GROUP BY flip_breached"
+        ).fetchall()
+    return jsonify({
+        "total": total, "with_eod": with_eod, "dates": dates, "last_date": last,
+        "direction_eod": dict(dirs),
+        "range_regime": dict(regimes),
+        "flip_breached": {str(k): v for k, v in flips},
+    })
+
+
+@app.route("/ml")
+def page_ml():
+    """Machine Learning analysis page."""
+    return render_template("ml.html")
 
 
 @app.route("/api/pca")
@@ -4837,7 +6316,7 @@ def api_verify_percentiles():
                 
                 # Get existing metrics for this date/time
                 existing_rows = con.execute(
-                    "SELECT metric_name FROM gex_percentile_history WHERE ndate=? AND ntime=?",
+                    "SELECT metric_name FROM percentile_history WHERE ndate=? AND ntime=?",
                     (ndate, ntime)
                 ).fetchall()
                 existing_metrics = {r[0] for r in existing_rows}
@@ -4928,6 +6407,51 @@ def api_gex_distribution_all_values():
     """Return all historical values for a metric from gex_strike_window."""
     from controllers.gex_controller import GexController
     return GexController.get_distribution_all_values()
+
+
+@app.route("/api/gex/capture-session")
+def api_gex_capture_session():
+    """Launch Playwright session capture (--session-only mode).
+
+    Opens a visible Chromium window at the OptionAlpha login page.
+    You have 20 seconds to log in; the session cookies are then saved
+    to session.json and the browser closes automatically.
+    Runs as a background subprocess so the request returns immediately
+    with a status message.
+    """
+    import subprocess, sys
+    capture_script = Path(__file__).parent / "optionalpha_capture.py"
+    if not capture_script.exists():
+        return jsonify({"error": "optionalpha_capture.py not found"}), 500
+    try:
+        subprocess.Popen(
+            [sys.executable, str(capture_script), "--session-only"],
+            cwd=str(Path(__file__).parent),
+        )
+        return jsonify({
+            "status": "launched",
+            "message": "Chromium is opening — log in within 20 seconds. Session will save automatically.",
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/gex/session-status")
+def api_gex_session_status():
+    """Check whether a valid session.json exists and how old it is."""
+    session_file = Path(__file__).parent / "session.json"
+    if not session_file.exists():
+        return jsonify({"exists": False, "message": "No session — click Capture Session to log in."})
+    import time as _time
+    age_seconds = _time.time() - session_file.stat().st_mtime
+    age_hours = round(age_seconds / 3600, 1)
+    fresh = age_hours < 12
+    return jsonify({
+        "exists": True,
+        "age_hours": age_hours,
+        "fresh": fresh,
+        "message": f"Session saved {age_hours}h ago — {'✓ fresh' if fresh else '⚠ may be stale, re-capture recommended'}",
+    })
 
 
 @app.route("/api/gex/fetch-live")
@@ -5065,14 +6589,25 @@ def api_gex_fetch_live():
         
         # Recalculate percentiles for this time slot
         _recalc_gex_percentiles(ntime)
-        
+
+        # Run ML prediction for RTH snapshots and persist it
+        ml_signal = None
+        if ntime >= 935:
+            try:
+                ml_signal = _predict_snapshot(window_strikes, uprice)
+                _save_prediction(ndate, ntime, ml_signal)
+            except Exception as _ml_err:
+                ml_signal = {"error": str(_ml_err)}
+
         return jsonify({
             "success": True,
             "message": f"Fetched live GEX data for {et_now.strftime('%Y-%m-%d %H:%M')}",
             "ndate": ndate,
             "ntime": ntime,
             "uprice": uprice,
-            "strike_count": len(window_strikes)
+            "strike_count": len(window_strikes),
+            "hmm_label": hmm_label,
+            "ml_signal": ml_signal,
         })
         
     except Exception as e:
@@ -6106,7 +7641,7 @@ def _recalc_gex_percentiles(ntime: int) -> None:
         
         # Delete existing percentile records for this time slot
         con.execute(
-            "DELETE FROM gex_percentile_history WHERE ntime=?",
+            "DELETE FROM percentile_history WHERE ntime=?",
             (ntime,)
         )
         
@@ -6124,7 +7659,7 @@ def _recalc_gex_percentiles(ntime: int) -> None:
                 percentile = round(rank / len(sorted_vals) * 100, 1)
                 
                 con.execute(
-                    "INSERT INTO gex_percentile_history (ndate, ntime, metric_name, value, percentile) VALUES (?, ?, ?, ?, ?)",
+                    "INSERT INTO percentile_history (ndate, ntime, metric_name, value, percentile) VALUES (?, ?, ?, ?, ?)",
                     (snap["ndate"], snap["ntime"], metric, value, percentile)
                 )
 
@@ -7517,6 +9052,13 @@ if __name__ == "__main__":
     # _migrate_to_snapshot()  # Already run manually
     # _ensure_snapshot_table()  # REMOVED: snapshot table no longer used
     _ensure_live_analysis_table()
+    _ensure_spx_ohlc_table()
+    _update_spx_ohlc_from_yfinance()
+    _ensure_ml_labels_current()
+    _ensure_ml_models_table()
+    _ensure_ml_predictions_table()
+    _maybe_retrain_ml_models()
+    _backfill_prediction_outcomes()
     _ensure_spx_open_prices_table()
     _populate_spx_open_prices_from_csv()  # fill spx_open_prices from CSV (ignores existing)
     # _ensure_snapshot_premarket()  # REMOVED: snapshot table no longer used

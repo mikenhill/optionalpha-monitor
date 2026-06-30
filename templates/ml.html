@@ -1,0 +1,888 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ML Analysis</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    .nav { background: #212529; padding: 10px 20px; margin: -20px -20px 20px -20px; display: flex; gap: 5px; flex-wrap: wrap; }
+    .nav a { padding: 6px 14px; text-decoration: none; color: #adb5bd; border-radius: 4px; font-size: 14px; }
+    .nav a:hover { background: #343a40; color: #fff; }
+    .nav a.active { background: #0d6efd; color: #fff; }
+    h1 { font-size: 20px; margin: 0 0 15px 0; }
+    .tabs { display: flex; gap: 0; border-bottom: 2px solid #dee2e6; margin-bottom: 20px; }
+    .tab-btn { padding: 8px 20px; border: none; background: none; cursor: pointer; font-size: 14px; color: #6c757d; border-bottom: 3px solid transparent; margin-bottom: -2px; }
+    .tab-btn.active { color: #0d6efd; border-bottom-color: #0d6efd; font-weight: bold; }
+    .tab-btn:hover { color: #343a40; }
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+    .card { background: #fff; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
+    .card h2 { font-size: 15px; margin: 0 0 12px 0; color: #343a40; border-bottom: 1px solid #e9ecef; padding-bottom: 8px; }
+    .loading { color: #6c757d; font-style: italic; padding: 20px 0; }
+    .error { color: #dc3545; padding: 10px; background: #fff5f5; border-radius: 4px; }
+    .stat-row { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 15px; }
+    .stat { background: #f8f9fa; border: 1px solid #dee2e6; padding: 10px 16px; border-radius: 6px; text-align: center; }
+    .stat-val { font-size: 22px; font-weight: bold; color: #212529; }
+    .stat-lbl { font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+    table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    thead th { background: #343a40; color: #fff; padding: 6px 10px; text-align: left; position: sticky; top: 0; }
+    td { border-bottom: 1px solid #dee2e6; padding: 5px 10px; }
+    tr:hover td { background: #f0f4ff; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }
+    .badge-high { background: #d1e7dd; color: #0a3622; }
+    .badge-moderate { background: #fff3cd; color: #664d03; }
+    .badge-low { background: #f8d7da; color: #58151c; }
+    .badge-gex { background: #cfe2ff; color: #084298; }
+    .badge-regime { background: #e2d9f3; color: #3d0a91; }
+    .badge-key { background: #d1e7dd; color: #0a3622; }
+    .badge-key2 { background: #d3f4e0; color: #0d5236; }
+    .badge-oivol { background: #fff3cd; color: #664d03; }
+    .badge-raw { background: #f8d7da; color: #58151c; }
+    .badge-distance { background: #fde8d8; color: #7a2500; }
+    .bar-wrap { background: #e9ecef; border-radius: 3px; height: 8px; width: 100%; margin-top: 3px; }
+    .bar { height: 8px; border-radius: 3px; }
+    .bar-high { background: #198754; }
+    .bar-moderate { background: #ffc107; }
+    .bar-low { background: #dc3545; }
+    .chart { width: 100%; height: 420px; }
+    .chart-tall { width: 100%; height: 600px; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    .corr-table { max-height: 350px; overflow-y: auto; }
+    .stub { background: #f8f9fa; border: 2px dashed #dee2e6; border-radius: 8px; padding: 40px; text-align: center; color: #6c757d; }
+    .stub h3 { margin: 0 0 8px 0; font-size: 16px; }
+    @media (max-width: 768px) { .two-col { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/gex">GEX</a>
+    <a href="/gex-admin">GEX Admin</a>
+    <a href="/gex-distribution">GEX Distribution</a>
+    <a href="/analysis">Analysis</a>
+    <a href="/spx">SPX Prices</a>
+    <a href="/csv">CSV</a>
+    <a class="active" href="/ml">ML</a>
+  </div>
+
+  <h1>Machine Learning Analysis</h1>
+
+  <div class="card" style="margin-bottom:15px">
+    <h2 style="margin:0 0 10px">Data Status <button onclick="updateOhlc()" id="btn-update" style="float:right;padding:4px 12px;font-size:12px;background:#0d6efd;color:#fff;border:none;border-radius:4px;cursor:pointer">↻ Update from yfinance</button></h2>
+    <div id="data-status" class="loading">Loading...</div>
+  </div>
+
+  <div class="tabs">
+    <button class="tab-btn active" onclick="switchTab('feature-analysis')">Feature Analysis</button>
+    <button class="tab-btn" onclick="switchTab('outcomes',true)">Outcome Tracking</button>
+    <button class="tab-btn" onclick="switchTab('anomaly',true)">Anomaly Detection</button>
+    <button class="tab-btn" onclick="switchTab('price-prediction',true)">Session Range Forecast</button>
+  </div>
+
+  <!-- ══ TAB: FEATURE ANALYSIS ══════════════════════════════════════════════ -->
+  <div id="tab-feature-analysis" class="tab-pane active">
+    <div id="fa-loading" class="loading">Running PCA across all features... (this may take 10-20s)</div>
+    <div id="fa-content" style="display:none">
+
+      <div class="stat-row" id="fa-stats"></div>
+
+      <div class="two-col">
+        <div class="card">
+          <h2>Variance Explained by Principal Component</h2>
+          <div id="chart-variance" class="chart"></div>
+        </div>
+        <div class="card">
+          <h2>Feature Importance Ranking</h2>
+          <p style="font-size:12px;color:#6c757d;margin:0 0 10px">Weighted loading across PCs capturing 90% variance</p>
+          <div style="max-height:380px;overflow-y:auto">
+            <table id="tbl-importance">
+              <thead><tr><th>#</th><th>Feature</th><th>Group</th><th>Score</th><th>Verdict</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Top Feature Loadings per Principal Component</h2>
+        <div id="chart-loadings" class="chart"></div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <h2>Correlation Heatmap</h2>
+          <p style="font-size:12px;color:#6c757d;margin:0 0 10px">Standardised feature correlations — dark = high redundancy</p>
+          <div id="chart-heatmap" class="chart-tall"></div>
+        </div>
+        <div class="card">
+          <h2>High Correlations (|r| &gt; 0.70)</h2>
+          <p style="font-size:12px;color:#6c757d;margin:0 0 10px">Pairs above threshold — candidates for removal</p>
+          <div class="corr-table">
+            <table id="tbl-corr">
+              <thead><tr><th>Feature A</th><th>Feature B</th><th>|r|</th><th>Verdict</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div class="card" style="margin-top:15px;background:#f8f9fa">
+            <h2>HMM Current Features</h2>
+            <div id="hmm-features"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ TAB: OUTCOME TRACKING ════════════════════════════════════════════ -->
+  <div id="tab-outcomes" class="tab-pane">
+
+    <div class="card" style="margin-bottom:10px">
+      <h2 style="margin:0">Model Controls &nbsp;<button id="btn-retrain" onclick="retrainModels()" style="float:right;padding:4px 12px;font-size:12px;background:#0d6efd;color:#fff;border:none;border-radius:4px;cursor:pointer">↻ Retrain Models</button></h2>
+    </div>
+
+    <div id="ot-loading" class="loading">Running backtest across all labelled snapshots... (10-20s)</div>
+    <div id="ot-content" style="display:none">
+
+      <div class="card">
+        <h2>Model Status</h2>
+        <div id="ot-model-status" class="stat-row" style="margin:0"></div>
+      </div>
+
+      <div class="stat-row" id="ot-stats" style="margin-bottom:15px"></div>
+
+      <div class="two-col">
+        <div class="card">
+          <h2>Vol Regime Accuracy Over Time</h2>
+          <p style="font-size:12px;color:#6c757d;margin:0 0 8px">Daily % correct — TIGHT/NORMAL/WIDE prediction vs actual</p>
+          <div id="chart-vol-acc" class="chart"></div>
+        </div>
+        <div class="card">
+          <h2>Direction Accuracy Over Time</h2>
+          <p style="font-size:12px;color:#6c757d;margin:0 0 8px">Daily % correct — UP/FLAT/DOWN at 2hr horizon</p>
+          <div id="chart-dir-acc" class="chart"></div>
+        </div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <h2>Vol Regime Confusion Matrix</h2>
+          <div id="chart-vol-conf" class="chart"></div>
+        </div>
+        <div class="card">
+          <h2>Direction Confusion Matrix</h2>
+          <div id="chart-dir-conf" class="chart"></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Trade Viability — Predicted Trade vs Actual Outcome <span style="font-size:12px;font-weight:normal;color:#6c757d">(2hr window, HIGH/MEDIUM confidence only)</span></h2>
+        <div id="chart-trade-viable" class="chart"></div>
+      </div>
+
+      <div class="card">
+        <h2>Recent Predictions Log <span style="font-size:12px;font-weight:normal;color:#6c757d">(last 200 labelled snapshots)</span></h2>
+        <div style="max-height:380px;overflow-y:auto">
+          <table id="tbl-predictions" style="font-size:12px">
+            <thead><tr>
+              <th>Date</th><th>Time</th>
+              <th>Vol Pred</th><th>Vol Actual</th><th>✓</th>
+              <th>Dir Pred</th><th>Dir Actual</th><th>✓</th>
+              <th>Trade</th><th>Viable</th><th>Conf</th><th>2hr%</th>
+            </tr></thead>
+            <tbody id="tbody-predictions"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ══ TAB STUBS ══════════════════════════════════════════════════════════ -->
+  <!-- ══ TAB: ANOMALY DETECTION ════════════════════════════════════════════ -->
+  <div id="tab-anomaly" class="tab-pane">
+    <div id="an-loading" class="loading">Running PCA anomaly scan... (10-20s)</div>
+    <div id="an-content" style="display:none">
+
+      <div class="stat-row" id="an-stats" style="margin-bottom:15px"></div>
+
+      <div class="card">
+        <h2>Today's Anomaly Score</h2>
+        <div id="an-today"></div>
+      </div>
+
+      <div class="card">
+        <h2>Daily Anomaly Score — Historical</h2>
+        <p style="font-size:12px;color:#6c757d;margin:0 0 8px">Max intraday PCA reconstruction error per day. Higher = more unusual GEX structure. Dashed lines = UNUSUAL (z=2) and EXTREME (z=3) thresholds.</p>
+        <div id="chart-anomaly-daily" class="chart"></div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <h2>Anomaly Score Distribution</h2>
+          <p style="font-size:12px;color:#6c757d;margin:0 0 8px">How often does each z-score range occur?</p>
+          <div id="chart-anomaly-dist" style="height:220px"></div>
+        </div>
+        <div class="card">
+          <h2>Top 10 Most Anomalous Snapshots</h2>
+          <table style="font-size:12px;width:100%">
+            <thead><tr><th>Date</th><th>Time</th><th>Z-Score</th><th>Label</th></tr></thead>
+            <tbody id="tbody-anomalies"></tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <!-- ══ TAB: SESSION RANGE FORECAST ═══════════════════════════════════════ -->
+  <div id="tab-price-prediction" class="tab-pane">
+    <div id="sr-loading" class="loading">Loading session range data...</div>
+    <div id="sr-content" style="display:none">
+
+      <!-- Today's context bar -->
+      <div class="card" style="margin-bottom:10px">
+        <h2 style="margin:0 0 8px">Today's Context</h2>
+        <div id="sr-context"></div>
+      </div>
+
+      <!-- Filtered forecast: today's predicted regime + direction -->
+      <div class="card" id="sr-filtered-card">
+        <h2 id="sr-filtered-title">Historical Range — Matching Regime &amp; Direction</h2>
+        <p style="font-size:12px;color:#6c757d;margin:0 0 10px" id="sr-filtered-sub"></p>
+        <div class="two-col">
+          <div>
+            <h3 style="font-size:13px;margin:0 0 6px">2-Hour Range Distribution (pts)</h3>
+            <div id="chart-sr-range2" style="height:200px"></div>
+          </div>
+          <div>
+            <h3 style="font-size:13px;margin:0 0 6px">EOD Range Distribution (pts)</h3>
+            <div id="chart-sr-rangeeod" style="height:200px"></div>
+          </div>
+        </div>
+        <div style="margin-top:12px">
+          <h3 style="font-size:13px;margin:0 0 6px">Strike Selection Guide</h3>
+          <div id="sr-strikes"></div>
+        </div>
+        <div style="margin-top:12px">
+          <h3 style="font-size:13px;margin:0 0 6px">Trade Viability by Type</h3>
+          <div id="chart-sr-viable" style="height:160px"></div>
+        </div>
+      </div>
+
+      <!-- All-regimes comparison -->
+      <div class="two-col" style="margin-top:12px">
+        <div class="card">
+          <h2>TIGHT Days — 2hr Range (pts)</h2>
+          <p style="font-size:12px;color:#6c757d;margin:0 0 6px" id="sr-tight-n"></p>
+          <div id="chart-sr-tight" style="height:200px"></div>
+        </div>
+        <div class="card">
+          <h2>WIDE Days — 2hr Range (pts)</h2>
+          <p style="font-size:12px;color:#6c757d;margin:0 0 6px" id="sr-wide-n"></p>
+          <div id="chart-sr-wide" style="height:200px"></div>
+        </div>
+      </div>
+
+      <!-- Historical scatter -->
+      <div class="card" style="margin-top:12px">
+        <h2>Historical SPX Move vs Range — Last 120 Sessions</h2>
+        <p style="font-size:12px;color:#6c757d;margin:0 0 6px">Each point = one session snapshot. X = 2hr % move, Y = 2hr range in pts. Colour = direction.</p>
+        <div id="chart-sr-scatter" class="chart"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const GROUP_COLOURS = {
+      'GEX': '#084298', 'Regime': '#3d0a91', 'Key Strike': '#0a3622',
+      'Key2': '#0d5236', 'OI/Vol': '#664d03', 'Raw': '#58151c',
+      'Distance': '#7a2500', 'Other': '#495057',
+    };
+    const VERDICT_BADGE = {
+      'HIGH': 'badge-high', 'MODERATE': 'badge-moderate', 'LOW': 'badge-low',
+      'DROP one': 'badge-low', 'REDUNDANT': 'badge-moderate',
+    };
+    const GROUP_BADGE = {
+      'GEX': 'badge-gex', 'Regime': 'badge-regime', 'Key Strike': 'badge-key',
+      'Key2': 'badge-key2', 'OI/Vol': 'badge-oivol', 'Raw': 'badge-raw',
+      'Distance': 'badge-distance',
+    };
+
+    let _outcomesLoaded = false;
+    let _anomalyLoaded  = false;
+    function switchTab(id, load) {
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.getElementById('tab-' + id).classList.add('active');
+      event.target.classList.add('active');
+      if (id === 'outcomes' && !_outcomesLoaded) { _outcomesLoaded = true; loadOutcomes(); }
+      if (id === 'anomaly'  && !_anomalyLoaded)  { _anomalyLoaded  = true; loadAnomaly(); }
+      if (id === 'price-prediction' && !_rangeLoaded) { _rangeLoaded = true; loadSessionRange(); }
+    }
+
+    let _rangeLoaded = false;
+
+    function pctBox(label, p, unit='pts') {
+      if (!p) return '';
+      return `<div style="text-align:center;padding:6px 10px;background:#f8f9fa;border-radius:6px;min-width:70px">
+        <div style="font-size:18px;font-weight:bold">${p.p50}${unit}</div>
+        <div style="font-size:10px;color:#6c757d">${label} median</div>
+        <div style="font-size:10px;color:#adb5bd">${p.p25}–${p.p75} (IQR)</div>
+      </div>`;
+    }
+
+    function boxTrace(label, p, colour) {
+      if (!p) return null;
+      return {
+        type: 'box', name: label,
+        q1: [p.p25], median: [p.p50], q3: [p.p75],
+        lowerfence: [p.p10], upperfence: [p.p90],
+        marker: {color: colour}, boxmean: false,
+        orientation: 'h', x: [p.p50],
+      };
+    }
+
+    async function loadSessionRange() {
+      document.getElementById('sr-loading').style.display = '';
+      document.getElementById('sr-content').style.display = 'none';
+      try {
+        const r = await fetch('/api/ml/session-range');
+        const d = await r.json();
+        if (d.error) { document.getElementById('sr-loading').textContent = '✗ ' + d.error; return; }
+
+        const sig = d.ml_signal || {};
+        const regime = sig.vol_regime || '—';
+        const dir    = sig.direction  || '—';
+        const conf   = sig.confidence || '—';
+        const trade  = sig.trade || '—';
+        const confCol = conf === 'HIGH' ? '#198754' : conf === 'MEDIUM' ? '#fd7e14' : '#adb5bd';
+        const t2 = String(d.ntime).padStart(4,'0');
+
+        // Context bar
+        document.getElementById('sr-context').innerHTML = `
+          <div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+            <div><span style="font-size:12px;color:#6c757d">SPX</span><br>
+              <strong style="font-size:20px">${d.uprice?.toLocaleString('en-US',{minimumFractionDigits:2})}</strong></div>
+            <div><span style="font-size:12px;color:#6c757d">Key Strike</span><br>
+              <strong style="font-size:20px;color:#084298">${d.key_strike ?? '—'}</strong></div>
+            ${d.key2_strike ? `<div><span style="font-size:12px;color:#6c757d">Key2 Strike</span><br>
+              <strong style="font-size:20px;color:#0a3622">${d.key2_strike}</strong></div>` : ''}
+            <div><span style="font-size:12px;color:#6c757d">Flip Level</span><br>
+              <strong style="font-size:20px;color:#6f42c1">${d.flip_level ?? '—'}</strong></div>
+            <div style="border-left:2px solid #dee2e6;padding-left:20px">
+              <span style="font-size:12px;color:#6c757d">ML Signal (${t2.slice(0,2)}:${t2.slice(2)})</span><br>
+              <strong style="color:${confCol}">${regime} · ${dir} · <span style="font-size:13px">${trade}</span></strong>
+              <span style="font-size:11px;color:${confCol};margin-left:6px">${conf}</span>
+            </div>
+          </div>`;
+
+        // Filtered forecast card
+        const filt = d.filtered;
+        const filtLabel = d.filtered_label || '';
+        if (filt) {
+          document.getElementById('sr-filtered-title').textContent =
+            `Historical Range — ${filtLabel} (${filt.n} sessions)`;
+          document.getElementById('sr-filtered-sub').textContent =
+            `Based on ${filt.n} historical snapshots where vol regime = ${filtLabel}. `
+            + `Median 2hr range ${filt.range_2hr?.p50}pts, EOD range ${filt.range_eod?.p50}pts.`;
+
+          // Distribution box plots
+          const r2t = boxTrace('2hr', filt.range_2hr, '#0d6efd');
+          const reod = boxTrace('EOD', filt.range_eod, '#6f42c1');
+          if (r2t) Plotly.newPlot('chart-sr-range2', [r2t],
+            {margin:{t:5,b:40,l:30,r:10}, height:190, xaxis:{title:'Points'}}, {responsive:true});
+          if (reod) Plotly.newPlot('chart-sr-rangeeod', [reod],
+            {margin:{t:5,b:40,l:30,r:10}, height:190, xaxis:{title:'Points'}}, {responsive:true});
+
+          // Strike selection guide
+          const p50_2hr = filt.range_2hr?.p50 || 0;
+          const p75_2hr = filt.range_2hr?.p75 || 0;
+          const p90_2hr = filt.range_2hr?.p90 || 0;
+          const uprice  = d.uprice || 0;
+          const keyStr  = d.key_strike || uprice;
+          const flipStr = d.flip_level || uprice;
+
+          const dirSign = dir === 'UP' ? 1 : dir === 'DOWN' ? -1 : 0;
+          const center  = dirSign !== 0 ? uprice + dirSign * p50_2hr * 0.4 : uprice;
+          const safeUp  = Math.round((uprice + p75_2hr * 0.5) / 5) * 5;
+          const safeDn  = Math.round((uprice - p75_2hr * 0.5) / 5) * 5;
+          const aggrUp  = Math.round((uprice + p90_2hr * 0.6) / 5) * 5;
+          const aggrDn  = Math.round((uprice - p90_2hr * 0.6) / 5) * 5;
+
+          document.getElementById('sr-strikes').innerHTML = `
+            <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:13px">
+              <div style="padding:8px 14px;background:#d1e7dd;border-radius:6px;border-left:4px solid #198754">
+                <div style="font-weight:bold;color:#0a3622">Conservative Strikes</div>
+                <div>Put: <strong>${safeDn}</strong> &nbsp;·&nbsp; Call: <strong>${safeUp}</strong></div>
+                <div style="font-size:11px;color:#6c757d">±p75 range / 2 from SPX ${uprice?.toFixed(0)}</div>
+              </div>
+              <div style="padding:8px 14px;background:#fff3cd;border-radius:6px;border-left:4px solid #fd7e14">
+                <div style="font-weight:bold;color:#664d03">Aggressive Strikes</div>
+                <div>Put: <strong>${aggrDn}</strong> &nbsp;·&nbsp; Call: <strong>${aggrUp}</strong></div>
+                <div style="font-size:11px;color:#6c757d">±p90 range × 0.6 from SPX</div>
+              </div>
+              <div style="padding:8px 14px;background:#e7f1ff;border-radius:6px;border-left:4px solid #0d6efd">
+                <div style="font-weight:bold;color:#084298">GEX Levels</div>
+                <div>Key: <strong>${keyStr}</strong> &nbsp;·&nbsp; Flip: <strong>${flipStr ?? '—'}</strong></div>
+                <div style="font-size:11px;color:#6c757d">Natural support/resistance from GEX</div>
+              </div>
+            </div>`;
+
+          // Trade viability bar
+          const tv = filt.trade_viable;
+          const tvNames = Object.keys(tv).filter(k => tv[k] !== null);
+          Plotly.newPlot('chart-sr-viable', [{
+            type: 'bar', orientation: 'h',
+            x: tvNames.map(k => tv[k]),
+            y: tvNames,
+            marker: { color: tvNames.map(k => tv[k] >= 50 ? '#198754' : tv[k] >= 35 ? '#fd7e14' : '#dc3545') },
+            text: tvNames.map(k => tv[k] + '%'),
+            textposition: 'outside',
+            hovertemplate: '%{y}: %{x:.1f}%<extra></extra>',
+          }], {
+            margin:{t:5,b:30,l:50,r:40}, height:155,
+            xaxis:{title:'% viable', range:[0,100]},
+            shapes:[{type:'line',x0:50,x1:50,y0:-0.5,y1:tvNames.length-0.5,
+              line:{color:'#198754',dash:'dot',width:1.5}}],
+          }, {responsive:true});
+        }
+
+        // TIGHT / WIDE comparison box plots
+        const tight = d.buckets?.TIGHT;
+        const wide  = d.buckets?.WIDE;
+        if (tight) {
+          document.getElementById('sr-tight-n').textContent = `${tight.n} sessions`;
+          Plotly.newPlot('chart-sr-tight', [boxTrace('TIGHT 2hr', tight.range_2hr, '#0d6efd')],
+            {margin:{t:5,b:40,l:30,r:10},height:190,xaxis:{title:'Points'}},{responsive:true});
+        }
+        if (wide) {
+          document.getElementById('sr-wide-n').textContent = `${wide.n} sessions`;
+          Plotly.newPlot('chart-sr-wide', [boxTrace('WIDE 2hr', wide.range_2hr, '#dc3545')],
+            {margin:{t:5,b:40,l:30,r:10},height:190,xaxis:{title:'Points'}},{responsive:true});
+        }
+
+        // Scatter: all filtered sessions
+        const src = filt?.scatter || d.buckets?.TIGHT?.scatter || [];
+        const dirColMap = {'UP':'#198754','FLAT':'#0d6efd','DOWN':'#dc3545'};
+        const byDir = {};
+        src.forEach(s => {
+          const dkey = s.direction || 'FLAT';
+          if (!byDir[dkey]) byDir[dkey] = {x:[],y:[],dates:[]};
+          byDir[dkey].x.push(s.pct_2hr * 100);
+          byDir[dkey].y.push(s.range_2hr);
+          byDir[dkey].dates.push(s.date);
+        });
+        const scatterTraces = Object.entries(byDir).map(([dk, pts]) => ({
+          type: 'scatter', mode: 'markers', name: dk,
+          x: pts.x, y: pts.y,
+          text: pts.dates,
+          marker: {color: dirColMap[dk] || '#6c757d', size: 6, opacity: 0.7},
+          hovertemplate: '%{text}<br>Move: %{x:.2f}%<br>Range: %{y:.0f}pts<extra></extra>',
+        }));
+        if (d.uprice) {
+          scatterTraces.push({type:'scatter',mode:'lines',name:'Zero move',
+            x:[0,0],y:[0,Math.max(...src.map(s=>s.range_2hr),1)],
+            line:{color:'#adb5bd',dash:'dot',width:1},showlegend:false});
+        }
+        Plotly.newPlot('chart-sr-scatter', scatterTraces, {
+          margin:{t:10,b:50,l:50,r:10}, height:300,
+          xaxis:{title:'2hr SPX Move (%)'},
+          yaxis:{title:'2hr Range (pts)'},
+          legend:{orientation:'h',y:1.1},
+        }, {responsive:true});
+
+        document.getElementById('sr-loading').style.display = 'none';
+        document.getElementById('sr-content').style.display = '';
+      } catch(e) {
+        document.getElementById('sr-loading').textContent = '✗ Error: ' + e.message;
+      }
+    }
+
+    async function loadAnomaly() {
+      document.getElementById('an-loading').style.display = '';
+      document.getElementById('an-content').style.display = 'none';
+      try {
+        const r = await fetch('/api/ml/anomaly');
+        const d = await r.json();
+        if (d.error) { document.getElementById('an-loading').textContent = '\u2717 ' + d.error; return; }
+
+        // Stats
+        document.getElementById('an-stats').innerHTML = `
+          <div class="stat"><div class="stat-val">${d.n_snapshots.toLocaleString()}</div><div class="stat-lbl">Snapshots Scanned</div></div>
+          <div class="stat"><div class="stat-val">${d.n_components}</div><div class="stat-lbl">PCA Components (95% var)</div></div>
+          <div class="stat"><div class="stat-val">${(d.variance_kept*100).toFixed(1)}%</div><div class="stat-lbl">Variance Retained</div></div>
+          <div class="stat"><div class="stat-val">${d.scores.filter(s=>s.label!=='NORMAL').length}</div><div class="stat-lbl">Unusual Snapshots (z≥2)</div></div>`;
+
+        // Today card
+        const t = d.today;
+        if (t) {
+          const col = t.label === 'EXTREME' ? '#dc3545' : (t.label === 'UNUSUAL' ? '#fd7e14' : '#198754');
+          const bars = Math.min(10, Math.max(0, Math.round((t.z_score + 1) / 0.5)));
+          document.getElementById('an-today').innerHTML = `
+            <div style="display:flex;align-items:center;gap:20px;flex-wrap:wrap">
+              <div style="font-size:36px;font-weight:bold;color:${col}">${t.z_score > 0 ? '+' : ''}${t.z_score}</div>
+              <div>
+                <div style="font-size:18px;font-weight:bold;color:${col}">${t.label}</div>
+                <div style="font-size:12px;color:#6c757d">${t.date} ${String(t.time).padStart(4,'0').replace(/(\d{2})(\d{2})/,'$1:$2')} ET &nbsp;·&nbsp; Reconstruction error: ${t.error}</div>
+              </div>
+              <div style="font-size:13px;color:#495057;max-width:400px">
+                ${t.label === 'NORMAL' ? '✓ Today\'s GEX structure is within historical norms. No structural anomaly.' :
+                  t.label === 'UNUSUAL' ? '⚠ Today\'s GEX structure is unusual vs history. Exercise caution with high-conviction trades.' :
+                  '🚨 Extreme structural anomaly. Today\'s GEX is highly unusual — avoid complex positions.'}
+              </div>
+            </div>`;
+        }
+
+        // Daily chart
+        const dates  = d.daily.map(x => x.date);
+        const zs     = d.daily.map(x => x.z_score);
+        const colors = zs.map(z => z >= 3 ? '#dc3545' : z >= 2 ? '#fd7e14' : '#0d6efd');
+        Plotly.newPlot('chart-anomaly-daily', [
+          { x: dates, y: zs, type: 'bar', marker: {color: colors}, name: 'Anomaly Z-Score',
+            hovertemplate: '%{x}: z=%{y:.2f}<extra></extra>' },
+          { x: [dates[0], dates[dates.length-1]], y: [2, 2], type: 'scatter', mode: 'lines',
+            line: {color:'#fd7e14', dash:'dot', width:1.5}, name: 'UNUSUAL (z=2)', showlegend: true },
+          { x: [dates[0], dates[dates.length-1]], y: [3, 3], type: 'scatter', mode: 'lines',
+            line: {color:'#dc3545', dash:'dot', width:1.5}, name: 'EXTREME (z=3)', showlegend: true },
+        ], { margin:{t:10,b:60,l:45,r:10}, height:280, yaxis:{title:'Z-Score'},
+             legend:{orientation:'h', y:1.1} }, {responsive:true});
+
+        // Distribution histogram
+        const bins = [-2,-1,0,1,2,3,4,5];
+        const binLabels = ['<-1', '-1–0', '0–1', '1–2', '2–3', '3–4', '4–5', '>5'];
+        const binCounts = Array(binLabels.length).fill(0);
+        d.scores.forEach(s => {
+          const z = s.z_score;
+          if      (z < -1) binCounts[0]++;
+          else if (z <  0) binCounts[1]++;
+          else if (z <  1) binCounts[2]++;
+          else if (z <  2) binCounts[3]++;
+          else if (z <  3) binCounts[4]++;
+          else if (z <  4) binCounts[5]++;
+          else if (z <  5) binCounts[6]++;
+          else             binCounts[7]++;
+        });
+        Plotly.newPlot('chart-anomaly-dist', [{
+          x: binLabels, y: binCounts, type: 'bar',
+          marker: { color: ['#6c757d','#6c757d','#0d6efd','#0d6efd','#fd7e14','#dc3545','#dc3545','#dc3545'] },
+          hovertemplate: '%{x}: %{y} snapshots<extra></extra>',
+        }], { margin:{t:10,b:40,l:40,r:10}, height:200, xaxis:{title:'Z-Score range'} }, {responsive:true});
+
+        // Top anomalies table
+        const tbody = document.getElementById('tbody-anomalies');
+        tbody.innerHTML = '';
+        d.top_anomalies.forEach(s => {
+          const col = s.label === 'EXTREME' ? '#dc3545' : '#fd7e14';
+          const t2  = String(s.time).padStart(4,'0');
+          tbody.innerHTML += `<tr>
+            <td>${s.date}</td>
+            <td>${t2.slice(0,2)}:${t2.slice(2)}</td>
+            <td style="font-weight:bold">${s.z_score > 0 ? '+' : ''}${s.z_score}</td>
+            <td style="color:${col};font-weight:bold">${s.label}</td>
+          </tr>`;
+        });
+
+        document.getElementById('an-loading').style.display = 'none';
+        document.getElementById('an-content').style.display = '';
+      } catch(e) {
+        document.getElementById('an-loading').textContent = '\u2717 Error: ' + e.message;
+      }
+    }
+
+    async function loadFeatureAnalysis() {
+      try {
+        const r = await fetch('/api/pca');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        if (d.status === 'error') throw new Error(d.reason);
+
+        document.getElementById('fa-loading').style.display = 'none';
+        document.getElementById('fa-content').style.display = '';
+
+        // Stats
+        document.getElementById('fa-stats').innerHTML = `
+          <div class="stat"><div class="stat-val">${d.n_samples}</div><div class="stat-lbl">Snapshots</div></div>
+          <div class="stat"><div class="stat-val">${d.n_features}</div><div class="stat-lbl">Features</div></div>
+          <div class="stat"><div class="stat-val">${d.n90}</div><div class="stat-lbl">PCs for 90% Variance</div></div>
+          <div class="stat"><div class="stat-val">${d.ranked_features.filter(f=>f.verdict==='HIGH').length}</div><div class="stat-lbl">High Importance</div></div>
+          <div class="stat"><div class="stat-val">${d.high_correlations.filter(c=>c.verdict==='DROP one').length}</div><div class="stat-lbl">Redundant Pairs</div></div>
+        `;
+
+        // Variance chart
+        const evr = d.explained_variance_ratio.map(v => +(v * 100).toFixed(2));
+        const cum = d.cumulative_variance.map(v => +(v * 100).toFixed(2));
+        const pcs = d.components.map(c => 'PC' + c.pc);
+        Plotly.newPlot('chart-variance', [
+          { x: pcs, y: evr, type: 'bar', name: 'Variance %', marker: { color: '#0d6efd' } },
+          { x: pcs, y: cum, type: 'scatter', mode: 'lines+markers', name: 'Cumulative %',
+            yaxis: 'y2', line: { color: '#dc3545', width: 2 }, marker: { size: 5 } },
+        ], {
+          margin: { t: 10, b: 60, l: 50, r: 50 },
+          legend: { orientation: 'h', y: -0.2 },
+          yaxis: { title: 'Variance %', rangemode: 'tozero' },
+          yaxis2: { title: 'Cumulative %', overlaying: 'y', side: 'right', range: [0, 105] },
+          shapes: [
+            { type: 'line', x0: -0.5, x1: pcs.length - 0.5, y0: 90, y1: 90, yref: 'y2',
+              line: { color: '#dc3545', dash: 'dot', width: 1 } },
+          ],
+          annotations: [{ x: pcs[Math.min(d.n90 - 1, pcs.length - 1)], y: 90, yref: 'y2',
+            text: '90%', showarrow: false, font: { color: '#dc3545', size: 11 }, xanchor: 'left' }],
+        }, { responsive: true });
+
+        // Feature importance table
+        const tbody = document.querySelector('#tbl-importance tbody');
+        tbody.innerHTML = d.ranked_features.map((f, i) => `
+          <tr>
+            <td>${i + 1}</td>
+            <td><strong>${f.feature}</strong></td>
+            <td><span class="badge ${GROUP_BADGE[f.group] || ''}">${f.group}</span></td>
+            <td>
+              <span>${f.score_pct}%</span>
+              <div class="bar-wrap"><div class="bar bar-${f.verdict.toLowerCase().replace(' ', '-').replace('one','low')}" style="width:${f.score_pct}%"></div></div>
+            </td>
+            <td><span class="badge ${VERDICT_BADGE[f.verdict] || ''}">${f.verdict}</span></td>
+          </tr>`).join('');
+
+        // PC loadings heatmap
+        const sigPCs = d.components.slice(0, d.n90);
+        Plotly.newPlot('chart-loadings', [{
+          z: sigPCs.map(pc => d.features.map(f => {
+            const l = pc.all_loadings.find(x => x.feature === f);
+            return l ? l.loading : 0;
+          })),
+          x: d.features,
+          y: sigPCs.map(pc => `PC${pc.pc} (${(pc.variance * 100).toFixed(1)}%)`),
+          type: 'heatmap',
+          colorscale: 'RdBu',
+          zmid: 0,
+          colorbar: { title: 'Loading', len: 0.8 },
+        }], {
+          margin: { t: 10, b: 120, l: 120, r: 20 },
+          xaxis: { tickangle: -45, tickfont: { size: 10 } },
+          yaxis: { tickfont: { size: 11 } },
+        }, { responsive: true });
+
+        // Correlation heatmap
+        const cm = d.correlation_matrix;
+        Plotly.newPlot('chart-heatmap', [{
+          z: cm.values,
+          x: cm.features,
+          y: cm.features,
+          type: 'heatmap',
+          colorscale: 'RdBu',
+          zmid: 0,
+          zmin: -1, zmax: 1,
+          colorbar: { title: '|r|', len: 0.8 },
+        }], {
+          margin: { t: 10, b: 120, l: 120, r: 20 },
+          xaxis: { tickangle: -45, tickfont: { size: 9 } },
+          yaxis: { tickfont: { size: 9 } },
+        }, { responsive: true });
+
+        // High correlations table
+        const ctbody = document.querySelector('#tbl-corr tbody');
+        ctbody.innerHTML = d.high_correlations.map(c => `
+          <tr>
+            <td>${c.a}</td><td>${c.b}</td>
+            <td>${Math.abs(c.r).toFixed(3)}</td>
+            <td><span class="badge ${VERDICT_BADGE[c.verdict] || ''}">${c.verdict}</span></td>
+          </tr>`).join('') || '<tr><td colspan="4" style="color:#6c757d">No pairs above threshold</td></tr>';
+
+        // HMM features
+        document.getElementById('hmm-features').innerHTML =
+          '<p style="font-size:12px;color:#6c757d;margin:0 0 6px">Currently used in HMM model:</p>' +
+          d.hmm_features.map(f => {
+            const ranked = d.ranked_features.find(r => r.feature === f);
+            return `<span class="badge badge-high" style="margin:2px">${f} ${ranked ? '#' + (d.ranked_features.indexOf(ranked) + 1) : ''}</span>`;
+          }).join(' ');
+
+      } catch(e) {
+        document.getElementById('fa-loading').textContent = 'Error: ' + e.message;
+        document.getElementById('fa-loading').style.color = '#dc3545';
+      }
+    }
+
+    async function loadDataStatus() {
+      try {
+        const r = await fetch('/api/ml/labels-summary');
+        const d = await r.json();
+        const last = String(d.last_date);
+        const lastFmt = last ? `${last.slice(0,4)}-${last.slice(4,6)}-${last.slice(6,8)}` : 'n/a';
+        const dir = d.direction_eod || {};
+        const reg = d.range_regime || {};
+        const flip = d.flip_breached || {};
+        document.getElementById('data-status').innerHTML = `
+          <div class="stat-row" style="margin:0">
+            <div class="stat"><div class="stat-val">${d.dates}</div><div class="stat-lbl">Trading Days</div></div>
+            <div class="stat"><div class="stat-val">${d.total.toLocaleString()}</div><div class="stat-lbl">Labelled Snapshots</div></div>
+            <div class="stat"><div class="stat-val">${lastFmt}</div><div class="stat-lbl">Last Date</div></div>
+            <div class="stat"><div class="stat-val">${dir.UP||0} / ${dir.FLAT||0} / ${dir.DOWN||0}</div><div class="stat-lbl">EOD Up / Flat / Down</div></div>
+            <div class="stat"><div class="stat-val">${reg.TIGHT||0} / ${reg.NORMAL||0} / ${reg.WIDE||0}</div><div class="stat-lbl">Tight / Normal / Wide</div></div>
+            <div class="stat"><div class="stat-val">${flip['1']||0} / ${flip['0']||0}</div><div class="stat-lbl">Flip Breached / Held</div></div>
+          </div>`;
+      } catch(e) {
+        document.getElementById('data-status').textContent = 'Error loading data status';
+      }
+    }
+
+    async function updateOhlc() {
+      const btn = document.getElementById('btn-update');
+      btn.disabled = true;
+      btn.textContent = 'Updating...';
+      try {
+        const r = await fetch('/api/ml/update-ohlc');
+        const d = await r.json();
+        const ohlc = d.ohlc;
+        const lbl  = d.labels;
+        const msg  = `OHLC: ${ohlc.status} (${ohlc.inserted||0} bars, ${ohlc.new_dates||0} days)  |  Labels: ${lbl.status} (${lbl.inserted||0} rows, ${lbl.dates||0} days)`;
+        btn.textContent = msg;
+        await loadDataStatus();
+      } catch(e) {
+        btn.textContent = 'Error: ' + e.message;
+      } finally {
+        setTimeout(() => { btn.disabled = false; btn.textContent = '↻ Update from yfinance'; }, 5000);
+      }
+    }
+
+    async function retrainModels() {
+      const btn = document.getElementById('btn-retrain');
+      btn.disabled = true; btn.textContent = 'Training...';
+      try {
+        const r = await fetch('/api/ml/retrain');
+        const d = await r.json();
+        if (d.status === 'ok') {
+          const m = d.models;
+          btn.textContent = `✓ Retrained (Vol ${(m.vol_regime?.accuracy*100).toFixed(1)}% / Dir ${(m.direction?.accuracy*100).toFixed(1)}%) — reloading...`;
+          _outcomesLoaded = false;
+          await loadOutcomes();
+          setTimeout(() => { btn.disabled=false; btn.textContent='↻ Retrain Models'; }, 3000);
+        } else {
+          btn.textContent = '✗ ' + (d.reason || 'error');
+          btn.disabled = false;
+        }
+      } catch(e) { btn.textContent = '✗ ' + e.message; btn.disabled = false; }
+    }
+
+    async function loadOutcomes() {
+      document.getElementById('ot-loading').style.display = '';
+      document.getElementById('ot-content').style.display = 'none';
+      try {
+        const [bt, ms] = await Promise.all([
+          fetch('/api/ml/backtest-accuracy').then(r => r.json()),
+          fetch('/api/ml/models-status').then(r => r.json()),
+        ]);
+
+        if (bt.error) { document.getElementById('ot-loading').textContent = '✗ ' + bt.error; return; }
+
+        // Model status
+        const msHtml = ms.models.map(m =>
+          `<div class="stat"><div class="stat-val">${m.name}</div>
+           <div class="stat-lbl">${m.trained_at.slice(0,10)} · ${m.samples} samples · ${m.accuracy ? (m.accuracy*100).toFixed(1)+'% CV acc' : 'n/a'}</div>
+           <div class="stat-lbl">${m.classes.join(' / ')}</div></div>`
+        ).join('');
+        document.getElementById('ot-model-status').innerHTML = msHtml || '<em>No models trained yet</em>';
+
+        // Overall stats
+        const o = bt.overall;
+        document.getElementById('ot-stats').innerHTML = `
+          <div class="stat"><div class="stat-val">${bt.n_samples.toLocaleString()}</div><div class="stat-lbl">Labelled Snapshots</div></div>
+          <div class="stat"><div class="stat-val" style="color:${o.vol_accuracy>=60?'#198754':'#dc3545'}">${o.vol_accuracy}%</div><div class="stat-lbl">Vol Regime Accuracy</div></div>
+          <div class="stat"><div class="stat-val" style="color:${o.dir_accuracy>=50?'#198754':'#dc3545'}">${o.dir_accuracy}%</div><div class="stat-lbl">Direction Accuracy (2hr)</div></div>
+          <div class="stat"><div class="stat-val">${o.trade_viable_pct ?? 'n/a'}%</div><div class="stat-lbl">Trade Viable Rate</div></div>`;
+
+        const dates  = bt.daily_series.map(d => d.date);
+        const volAcc = bt.daily_series.map(d => d.vol_acc);
+        const dirAcc = bt.daily_series.map(d => d.dir_acc);
+
+        // Vol accuracy chart
+        Plotly.newPlot('chart-vol-acc', [{
+          x: dates, y: volAcc, type: 'scatter', mode: 'lines',
+          line: {color:'#0d6efd', width:1.5},
+          name: 'Vol Regime Acc %',
+        }, {
+          x: dates, y: Array(dates.length).fill(50),
+          type: 'scatter', mode: 'lines',
+          line: {color:'#adb5bd', dash:'dot', width:1}, name: 'Baseline 33%', showlegend: false,
+        }], {margin:{t:10,b:40,l:40,r:10}, yaxis:{range:[0,100],ticksuffix:'%'}, height:240}, {responsive:true});
+
+        // Dir accuracy chart
+        Plotly.newPlot('chart-dir-acc', [{
+          x: dates, y: dirAcc, type: 'scatter', mode: 'lines',
+          line: {color:'#198754', width:1.5}, name: 'Direction Acc %',
+        }, {
+          x: dates, y: Array(dates.length).fill(33),
+          type: 'scatter', mode: 'lines',
+          line: {color:'#adb5bd', dash:'dot', width:1}, name: 'Baseline 33%', showlegend: false,
+        }], {margin:{t:10,b:40,l:40,r:10}, yaxis:{range:[0,100],ticksuffix:'%'}, height:240}, {responsive:true});
+
+        // Confusion matrix helper
+        function confPlot(elId, conf, title) {
+          const z = conf.matrix;
+          const cls = conf.classes;
+          const tot = z.map(row => row.reduce((a,b)=>a+b,0));
+          const zPct = z.map((row,i) => row.map(v => tot[i] ? +(v/tot[i]*100).toFixed(1) : 0));
+          const text = zPct.map((row,i) => row.map((v,j) => `${v}%<br>(${z[i][j]})`));
+          Plotly.newPlot(elId, [{
+            z: zPct, x: cls.map(c=>'Pred: '+c), y: cls.map(c=>'Act: '+c),
+            type: 'heatmap', colorscale: 'Blues', showscale: false,
+            text, texttemplate: '%{text}', hovertemplate: 'Actual: %{y}<br>Pred: %{x}<br>%{text}<extra></extra>',
+          }], {margin:{t:10,b:60,l:80,r:10}, height:220}, {responsive:true});
+        }
+        confPlot('chart-vol-conf', bt.vol_confusion, 'Vol Regime');
+        confPlot('chart-dir-conf', bt.dir_confusion, 'Direction');
+
+        // Trade viability bar chart
+        const tradeTypes = ['IC','SPS','SCS','LCS','LPS'];
+        const tradeNames = {'IC':'Iron Condor','SPS':'Sh Put Spread','SCS':'Sh Call Spread','LCS':'Lg Call Spread','LPS':'Lg Put Spread'};
+        const tradeViable = {}, tradeTot = {};
+        bt.detail.forEach(r => {
+          if (!r.trade_code || r.trade_code==='---') return;
+          if (!['HIGH','MEDIUM'].includes(r.confidence)) return;
+          const c = r.trade_code;
+          tradeTot[c] = (tradeTot[c]||0)+1;
+          if (r.trade_viable===1) tradeViable[c] = (tradeViable[c]||0)+1;
+        });
+        const barX = tradeTypes.filter(c=>tradeTot[c]>0).map(c=>tradeNames[c]||c);
+        const barY = tradeTypes.filter(c=>tradeTot[c]>0).map(c=>+(((tradeViable[c]||0)/tradeTot[c])*100).toFixed(1));
+        const barN = tradeTypes.filter(c=>tradeTot[c]>0).map(c=>tradeTot[c]);
+        Plotly.newPlot('chart-trade-viable', [{
+          x: barX, y: barY, type: 'bar',
+          marker: {color: barY.map(v => v>=50?'#198754':v>=35?'#fd7e14':'#dc3545')},
+          text: barY.map((v,i)=>`${v}%<br>(n=${barN[i]})`), textposition:'outside',
+          hovertemplate: '%{x}: %{y:.1f}%<extra></extra>',
+        }], {margin:{t:10,b:80,l:50,r:10}, yaxis:{range:[0,100],ticksuffix:'%'}, height:260}, {responsive:true});
+
+        // Detail table
+        const tbody = document.getElementById('tbody-predictions');
+        tbody.innerHTML = '';
+        const last200 = bt.detail.slice().reverse();
+        last200.forEach(r => {
+          const vc = r.vol_correct===1 ? '✓' : '✗';
+          const dc = r.dir_correct===1 ? '✓' : '✗';
+          const tv = r.trade_viable===1 ? '<span style="color:#198754">✓</span>' : (r.trade_viable===0 ? '<span style="color:#dc3545">✗</span>' : '-');
+          const confCol = r.confidence==='HIGH'?'#198754':(r.confidence==='MEDIUM'?'#fd7e14':'#adb5bd');
+          const t = String(r.time).padStart(4,'0');
+          tbody.innerHTML += `<tr>
+            <td>${r.date}</td><td>${t.slice(0,2)}:${t.slice(2)}</td>
+            <td>${r.vol_pred}</td><td>${r.vol_actual}</td><td style="color:${r.vol_correct?'#198754':'#dc3545'}">${vc}</td>
+            <td>${r.dir_pred}</td><td>${r.dir_actual}</td><td style="color:${r.dir_correct?'#198754':'#dc3545'}">${dc}</td>
+            <td>${r.trade||'-'}</td><td>${tv}</td>
+            <td style="color:${confCol}">${r.confidence}</td>
+            <td>${r.pct_2hr!=null?(r.pct_2hr>0?'+':'')+r.pct_2hr+'%':'-'}</td>
+          </tr>`;
+        });
+
+        document.getElementById('ot-loading').style.display = 'none';
+        document.getElementById('ot-content').style.display = '';
+
+      } catch(e) {
+        document.getElementById('ot-loading').textContent = '✗ Error: ' + e.message;
+      }
+    }
+
+    loadDataStatus();
+    loadFeatureAnalysis();
+  </script>
+</body>
+</html>
