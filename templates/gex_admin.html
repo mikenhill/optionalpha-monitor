@@ -130,9 +130,44 @@
       <div id="verify-pct-status" class="status" style="display: none;"></div>
       <div id="verify-pct-results" class="results"></div>
     </div>
+
+    <div class="section">
+      <h2>Percentile Debug</h2>
+      <p>View the full historical breakdown for any metric's percentile calculation.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
+        <label>Date: <input type="date" id="pct-debug-date" value="2026-06-29"></label>
+        <label>Time: <input type="number" id="pct-debug-time" value="1005" style="width:70px"></label>
+        <label>Metric:
+          <select id="pct-debug-metric">
+            <option value="net_gex">Net GEX</option>
+            <option value="kcs">KCS</option>
+            <option value="dominance">Dominance</option>
+            <option value="sentiment">Sentiment</option>
+            <option value="gex_ratio">GEX Ratio</option>
+            <option value="total_call_gex">Total Call GEX</option>
+            <option value="total_put_gex">Total Put GEX</option>
+            <option value="total_call_oi">Total Call OI</option>
+            <option value="total_put_oi">Total Put OI</option>
+            <option value="total_call_vol" selected>Total Call Vol</option>
+            <option value="total_put_vol">Total Put Vol</option>
+          </select>
+        </label>
+        <label>Days: <input type="number" id="pct-debug-days" value="90" style="width:60px"></label>
+        <button onclick="openPercentileDebug()">View Debug</button>
+      </div>
+    </div>
+
   </div>
 
   <script>
+    function openPercentileDebug() {
+      const date = document.getElementById('pct-debug-date').value;
+      const time = document.getElementById('pct-debug-time').value;
+      const metric = document.getElementById('pct-debug-metric').value;
+      const days = document.getElementById('pct-debug-days').value;
+      window.open(`/gex/percentile-debug?date=${date}&time=${time}&metric=${metric}&days=${days}`, '_blank');
+    }
+
     async function verifyData() {
       const btn = document.getElementById('verify-btn');
       const status = document.getElementById('verify-status');
