@@ -25,7 +25,10 @@
     .error { color: #dc3545; }
     .tbl-wrap { overflow-x: auto; max-height: 600px; overflow-y: auto; }
     table { width: 100%; border-collapse: collapse; font-size: 12px; }
-    thead th { background: #343a40; color: #fff; padding: 6px 8px; text-align: right; white-space: nowrap; position: sticky; top: 0; z-index: 2; }
+    thead th { background: #343a40; color: #fff; padding: 6px 8px; text-align: right; white-space: nowrap; position: sticky; top: 0; z-index: 2; cursor: pointer; user-select: none; }
+    thead th:hover { background: #495057; }
+    thead th.sort-asc::after { content: ' ▲'; font-size: 10px; }
+    thead th.sort-desc::after { content: ' ▼'; font-size: 10px; }
     thead th:first-child, thead th:nth-child(2) { text-align: left; }
     td { border-bottom: 1px solid #dee2e6; padding: 5px 8px; text-align: right; }
     td:first-child, td:nth-child(2) { text-align: left; }
@@ -84,6 +87,7 @@
 
   <script>
     let allRows = [], columns = [], mode = 'cross', selectedDate = '';
+    let sortCol = null, sortDir = 1;
 
     function fmtCell(val) {
       if (val === null || val === undefined || val === '') return '--';
@@ -104,9 +108,32 @@
       return '';
     }
 
+    function sortBy(col) {
+      if (sortCol === col) { sortDir *= -1; } else { sortCol = col; sortDir = 1; }
+      const q = document.getElementById('filter-input').value.toLowerCase();
+      const filtered = q ? allRows.filter(r => columns.some(c => String(r[c] ?? '').toLowerCase().includes(q))) : allRows;
+      renderTable(filtered);
+    }
+
+    function renderTable(rows) {
+      if (sortCol) {
+        rows = [...rows].sort((a, b) => {
+          const av = a[sortCol], bv = b[sortCol];
+          if (av === null || av === undefined) return 1;
+          if (bv === null || bv === undefined) return -1;
+          return av < bv ? -sortDir : av > bv ? sortDir : 0;
+        });
+      }
+      document.getElementById('tbl-wrap').innerHTML = buildTable(rows);
+      document.getElementById('row-count').textContent = rows.length + ' rows';
+    }
+
     function buildTable(rows) {
       if (!rows.length) return '<p>No data.</p>';
-      const head = '<thead><tr>' + columns.map(c => '<th>' + c + '</th>').join('') + '</tr></thead>';
+      const head = '<thead><tr>' + columns.map(c => {
+        const cls = sortCol === c ? (sortDir === 1 ? ' class="sort-asc"' : ' class="sort-desc"') : '';
+        return `<th${cls} onclick="sortBy('${c}')">${c}</th>`;
+      }).join('') + '</tr></thead>';
       const body = '<tbody>' + rows.map(row => {
         const highlight = (mode === 'cross' && row.date === selectedDate) ? ' style="background:#fff3cd;font-weight:bold;"' : '';
         return '<tr' + highlight + '>' + columns.map(c => '<td' + numClass(c, row[c]) + '>' + fmtCell(row[c]) + '</td>').join('') + '</tr>';
@@ -117,8 +144,7 @@
     function applyFilter() {
       const q = document.getElementById('filter-input').value.toLowerCase();
       const filtered = q ? allRows.filter(r => columns.some(c => String(r[c] ?? '').toLowerCase().includes(q))) : allRows;
-      document.getElementById('tbl-wrap').innerHTML = buildTable(filtered);
-      document.getElementById('row-count').textContent = filtered.length + ' rows';
+      renderTable(filtered);
     }
 
     function exportCSV() {
@@ -169,8 +195,8 @@
         const d = await r.json();
         columns = d.columns || Object.keys((d.rows || [{}])[0] || {});
         allRows = d.rows || [];
-        document.getElementById('tbl-wrap').innerHTML = buildTable(allRows);
-        document.getElementById('row-count').textContent = allRows.length + ' rows';
+        sortCol = null; sortDir = 1;
+        renderTable(allRows);
         // Scroll highlighted row into view (cross-sectional mode)
         const sel = document.querySelector('tr[style*="background:#fff3cd"]');
         if (sel) sel.scrollIntoView({ block: 'center' });
