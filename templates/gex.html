@@ -26,6 +26,10 @@
     .stat-item { display: flex; flex-direction: column; }
     .stat-label { font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; }
     .stat-value { font-size: 18px; font-weight: bold; color: #212529; }
+    .stat-percentile { font-size: 12px; color: #6c757d; margin-left: 5px; }
+    .stat-percentile.high { color: #dc3545; }
+    .stat-percentile.low { color: #198754; }
+    .stat-percentile.neutral { color: #6c757d; }
     .loading { color: #6c757d; font-style: italic; padding: 10px 0; }
     .error { color: #dc3545; padding: 10px 0; }
     .tbl-wrap { overflow-x: auto; }
@@ -141,7 +145,7 @@
       <div class="stat-item"><span class="stat-label">First Time (ET)</span><span class="stat-value" id="stat-first">--</span></div>
       <div class="stat-item"><span class="stat-label">Last Time (ET)</span><span class="stat-value" id="stat-last">--</span></div>
       <div class="stat-item"><span class="stat-label">SPX (last)</span><span class="stat-value" id="stat-spx">--</span></div>
-      <div class="stat-item"><span class="stat-label">Net GEX (last)</span><span class="stat-value" id="stat-net">--</span></div>
+      <div class="stat-item"><span class="stat-label">Net GEX (last)</span><span class="stat-value" id="stat-net">--</span> <span class="stat-percentile" id="stat-net-pct"></span></div>
       <div class="stat-item"><span class="stat-label">Wall (last)</span><span class="stat-value" id="stat-wall">--</span></div>
       <div class="stat-item"><span class="stat-label">Regime (last)</span><span class="stat-value" id="stat-regime">--</span></div>
     </div>
@@ -345,6 +349,7 @@
         };
 
         document.getElementById('stat-net').textContent = fmtBig(latest.net_gex, suffixes.net_gex);
+        loadPercentile(date, latest.ntime, 'net_gex');
 
         const tableRows = rows.map(r => buildRow(r, suffixes)).join('');
         document.getElementById('hist-snapshots').innerHTML =
@@ -754,6 +759,29 @@ What you see depends on when RF/HMM are retrained:
       const btn = document.getElementById('fetch-live-btn');
       const today = new Date().toISOString().slice(0, 10);
       btn.disabled = (sel.value !== today);
+    }
+
+    async function loadPercentile(date, ntime, metric) {
+      try {
+        const r = await fetch(`/api/gex/percentile?date=${date}&time=${ntime}&metric=${metric}&days=90`);
+        const data = await r.json();
+        if (data.error) {
+          console.error('Failed to load percentile:', data.error);
+          return;
+        }
+        const pctEl = document.getElementById(`stat-${metric}-pct`);
+        if (pctEl && data.percentile !== undefined) {
+          const pct = data.percentile;
+          let className = 'neutral';
+          if (pct >= 70) className = 'high';
+          else if (pct <= 30) className = 'low';
+          pctEl.textContent = `(${pct.toFixed(1)}%)`;
+          pctEl.className = `stat-percentile ${className}`;
+          pctEl.title = `Percentile: ${pct.toFixed(1)}% (vs ${data.sample_size} samples)`;
+        }
+      } catch (e) {
+        console.error('Failed to load percentile:', e);
+      }
     }
 
     async function fetchLiveGex() {
