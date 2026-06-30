@@ -3160,6 +3160,27 @@ def api_ml_update_ohlc():
     return jsonify({"ohlc": ohlc_result, "labels": label_result})
 
 
+@app.route("/api/ml/rebuild-labels")
+def api_ml_rebuild_labels():
+    """Full rebuild of ml_labels from scratch:
+    1. Fetch latest OHLC from yfinance
+    2. Delete ALL existing ml_labels rows
+    3. Re-run _ensure_ml_labels_current() to repopulate from all gex_strike_window data
+
+    Use this after syncing missing historical GEX snapshots.
+    """
+    ohlc_result = _update_spx_ohlc_from_yfinance()
+    with _db() as con:
+        deleted = con.execute("DELETE FROM ml_labels").rowcount
+    label_result = _ensure_ml_labels_current()
+    return jsonify({
+        "ohlc": ohlc_result,
+        "deleted_labels": deleted,
+        "labels": label_result,
+        "message": f"Deleted {deleted} old labels, rebuilt {label_result.get('inserted', 0)} rows from {label_result.get('dates', 0)} dates",
+    })
+
+
 @app.route("/api/ml/labels-summary")
 def api_ml_labels_summary():
     """Return summary statistics for ml_labels table."""

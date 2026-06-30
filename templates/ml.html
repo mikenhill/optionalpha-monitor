@@ -69,7 +69,12 @@
   <h1>Machine Learning Analysis</h1>
 
   <div class="card" style="margin-bottom:15px">
-    <h2 style="margin:0 0 10px">Data Status <button onclick="updateOhlc()" id="btn-update" style="float:right;padding:4px 12px;font-size:12px;background:#0d6efd;color:#fff;border:none;border-radius:4px;cursor:pointer">↻ Update from yfinance</button></h2>
+    <h2 style="margin:0 0 10px">Data Status
+      <span style="float:right;display:flex;gap:6px">
+        <button onclick="updateOhlc()" id="btn-update" style="padding:4px 12px;font-size:12px;background:#0d6efd;color:#fff;border:none;border-radius:4px;cursor:pointer">↻ Update from yfinance</button>
+        <button onclick="rebuildLabels()" id="btn-rebuild" style="padding:4px 12px;font-size:12px;background:#6f42c1;color:#fff;border:none;border-radius:4px;cursor:pointer" title="Full rebuild: wipe ml_labels and regenerate from all GEX snapshots. Use after syncing missing historical data.">⟳ Rebuild All Labels</button>
+      </span>
+    </h2>
     <div id="data-status" class="loading">Loading...</div>
   </div>
 
@@ -742,6 +747,27 @@
         btn.textContent = 'Error: ' + e.message;
       } finally {
         setTimeout(() => { btn.disabled = false; btn.textContent = '↻ Update from yfinance'; }, 5000);
+      }
+    }
+
+    async function rebuildLabels() {
+      if (!confirm('This will DELETE all existing ML labels and rebuild from scratch using all historical GEX snapshots. This may take 30-60s. Continue?')) return;
+      const btn = document.getElementById('btn-rebuild');
+      btn.disabled = true;
+      btn.textContent = 'Rebuilding... (may take 60s)';
+      try {
+        const r = await fetch('/api/ml/rebuild-labels');
+        const d = await r.json();
+        const lbl = d.labels || {};
+        btn.textContent = `✓ ${d.message || 'Done'}`;
+        await loadDataStatus();
+        // Reset outcome tab so it reloads with fresh data
+        _outcomesLoaded = false;
+        _rangeLoaded = false;
+      } catch(e) {
+        btn.textContent = '✗ Error: ' + e.message;
+      } finally {
+        setTimeout(() => { btn.disabled = false; btn.textContent = '⟳ Rebuild All Labels'; }, 6000);
       }
     }
 
