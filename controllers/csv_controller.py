@@ -90,7 +90,16 @@ class CsvController(BaseController):
                     "total_put_gex": total_gex["total_put_gex"],
                 })
             
-            data = {"rows": rows_data}
+            COLUMNS = [
+                "date", "time", "SPX-last", "sentiment", "gex_ratio", "net_gex", "kcs",
+                "key_strike", "key_absolute", "key_net", "key_dominance_pct",
+                "key_call_gex", "key_put_gex", "key_call_oi", "key_put_oi", "key_net_oi",
+                "key_call_vol", "OI Calls", "OI Puts", "OI Net",
+                "Vol Calls", "Vol Puts", "Vol Net",
+                "total_call_gex", "total_put_gex",
+            ]
+            rows_data.reverse()
+            data = {"columns": COLUMNS, "rows": rows_data}
             
             if request.args.get('test_mode') == '1':
                 response = BaseController.success_response(data=data)
