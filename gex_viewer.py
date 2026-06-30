@@ -6432,7 +6432,7 @@ def api_spx_prices():
     if mode == "single" and target_date:
         # Single date mode: all times for that date
         ndate = int(target_date.replace("-", ""))
-        with get_connection() as con:
+        with _db() as con:
             rows = con.execute(
                 """SELECT ntime, price FROM gex_strike_window
                    WHERE ndate=? AND symbol='SPX' AND source='gex'
@@ -6448,7 +6448,7 @@ def api_spx_prices():
                 })
     else:
         # EOD mode: latest time per day
-        with get_connection() as con:
+        with _db() as con:
             rows = con.execute(
                 """SELECT ndate, MAX(ntime) as ntime, price FROM gex_strike_window
                    WHERE symbol='SPX' AND source='gex'
