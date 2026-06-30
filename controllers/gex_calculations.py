@@ -46,9 +46,9 @@ def calculate_gex_ratio(strikes):
     abs_put = abs(put_gex)
     
     if abs_call > abs_put:
-        return round(call_gex / abs_put, 1) if abs_put else 0
+        return round((call_gex / abs_put) * 100, 1) if abs_put else 0
     else:
-        return round(-abs_put / call_gex, 1) if call_gex else 0
+        return round((-abs_put / call_gex) * 100, 1) if call_gex else 0
 
 
 def calculate_net_gex(strikes):
