@@ -412,7 +412,7 @@ class GexController(BaseController):
             # Get sample size for this time slot
             with get_connection() as con:
                 n = con.execute(
-                    "SELECT COUNT(DISTINCT ndate) FROM gex_percentile_history WHERE ntime=?",
+                    "SELECT COUNT(DISTINCT ndate) FROM percentile_history WHERE ntime=?",
                     (cache_ntime,)
                 ).fetchone()[0]
             
@@ -420,7 +420,7 @@ class GexController(BaseController):
             def size_entry(con, metric_name):
                 try:
                     row = con.execute(
-                        "SELECT percentile FROM gex_percentile_history WHERE ndate=? AND ntime=? AND metric_name=?",
+                        "SELECT percentile FROM percentile_history WHERE ndate=? AND ntime=? AND metric_name=?",
                         (ndate, lookup_ntime, metric_name)
                     ).fetchone()
                     pct = row[0] if row else 50
@@ -437,7 +437,7 @@ class GexController(BaseController):
                 # Calculate net_gex percentile using the lookup time slot (nearest standard)
                 try:
                     row = con.execute(
-                        "SELECT percentile FROM gex_percentile_history WHERE ndate=? AND ntime=? AND metric_name='net_gex'",
+                        "SELECT percentile FROM percentile_history WHERE ndate=? AND ntime=? AND metric_name='net_gex'",
                         (ndate, lookup_ntime)
                     ).fetchone()
                     net_pct_raw = row[0] if row else 50
@@ -624,6 +624,8 @@ class GexController(BaseController):
                     "value": current_value,
                     "percentile": 50,
                     "sample_size": 0,
+                    "lookup_time": lookup_ntime,
+                    "history": [],
                     "message": "No historical data available"
                 })
             
