@@ -4135,10 +4135,6 @@ def simple():
     from time import time
     return render_template("gex_viewer_simple.html", cache_bust=int(time()))
 
-@app.route("/live")
-def live():
-    from time import time
-    return render_template("live.html", cache_bust=int(time()))
 
 @app.route("/analysis")
 def analysis():
@@ -7511,23 +7507,23 @@ if __name__ == "__main__":
     import argparse, webbrowser, threading
 
     # Run startup migrations and backfills only when the server is launched directly.
-    _ensure_snapshot_table()
+    # _ensure_snapshot_table()  # REMOVED: snapshot table no longer used
     # _migrate_to_snapshot()  # Already run manually
-    _ensure_snapshot_table()
+    # _ensure_snapshot_table()  # REMOVED: snapshot table no longer used
     _ensure_live_analysis_table()
     _ensure_spx_open_prices_table()
     _populate_spx_open_prices_from_csv()  # fill spx_open_prices from CSV (ignores existing)
-    _ensure_snapshot_premarket()
-    _ensure_snapshot_summary_columns()  # add flat summary columns to snapshot
-    _drop_legacy_snapshots_table()  # remove legacy pre-SQLite table
+    # _ensure_snapshot_premarket()  # REMOVED: snapshot table no longer used
+    # _ensure_snapshot_summary_columns()  # REMOVED: snapshot table no longer used
+    # _drop_legacy_snapshots_table()  # REMOVED: snapshot table no longer used
     _ensure_hmm_tables()
     _ensure_metric_history_table()
-    _backfill_snapshot_gex_ratio()  # recompute gex_ratio for snapshot with new formula
-    _backfill_snapshot_nulls()  # set default values for null computed columns in snapshot
-    _backfill_snapshot_nulls()  # set default values for null computed columns in snapshot
-    _promote_live_to_historical()  # auto-promote prior-day live snapshots on every startup
-    # _backfill_snapshot_summary(force=True)  # re-backfill all rows with corrected gex_ratio formula - DISABLED: run manually when calculation logic changes
-    _HISTORY_CACHE.clear()  # clear cache after backfill to rebuild with new values
+    # _backfill_snapshot_gex_ratio()  # REMOVED: snapshot table no longer used
+    # _backfill_snapshot_nulls()  # REMOVED: snapshot table no longer used
+    # _backfill_snapshot_nulls()  # REMOVED: snapshot table no longer used
+    # _promote_live_to_historical()  # REMOVED: snapshot table no longer used
+    # _backfill_snapshot_summary(force=True)  # REMOVED: snapshot table no longer used
+    # _HISTORY_CACHE.clear()  # REMOVED: no longer needed
     # _populate_metric_history()  # populate EOD metric values from histograms - DISABLED TEMPORARILY
     _ensure_percentile_history_table()
     # _populate_percentile_history()  # populate time-slot percentiles for rankings - DISABLED TEMPORARILY
