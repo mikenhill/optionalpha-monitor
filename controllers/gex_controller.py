@@ -495,6 +495,7 @@ class GexController(BaseController):
         ntime = int(request.args.get("time", 1000))
         metric = request.args.get("metric", "net_gex")
         days = int(request.args.get("days", 90))
+        debug = request.args.get("debug", "false").lower() == "true"
         
         if not date_iso:
             return BaseController.json_response(
@@ -569,15 +570,16 @@ class GexController(BaseController):
             
             with get_connection() as con:
                 rows = con.execute(
-                    """SELECT price, data FROM gex_strike_window
+                    """SELECT ndate, price, data FROM gex_strike_window
                        WHERE ndate>=? AND ndate<? AND ntime=? AND symbol='SPX' AND source='gex'
                        ORDER BY ndate DESC""",
                     (cutoff_ndate, ndate, lookup_ntime)
                 ).fetchall()
             
             historical_values = []
+            historical_debug = []
             for row in rows:
-                hist_price, hist_data = row
+                hist_ndate, hist_price, hist_data = row
                 hist_strikes = json.loads(hist_data) if hist_data else []
                 
                 if not hist_strikes:
@@ -609,6 +611,13 @@ class GexController(BaseController):
                 
                 if hist_value is not None:
                     historical_values.append(hist_value)
+                    if debug:
+                        d = str(hist_ndate)
+                        historical_debug.append({
+                            "date": f"{d[:4]}-{d[4:6]}-{d[6:]}",
+                            "ntime": lookup_ntime,
+                            "value": hist_value
+                        })
             
             if not historical_values:
                 return BaseController.json_response({
@@ -623,13 +632,16 @@ class GexController(BaseController):
             rank = sum(1 for v in sorted_values if v <= current_value)
             percentile = round(rank / len(sorted_values) * 100, 1)
             
-            return BaseController.json_response({
+            result = {
                 "value": current_value,
                 "percentile": percentile,
                 "sample_size": len(historical_values),
                 "lookup_time": lookup_ntime,
                 "days": days
-            })
+            }
+            if debug:
+                result["history"] = sorted(historical_debug, key=lambda x: x["value"])
+            return BaseController.json_response(result)
             
         except Exception as e:
             return BaseController.json_response(
