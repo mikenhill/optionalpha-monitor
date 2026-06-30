@@ -568,12 +568,17 @@ class GexController(BaseController):
             cutoff_date = datetime.strptime(date_iso, "%Y-%m-%d") - timedelta(days=days)
             cutoff_ndate = int(cutoff_date.strftime("%Y%m%d"))
             
+            # Use ±30 min window around the lookup time slot to capture
+            # snapshots taken at non-standard times (e.g. 947 maps to 935 slot)
+            time_lo = lookup_ntime - 30
+            time_hi = lookup_ntime + 30
             with get_connection() as con:
                 rows = con.execute(
                     """SELECT ndate, price, data FROM gex_strike_window
-                       WHERE ndate>=? AND ndate<? AND ntime=? AND symbol='SPX' AND source='gex'
+                       WHERE ndate>=? AND ndate<? AND ntime>=? AND ntime<=?
+                         AND symbol='SPX' AND source='gex'
                        ORDER BY ndate DESC""",
-                    (cutoff_ndate, ndate, lookup_ntime)
+                    (cutoff_ndate, ndate, time_lo, time_hi)
                 ).fetchall()
             
             historical_values = []
