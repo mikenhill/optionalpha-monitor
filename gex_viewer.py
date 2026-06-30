@@ -4938,6 +4938,17 @@ def api_gex_distribution_snapshots():
         limit: page size (default 200)
         regime: time regime filter (e.g., "0935_1000", "pre")
     """
+    import json
+    from controllers.gex_calculations import (
+        calculate_sentiment,
+        calculate_gex_ratio,
+        calculate_net_gex,
+        calculate_kcs,
+        calculate_dominance,
+        calculate_total_oi_and_vol,
+        calculate_total_gex
+    )
+    
     offset = int(request.args.get("offset", 0))
     limit = int(request.args.get("limit", 200))
     regime_id = request.args.get("regime", "0935_1000")
@@ -4956,22 +4967,9 @@ def api_gex_distribution_snapshots():
             """, (time_start, time_end)).fetchone()
             total = count_result[0]
 
-            # Get paginated snapshots with summary data
+            # Get paginated snapshots with raw data
             rows = con.execute("""
-                SELECT
-                    ndate, ntime,
-                    json_extract(data, '$.uprice') as uprice,
-                    json_extract(data, '$.summary.net_gex') as net_gex,
-                    json_extract(data, '$.summary.call_gex') as call_gex,
-                    json_extract(data, '$.summary.put_gex') as put_gex,
-                    json_extract(data, '$.summary.kcs') as kcs,
-                    json_extract(data, '$.summary.dominance') as dominance,
-                    json_extract(data, '$.summary.sentiment_pct') as sentiment,
-                    json_extract(data, '$.summary.gex_ratio') as gex_ratio,
-                    json_extract(data, '$.summary.call_oi') as call_oi,
-                    json_extract(data, '$.summary.put_oi') as put_oi,
-                    json_extract(data, '$.summary.call_vol') as call_vol,
-                    json_extract(data, '$.summary.put_vol') as put_vol
+                SELECT ndate, ntime, price, data
                 FROM gex_strike_window
                 WHERE symbol='SPX' AND ntime>=? AND ntime<=?
                 ORDER BY ndate DESC, ntime DESC
@@ -4980,28 +4978,40 @@ def api_gex_distribution_snapshots():
 
         snapshots = []
         for row in rows:
-            ndate, ntime = row[0], row[1]
+            ndate, ntime, price, data = row
             date_str = f"{ndate//10000}-{(ndate//100)%100:02d}-{ndate%100:02d}"
             time_str = f"{ntime//100:02d}:{ntime%100:02d}"
             
-            snapshots.append({
-                "date": date_str,
-                "time": time_str,
-                "ndate": ndate,
-                "ntime": ntime,
-                "uprice": row[2],
-                "net_gex": row[3],
-                "total_call_gex": row[4],
-                "total_put_gex": row[5],
-                "kcs": row[6],
-                "dominance": row[7],
-                "sentiment": row[8],
-                "gex_ratio": row[9],
-                "total_call_oi": row[10],
-                "total_put_oi": row[11],
-                "total_call_vol": row[12],
-                "total_put_vol": row[13],
-            })
+            strikes = json.loads(data) if data else []
+            
+            if strikes:
+                # Calculate metrics from strike data
+                sentiment = calculate_sentiment(strikes)
+                gex_ratio = calculate_gex_ratio(strikes)
+                net_gex = calculate_net_gex(strikes)
+                kcs = calculate_kcs(strikes, price)
+                dominance = calculate_dominance(strikes, price)
+                total_oi_vol = calculate_total_oi_and_vol(strikes)
+                total_gex_vals = calculate_total_gex(strikes)
+                
+                snapshots.append({
+                    "date": date_str,
+                    "time": time_str,
+                    "ndate": ndate,
+                    "ntime": ntime,
+                    "uprice": price,
+                    "net_gex": net_gex,
+                    "total_call_gex": total_gex_vals["call_gex"],
+                    "total_put_gex": total_gex_vals["put_gex"],
+                    "kcs": kcs,
+                    "dominance": dominance,
+                    "sentiment": sentiment,
+                    "gex_ratio": gex_ratio,
+                    "total_call_oi": total_oi_vol["call_oi"],
+                    "total_put_oi": total_oi_vol["put_oi"],
+                    "total_call_vol": total_oi_vol["call_vol"],
+                    "total_put_vol": total_oi_vol["put_vol"],
+                })
 
         has_more = offset + limit < total
 
@@ -5023,6 +5033,17 @@ def api_gex_distribution_all_values():
         metric: metric name (e.g., net_gex, sentiment)
         regime: time regime filter (e.g., "0930_1000", "pre")
     """
+    import json
+    from controllers.gex_calculations import (
+        calculate_sentiment,
+        calculate_gex_ratio,
+        calculate_net_gex,
+        calculate_kcs,
+        calculate_dominance,
+        calculate_total_oi_and_vol,
+        calculate_total_gex
+    )
+    
     metric = request.args.get("metric", "net_gex")
     regime_id = request.args.get("regime", "0935_1000")
 
@@ -5031,33 +5052,50 @@ def api_gex_distribution_all_values():
     time_start = regime["start"]
     time_end = regime["end"]
 
-    # Map metric names to JSON path in data column
-    metric_map = {
-        "net_gex": "$.summary.net_gex",
-        "total_call_gex": "$.summary.call_gex",
-        "total_put_gex": "$.summary.put_gex",
-        "total_call_oi": "$.summary.call_oi",
-        "total_put_oi": "$.summary.put_oi",
-        "total_call_vol": "$.summary.call_vol",
-        "total_put_vol": "$.summary.put_vol",
-        "kcs": "$.summary.kcs",
-        "dominance": "$.summary.dominance",
-        "sentiment": "$.summary.sentiment_pct",
-        "gex_ratio": "$.summary.gex_ratio",
-    }
-
-    json_path = metric_map.get(metric, f"$.summary.{metric}")
-
     try:
         with _db() as con:
-            rows = con.execute(f"""
-                SELECT json_extract(data, '{json_path}') as value
+            rows = con.execute("""
+                SELECT price, data
                 FROM gex_strike_window
                 WHERE symbol='SPX' AND ntime>=? AND ntime<=?
             """, (time_start, time_end)).fetchall()
 
-        # Extract and filter None values
-        all_values = [row[0] for row in rows if row[0] is not None]
+        all_values = []
+        for row in rows:
+            price, data = row
+            strikes = json.loads(data) if data else []
+            
+            if not strikes:
+                continue
+            
+            # Calculate the requested metric
+            if metric == "net_gex":
+                value = calculate_net_gex(strikes)
+            elif metric == "total_call_gex":
+                value = calculate_total_gex(strikes)["call_gex"]
+            elif metric == "total_put_gex":
+                value = calculate_total_gex(strikes)["put_gex"]
+            elif metric == "kcs":
+                value = calculate_kcs(strikes, price)
+            elif metric == "dominance":
+                value = calculate_dominance(strikes, price)
+            elif metric == "sentiment":
+                value = calculate_sentiment(strikes)
+            elif metric == "gex_ratio":
+                value = calculate_gex_ratio(strikes)
+            elif metric == "total_call_oi":
+                value = calculate_total_oi_and_vol(strikes)["call_oi"]
+            elif metric == "total_put_oi":
+                value = calculate_total_oi_and_vol(strikes)["put_oi"]
+            elif metric == "total_call_vol":
+                value = calculate_total_oi_and_vol(strikes)["call_vol"]
+            elif metric == "total_put_vol":
+                value = calculate_total_oi_and_vol(strikes)["put_vol"]
+            else:
+                continue
+            
+            if value is not None:
+                all_values.append(value)
 
         # Scale for display
         if metric in ["gex_ratio", "sentiment", "dominance", "kcs"]:
