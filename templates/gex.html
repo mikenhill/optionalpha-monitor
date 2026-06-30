@@ -564,8 +564,8 @@ What you see depends on when RF/HMM are retrained:
       const cgFormatted = cg.map(fmtHover);
       const pgFormatted = pg.map(fmtHover);
       Plotly.react('chart-gex', [
-        { name: 'Call GEX', x: strikes, y: cg, type: 'bar', marker: { color: '#198754' }, hovertemplate: '%{text}' },
-        { name: 'Put GEX',  x: strikes, y: pg, type: 'bar', marker: { color: '#dc3545' }, hovertemplate: '%{text}' },
+        { name: 'Call GEX', x: strikes, y: cg, type: 'bar', marker: { color: '#198754' }, text: cgFormatted, textposition: 'none', hovertemplate: '%{text}' },
+        { name: 'Put GEX',  x: strikes, y: pg, type: 'bar', marker: { color: '#dc3545' }, text: pgFormatted, textposition: 'none', hovertemplate: '%{text}' },
       ], { ...layout_base, shapes: gexShapes, yaxis: { title: 'GEX ($)', tickformat: ',.0f' } }, { responsive: true });
 
       const totalCoi = coi.reduce((a,b) => a+b, 0);
@@ -576,8 +576,8 @@ What you see depends on when RF/HMM are retrained:
       const coiFormatted = coi.map(fmtHover);
       const poiFormatted = poi.map(fmtHover);
       Plotly.react('chart-oi', [
-        { name: 'Call OI', x: strikes, y: coi, type: 'bar', marker: { color: '#198754' }, hovertemplate: '%{text}' },
-        { name: 'Put OI',  x: strikes, y: poi, type: 'bar', marker: { color: '#dc3545' }, hovertemplate: '%{text}' },
+        { name: 'Call OI', x: strikes, y: coi, type: 'bar', marker: { color: '#198754' }, text: coiFormatted, textposition: 'none', hovertemplate: '%{text}' },
+        { name: 'Put OI',  x: strikes, y: poi, type: 'bar', marker: { color: '#dc3545' }, text: poiFormatted, textposition: 'none', hovertemplate: '%{text}' },
       ], { ...layout_base, yaxis: { title: 'Open Interest', tickformat: ',.0f' } }, { responsive: true });
 
       const totalCvol = cvol.reduce((a,b) => a+b, 0);
@@ -588,8 +588,8 @@ What you see depends on when RF/HMM are retrained:
       const cvolFormatted = cvol.map(fmtHover);
       const pvolFormatted = pvol.map(fmtHover);
       Plotly.react('chart-vol', [
-        { name: 'Call Vol', x: strikes, y: cvol, type: 'bar', marker: { color: '#198754' }, hovertemplate: '%{text}' },
-        { name: 'Put Vol',  x: strikes, y: pvol, type: 'bar', marker: { color: '#dc3545' }, hovertemplate: '%{text}' },
+        { name: 'Call Vol', x: strikes, y: cvol, type: 'bar', marker: { color: '#198754' }, text: cvolFormatted, textposition: 'none', hovertemplate: '%{text}' },
+        { name: 'Put Vol',  x: strikes, y: pvol, type: 'bar', marker: { color: '#dc3545' }, text: pvolFormatted, textposition: 'none', hovertemplate: '%{text}' },
       ], { ...layout_base, yaxis: { title: 'Volume', tickformat: ',.0f' } }, { responsive: true });
 
       document.querySelectorAll('.snap-btn').forEach(b => {
