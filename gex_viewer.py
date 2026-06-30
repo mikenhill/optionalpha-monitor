@@ -6418,7 +6418,7 @@ def api_sync_historical():
 
 @app.route("/api/spx-prices")
 def api_spx_prices():
-    """Return SPX price history from histgex files.
+    """Return SPX price history from gex_strike_window table.
 
     Query params:
     - mode: 'eod' (default) or 'single'
@@ -6427,16 +6427,16 @@ def api_spx_prices():
     mode = request.args.get("mode", "eod")
     target_date = request.args.get("date")
 
-    print(f"[DEBUG] api_spx_prices called: mode={mode}, target_date={target_date}")
-
     prices = []
 
     if mode == "single" and target_date:
         # Single date mode: all times for that date
         ndate = int(target_date.replace("-", ""))
-        with _db() as con:
+        with get_connection() as con:
             rows = con.execute(
-                "SELECT ntime, uprice FROM snapshot WHERE ndate=? AND symbol='SPX' ORDER BY ntime",
+                """SELECT ntime, price FROM gex_strike_window
+                   WHERE ndate=? AND symbol='SPX' AND source='gex'
+                   ORDER BY ntime""",
                 (ndate,)
             ).fetchall()
         for ntime, uprice in rows:
@@ -6448,10 +6448,11 @@ def api_spx_prices():
                 })
     else:
         # EOD mode: latest time per day
-        with _db() as con:
+        with get_connection() as con:
             rows = con.execute(
-                "SELECT ndate, MAX(ntime) as ntime, uprice FROM snapshot "
-                "WHERE symbol='SPX' GROUP BY ndate ORDER BY ndate"
+                """SELECT ndate, MAX(ntime) as ntime, price FROM gex_strike_window
+                   WHERE symbol='SPX' AND source='gex'
+                   GROUP BY ndate ORDER BY ndate"""
             ).fetchall()
         for ndate, ntime, uprice in rows:
             if uprice:
@@ -6463,7 +6464,6 @@ def api_spx_prices():
                     "uprice": uprice
                 })
 
-    print(f"[DEBUG] Returning {len(prices)} prices")
     return jsonify({"prices": prices})
 
 
