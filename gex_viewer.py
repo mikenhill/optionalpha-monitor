@@ -4125,6 +4125,11 @@ def gex_admin():
     from time import time
     return render_template("gex_admin.html", cache_bust=int(time()))
 
+@app.route("/gex-distribution")
+def gex_distribution():
+    from time import time
+    return render_template("gex_distribution.html", cache_bust=int(time()))
+
 @app.route("/old")
 def index_old():
     from time import time
@@ -4919,6 +4924,158 @@ def api_verify_strike_window():
             "results": results
         })
         
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+@app.route("/api/gex/distribution/snapshots")
+def api_gex_distribution_snapshots():
+    """Get snapshots from gex_strike_window for distribution table with pagination.
+
+    Query params:
+        offset: pagination offset (default 0)
+        limit: page size (default 200)
+        regime: time regime filter (e.g., "0935_1000", "pre")
+    """
+    offset = int(request.args.get("offset", 0))
+    limit = int(request.args.get("limit", 200))
+    regime_id = request.args.get("regime", "0935_1000")
+
+    # Get time range for selected regime
+    regime = next((r for r in TIME_REGIMES if r["id"] == regime_id), TIME_REGIMES[1])
+    time_start = regime["start"]
+    time_end = regime["end"]
+
+    try:
+        with _db() as con:
+            # Get total count
+            count_result = con.execute("""
+                SELECT COUNT(*) FROM gex_strike_window
+                WHERE symbol='SPX' AND ntime>=? AND ntime<=?
+            """, (time_start, time_end)).fetchone()
+            total = count_result[0]
+
+            # Get paginated snapshots with summary data
+            rows = con.execute("""
+                SELECT
+                    ndate, ntime,
+                    json_extract(data, '$.uprice') as uprice,
+                    json_extract(data, '$.summary.net_gex') as net_gex,
+                    json_extract(data, '$.summary.call_gex') as call_gex,
+                    json_extract(data, '$.summary.put_gex') as put_gex,
+                    json_extract(data, '$.summary.kcs') as kcs,
+                    json_extract(data, '$.summary.dominance') as dominance,
+                    json_extract(data, '$.summary.sentiment_pct') as sentiment,
+                    json_extract(data, '$.summary.gex_ratio') as gex_ratio,
+                    json_extract(data, '$.summary.call_oi') as call_oi,
+                    json_extract(data, '$.summary.put_oi') as put_oi,
+                    json_extract(data, '$.summary.call_vol') as call_vol,
+                    json_extract(data, '$.summary.put_vol') as put_vol
+                FROM gex_strike_window
+                WHERE symbol='SPX' AND ntime>=? AND ntime<=?
+                ORDER BY ndate DESC, ntime DESC
+                LIMIT ? OFFSET ?
+            """, (time_start, time_end, limit, offset)).fetchall()
+
+        snapshots = []
+        for row in rows:
+            ndate, ntime = row[0], row[1]
+            date_str = f"{ndate//10000}-{(ndate//100)%100:02d}-{ndate%100:02d}"
+            time_str = f"{ntime//100:02d}:{ntime%100:02d}"
+            
+            snapshots.append({
+                "date": date_str,
+                "time": time_str,
+                "ndate": ndate,
+                "ntime": ntime,
+                "uprice": row[2],
+                "net_gex": row[3],
+                "total_call_gex": row[4],
+                "total_put_gex": row[5],
+                "kcs": row[6],
+                "dominance": row[7],
+                "sentiment": row[8],
+                "gex_ratio": row[9],
+                "total_call_oi": row[10],
+                "total_put_oi": row[11],
+                "total_call_vol": row[12],
+                "total_put_vol": row[13],
+            })
+
+        has_more = offset + limit < total
+
+        return jsonify({
+            "snapshots": snapshots,
+            "total": total,
+            "has_more": has_more,
+        })
+    except Exception as e:
+        import traceback
+        return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500
+
+
+@app.route("/api/gex/distribution/all-values")
+def api_gex_distribution_all_values():
+    """Return all historical values for a metric from gex_strike_window.
+
+    Query params:
+        metric: metric name (e.g., net_gex, sentiment)
+        regime: time regime filter (e.g., "0930_1000", "pre")
+    """
+    metric = request.args.get("metric", "net_gex")
+    regime_id = request.args.get("regime", "0935_1000")
+
+    # Get time range for selected regime
+    regime = next((r for r in TIME_REGIMES if r["id"] == regime_id), TIME_REGIMES[1])
+    time_start = regime["start"]
+    time_end = regime["end"]
+
+    # Map metric names to JSON path in data column
+    metric_map = {
+        "net_gex": "$.summary.net_gex",
+        "total_call_gex": "$.summary.call_gex",
+        "total_put_gex": "$.summary.put_gex",
+        "total_call_oi": "$.summary.call_oi",
+        "total_put_oi": "$.summary.put_oi",
+        "total_call_vol": "$.summary.call_vol",
+        "total_put_vol": "$.summary.put_vol",
+        "kcs": "$.summary.kcs",
+        "dominance": "$.summary.dominance",
+        "sentiment": "$.summary.sentiment_pct",
+        "gex_ratio": "$.summary.gex_ratio",
+    }
+
+    json_path = metric_map.get(metric, f"$.summary.{metric}")
+
+    try:
+        with _db() as con:
+            rows = con.execute(f"""
+                SELECT json_extract(data, '{json_path}') as value
+                FROM gex_strike_window
+                WHERE symbol='SPX' AND ntime>=? AND ntime<=?
+            """, (time_start, time_end)).fetchall()
+
+        # Extract and filter None values
+        all_values = [row[0] for row in rows if row[0] is not None]
+
+        # Scale for display
+        if metric in ["gex_ratio", "sentiment", "dominance", "kcs"]:
+            scale = 1
+        elif "gex" in metric:
+            scale = 1e9
+        elif "oi" in metric or "vol" in metric:
+            scale = 1e3
+        else:
+            scale = 1
+
+        scaled_values = [round(v / scale, 3) for v in all_values]
+
+        return jsonify({
+            "metric": metric,
+            "values": scaled_values,
+            "n_samples": len(scaled_values),
+        })
     except Exception as e:
         import traceback
         return jsonify({"error": str(e), "traceback": traceback.format_exc()}), 500

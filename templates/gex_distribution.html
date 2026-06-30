@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GEX Distribution</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    .nav { background: #212529; padding: 10px 20px; margin: -20px -20px 20px -20px; display: flex; gap: 5px; }
+    .nav a { padding: 6px 14px; text-decoration: none; color: #adb5bd; border-radius: 4px; font-size: 14px; }
+    .nav a:hover { background: #343a40; color: #fff; }
+    .nav a.active { background: #0d6efd; color: #fff; }
+    .card { background: #fff; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
+    h1 { font-size: 20px; margin: 0 0 15px 0; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 5px; }
+    .toolbar label { font-size: 13px; font-weight: bold; }
+    .toolbar select { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; }
+    .loading { color: #6c757d; font-style: italic; }
+    .error { color: #dc3545; }
+    #dist-chart { width: 100%; height: 480px; }
+    .snapshots-table { width: 100%; border-collapse: collapse; font-size: 11px; white-space: nowrap; }
+    .snapshots-table th { background: #343a40; color: #fff; padding: 6px 8px; text-align: right; position: sticky; top: 0; }
+    .snapshots-table th:first-child { text-align: left; }
+    .snapshots-table td { border-bottom: 1px solid #dee2e6; padding: 4px 8px; text-align: right; }
+    .snapshots-table td:first-child { text-align: left; }
+    .snapshots-table tr:hover { background: #f0f4ff; }
+    .snapshots-table tr.selected { background: #e7f1ff; }
+    .snapshots-table input[type="checkbox"] { cursor: pointer; }
+    .table-container { max-height: 300px; overflow: auto; border: 1px solid #dee2e6; border-radius: 4px; }
+    .load-more-btn { padding: 8px 16px; background: #0d6efd; color: #fff; border: none; border-radius: 4px; cursor: pointer; margin-top: 10px; }
+    .load-more-btn:hover { background: #0b5ed7; }
+    .load-more-btn:disabled { background: #6c757d; cursor: not-allowed; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/gex">GEX (New)</a>
+    <a href="/gex-admin">GEX Admin</a>
+    <a href="/analysis">Analysis</a>
+    <a class="active" href="/gex-distribution">GEX Distribution</a>
+    <a href="/spx">SPX Prices</a>
+    <a href="/csv">CSV</a>
+    <a href="/admin">Admin</a>
+  </div>
+
+  <h1>GEX Distribution</h1>
+
+  <div class="card">
+    <div class="toolbar">
+      <label>Metric:</label>
+      <select id="metric-sel" onchange="loadDistribution()">
+        <option value="net_gex">Net GEX</option>
+        <option value="total_call_gex">Total Call GEX</option>
+        <option value="total_put_gex">Total Put GEX</option>
+        <option value="kcs">KCS</option>
+        <option value="dominance">Dominance</option>
+        <option value="sentiment">Sentiment</option>
+        <option value="gex_ratio">GEX Ratio</option>
+        <option value="total_call_oi">Total Call OI</option>
+        <option value="total_put_oi">Total Put OI</option>
+        <option value="total_call_vol">Total Call Vol</option>
+        <option value="total_put_vol">Total Put Vol</option>
+      </select>
+      <label>Regime:</label>
+      <select id="regime-sel" onchange="loadSnapshots(0)">
+        <option value="pre">Pre-Market</option>
+        <option value="0935_1000" selected>09:35-10:00</option>
+        <option value="1001_1030">10:01-10:30</option>
+        <option value="1031_1100">10:31-11:00</option>
+        <option value="1101_1130">11:01-11:30</option>
+        <option value="1131_1200">11:31-12:00</option>
+        <option value="1201_1230">12:01-12:30</option>
+        <option value="1231_1300">12:31-13:00</option>
+        <option value="1301_1330">13:01-13:30</option>
+        <option value="1331_1400">13:31-14:00</option>
+        <option value="1401_1430">14:01-14:30</option>
+        <option value="1431_1500">14:31-15:00</option>
+        <option value="1501_1530">15:01-15:30</option>
+        <option value="1531_1600">15:31-16:00</option>
+      </select>
+    </div>
+    <p id="status" class="loading">Loading...</p>
+    <div id="dist-chart"></div>
+  </div>
+
+  <div class="card">
+    <h2>Snapshots</h2>
+    <p id="table-status" class="loading">Loading snapshots...</p>
+    <div class="table-container">
+      <table class="snapshots-table">
+        <thead>
+          <tr>
+            <th>Select</th>
+            <th>Date</th>
+            <th>Time</th>
+            <th>SPX</th>
+            <th>Net GEX</th>
+            <th>Call GEX</th>
+            <th>Put GEX</th>
+            <th>KCS</th>
+            <th>Dom</th>
+            <th>Senti%</th>
+            <th>Ratio</th>
+            <th>Call OI</th>
+            <th>Put OI</th>
+            <th>Call Vol</th>
+            <th>Put Vol</th>
+          </tr>
+        </thead>
+        <tbody id="snapshots-body"></tbody>
+      </table>
+    </div>
+    <button id="load-more-btn" class="load-more-btn" onclick="loadMoreSnapshots()">Load More</button>
+  </div>
+
+  <script>
+    let allSnapshots = [];
+    let selectedSnapshot = null;
+    let currentOffset = 0;
+    const PAGE_SIZE = 200;
+    let totalSnapshots = 0;
+    let hasMore = true;
+    let historicalValues = {}; // Cache historical values by metric
+
+    function getUnit(metric) {
+      if (metric.includes('gex') && !metric.includes('ratio')) return 'B';
+      if (metric.includes('oi')) return 'K';
+      return '';
+    }
+
+    function formatValue(val, metric) {
+      if (val === null || val === undefined) return '--';
+      if (metric.includes('gex') && !metric.includes('ratio')) return (val / 1e9).toFixed(2) + 'B';
+      if (metric.includes('oi')) return (val / 1e3).toFixed(2) + 'K';
+      if (metric === 'sentiment' || metric === 'dominance') return val.toFixed(0) + '%';
+      if (metric === 'kcs' || metric === 'gex_ratio') return val.toFixed(2);
+      return val.toFixed(0);
+    }
+
+    async function loadHistoricalValues(metric) {
+      const regime = document.getElementById('regime-sel').value;
+      const cacheKey = `${metric}_${regime}`;
+      if (historicalValues[cacheKey]) {
+        return historicalValues[cacheKey];
+      }
+      try {
+        const r = await fetch(`/api/gex/distribution/all-values?metric=${metric}&regime=${regime}`);
+        const data = await r.json();
+        if (data.error) {
+          console.error('Failed to load historical values:', data.error);
+          return [];
+        }
+        historicalValues[cacheKey] = data.values;
+        return data.values;
+      } catch (e) {
+        console.error('Failed to load historical values:', e);
+        return [];
+      }
+    }
+
+    async function renderDistribution() {
+      const metric = document.getElementById('metric-sel').value;
+      const metricDisplay = metric.replace(/_/g, ' ').toUpperCase();
+      const unit = getUnit(metric);
+
+      document.getElementById('status').textContent = 'Loading historical data...';
+
+      // Get all historical values from cache
+      const allValues = await loadHistoricalValues(metric);
+      
+      if (allValues.length === 0) {
+        document.getElementById('status').textContent = 'No data available';
+        return;
+      }
+
+      // Get selected snapshot value (scale to match historical values)
+      let selectedValue = null;
+      let selectedLabel = null;
+      if (selectedSnapshot) {
+        let rawValue = selectedSnapshot[metric];
+        if (rawValue !== null && rawValue !== undefined) {
+          // Scale to match historical values
+          if (metric.includes('gex') && !metric.includes('ratio')) {
+            selectedValue = rawValue / 1e9;
+          } else if (metric.includes('oi')) {
+            selectedValue = rawValue / 1e3;
+          } else {
+            selectedValue = rawValue;
+          }
+        }
+        selectedLabel = `${selectedSnapshot.date} @ ${selectedSnapshot.time}`;
+      }
+
+      // Calculate histogram from all historical values
+      const histTrace = {
+        x: allValues,
+        type: 'histogram',
+        name: 'Historical (All Time Slots)',
+        marker: { color: '#0d6efd', opacity: 0.6, line: { color: '#0d6efd', width: 1 } },
+        xbins: { size: 'auto' },
+      };
+
+      const shapes = [];
+      if (selectedValue !== null && selectedValue !== undefined) {
+        shapes.push({
+          type: 'line',
+          x0: selectedValue,
+          x1: selectedValue,
+          y0: 0,
+          y1: 1,
+          yref: 'paper',
+          line: { color: '#dc3545', width: 3, dash: 'dash' },
+        });
+      }
+
+      // Calculate percentile
+      let percentile = null;
+      if (selectedValue !== null && selectedValue !== undefined) {
+        const sorted = [...allValues].sort((a, b) => a - b);
+        const rank = sorted.filter(v => v <= selectedValue).length;
+        percentile = Math.round(rank / sorted.length * 1000) / 10;
+      }
+
+      const title = selectedLabel
+        ? `${metricDisplay} Distribution (${selectedLabel}: ${formatValue(selectedValue, metric)}, Percentile: ${percentile}%)`
+        : `${metricDisplay} Distribution (Select a snapshot to compare)`;
+
+      const layout = {
+        title: title,
+        xaxis: { title: `${metricDisplay} (${unit})`, zeroline: true, zerolinecolor: '#ccc', zerolinewidth: 1 },
+        yaxis: { title: 'Count' },
+        margin: { t: 50, l: 60, r: 20, b: 50 },
+        plot_bgcolor: '#fff',
+        paper_bgcolor: '#fff',
+        bargap: 0.1,
+        shapes,
+      };
+
+      Plotly.react('dist-chart', [histTrace], layout, { responsive: true });
+      document.getElementById('status').textContent = `${allValues.length} historical samples`;
+    }
+
+    function renderSnapshotsTable() {
+      const tbody = document.getElementById('snapshots-body');
+      tbody.innerHTML = '';
+
+      allSnapshots.forEach((snap, idx) => {
+        const tr = document.createElement('tr');
+        if (selectedSnapshot && selectedSnapshot.ndate === snap.ndate && selectedSnapshot.ntime === snap.ntime) {
+          tr.classList.add('selected');
+        }
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.checked = selectedSnapshot && selectedSnapshot.ndate === snap.ndate && selectedSnapshot.ntime === snap.ntime;
+        checkbox.onchange = () => selectSnapshot(snap, checkbox);
+
+        tr.innerHTML = `
+          <td></td>
+          <td>${snap.date}</td>
+          <td>${snap.time}</td>
+          <td>${snap.uprice ? snap.uprice.toFixed(2) : '--'}</td>
+          <td>${snap.net_gex ? (snap.net_gex / 1e9).toFixed(2) + 'B' : '--'}</td>
+          <td>${snap.total_call_gex ? (snap.total_call_gex / 1e9).toFixed(2) + 'B' : '--'}</td>
+          <td>${snap.total_put_gex ? (snap.total_put_gex / 1e9).toFixed(2) + 'B' : '--'}</td>
+          <td>${snap.kcs ? snap.kcs.toFixed(2) : '--'}</td>
+          <td>${snap.dominance ? snap.dominance.toFixed(1) + '%' : '--'}</td>
+          <td>${snap.sentiment ? snap.sentiment.toFixed(0) + '%' : '--'}</td>
+          <td>${snap.gex_ratio ? snap.gex_ratio.toFixed(2) : '--'}</td>
+          <td>${snap.total_call_oi ? (snap.total_call_oi / 1e3).toFixed(2) + 'K' : '--'}</td>
+          <td>${snap.total_put_oi ? (snap.total_put_oi / 1e3).toFixed(2) + 'K' : '--'}</td>
+          <td>${snap.total_call_vol ? (snap.total_call_vol / 1e3).toFixed(2) + 'K' : '--'}</td>
+          <td>${snap.total_put_vol ? (snap.total_put_vol / 1e3).toFixed(2) + 'K' : '--'}</td>
+        `;
+        tr.cells[0].appendChild(checkbox);
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('table-status').textContent = `Showing ${allSnapshots.length} of ${totalSnapshots} snapshots`;
+      document.getElementById('load-more-btn').disabled = !hasMore;
+    }
+
+    function selectSnapshot(snap, checkbox) {
+      // Uncheck all other checkboxes
+      document.querySelectorAll('#snapshots-body input[type="checkbox"]').forEach(cb => {
+        if (cb !== checkbox) cb.checked = false;
+      });
+
+      // Update selected
+      if (checkbox.checked) {
+        selectedSnapshot = snap;
+      } else {
+        selectedSnapshot = null;
+      }
+
+      // Re-render table to update selected row styling
+      renderSnapshotsTable();
+
+      // Update chart
+      loadDistribution();
+    }
+
+    async function loadSnapshots(offset = 0) {
+      try {
+        const regime = document.getElementById('regime-sel').value;
+        const r = await fetch(`/api/gex/distribution/snapshots?offset=${offset}&limit=${PAGE_SIZE}&regime=${regime}`);
+        const data = await r.json();
+
+        if (data.error) {
+          document.getElementById('table-status').innerHTML = '<span class="error">Error: ' + data.error + '</span>';
+          return;
+        }
+
+        if (offset === 0) {
+          allSnapshots = data.snapshots;
+          currentOffset = PAGE_SIZE;
+          // Reset selected snapshot when regime changes - auto-select most recent (first)
+          selectedSnapshot = allSnapshots.length > 0 ? allSnapshots[0] : null;
+        } else {
+          allSnapshots = allSnapshots.concat(data.snapshots);
+          currentOffset += PAGE_SIZE;
+        }
+
+        totalSnapshots = data.total;
+        hasMore = data.has_more;
+
+        renderSnapshotsTable();
+
+        // Load distribution with selected snapshot
+        if (selectedSnapshot) {
+          loadDistribution();
+        }
+      } catch (e) {
+        document.getElementById('table-status').innerHTML = '<span class="error">Error: ' + e.message + '</span>';
+        console.error(e);
+      }
+    }
+
+    function loadMoreSnapshots() {
+      if (hasMore) {
+        loadSnapshots(currentOffset);
+      }
+    }
+
+    async function loadDistribution() {
+      await renderDistribution();
+    }
+
+    // Initial load
+    loadSnapshots(0);
+  </script>
+</body>
+</html>
