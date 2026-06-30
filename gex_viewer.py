@@ -5860,6 +5860,66 @@ def api_delete_snapshot():
     return SnapshotController.delete_snapshot()
 
 
+@app.route("/api/admin/purge-test-records")
+def api_admin_purge_test_records():
+    """Preview or delete garbage records from gex_strike_window:
+      - Weekend dates (Saturday=7, Sunday=1 in SQLite strftime %w)
+      - Pre-market captures before 0900 (not useful, not RTH)
+      - After-hours captures after 1601
+
+    Query params:
+        dry_run: 1 (default) to preview, 0 to actually delete
+    """
+    from datetime import datetime as _dt
+    dry_run = request.args.get("dry_run", "1") != "0"
+
+    with _db() as con:
+        # Find candidates: weekends OR extreme out-of-hours
+        rows = con.execute("""
+            SELECT ndate, ntime, symbol, source, price,
+                   strftime('%w', substr(ndate,1,4)||'-'||substr(ndate,5,2)||'-'||substr(ndate,7,2)) as dow
+            FROM gex_strike_window
+            WHERE symbol='SPX' AND source='gex'
+              AND (
+                CAST(strftime('%w', substr(CAST(ndate AS TEXT),1,4)||'-'||substr(CAST(ndate AS TEXT),5,2)||'-'||substr(CAST(ndate AS TEXT),7,2)) AS INTEGER) IN (0, 6)
+                OR ntime < 600
+                OR ntime > 1601
+              )
+            ORDER BY ndate, ntime
+        """).fetchall()
+
+        candidates = []
+        for r in rows:
+            nd, nt, sym, src, price, dow = r
+            nd_str = str(nd)
+            date_str = f"{nd_str[:4]}-{nd_str[4:6]}-{nd_str[6:]}"
+            day_name = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][int(dow)]
+            reason = "weekend" if int(dow) in (0, 6) else ("pre-6am" if nt < 600 else "post-1601")
+            candidates.append({"date": date_str, "time": nt, "dow": day_name, "reason": reason, "price": price})
+
+        deleted = 0
+        if not dry_run and candidates:
+            cur = con.execute("""
+                DELETE FROM gex_strike_window
+                WHERE symbol='SPX' AND source='gex'
+                  AND (
+                    CAST(strftime('%w', substr(CAST(ndate AS TEXT),1,4)||'-'||substr(CAST(ndate AS TEXT),5,2)||'-'||substr(CAST(ndate AS TEXT),7,2)) AS INTEGER) IN (0, 6)
+                    OR ntime < 600
+                    OR ntime > 1601
+                  )
+            """)
+            deleted = cur.rowcount
+
+    return jsonify({
+        "dry_run": dry_run,
+        "candidates": candidates,
+        "count": len(candidates),
+        "deleted": deleted if not dry_run else 0,
+        "message": f"{'Would delete' if dry_run else 'Deleted'} {len(candidates)} test/weekend records. "
+                   + ("Pass ?dry_run=0 to actually delete." if dry_run else "Done."),
+    })
+
+
 @app.route("/api/snapshots")
 def api_snapshots():
     """Route now delegates to SnapshotController (Phase 5 migration)."""
