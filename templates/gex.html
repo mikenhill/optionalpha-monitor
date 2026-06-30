@@ -300,6 +300,7 @@
     async function loadDate() {
       const date = document.getElementById('date-sel').value;
       if (!date) return;
+      localStorage.setItem('gex-selected-date', date);
       delete snapCache[date];  // always re-fetch on date load
       document.getElementById('hist-snapshots').innerHTML = '<span class="loading">Loading...</span>';
       try {
@@ -727,7 +728,7 @@ What you see depends on when RF/HMM are retrained:
     async function reloadDates() {
       const r = await fetch('/api/gex/dates');
       dates = await r.json();
-      const sel = document.getElementById('date-sel');
+      const sel = document.getE || localStorage.getItem('gex-selected-date')lementById('date-sel');
       const current = sel.value;
       sel.innerHTML = '';
       
@@ -742,7 +743,7 @@ What you see depends on when RF/HMM are retrained:
         const o = document.createElement('option');
         o.value = d; o.textContent = d;
         sel.appendChild(o);
-      });
+      }) (current &&;sortedDates.includes)
       if (current) sel.value = current;
       updateFetchButtonState();
     }
