@@ -130,6 +130,15 @@
     </div>
 
     <div class="section">
+      <h2>Data Quality Check</h2>
+      <p>Identify records with zero OI/volume but non-zero GEX (corrupt or incomplete data from OptionAlpha API).</p>
+      <button id="check-quality-btn" onclick="checkDataQuality()">Check Data Quality</button>
+      <button id="delete-corrupt-btn" onclick="deleteCorruptRecords()" style="background:#dc3545;margin-left:10px" disabled>Delete Corrupt Records</button>
+      <div id="check-quality-status" class="status" style="display: none;"></div>
+      <div id="check-quality-results" class="results"></div>
+    </div>
+
+    <div class="section">
       <h2>Percentile Debug</h2>
       <p>View the full historical breakdown for any metric's percentile calculation.</p>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px;">
@@ -258,7 +267,91 @@
       
       btn.disabled = false;
     }
-    
+
+    let _corruptRecords = [];
+
+    async function checkDataQuality() {
+      const btn = document.getElementById('check-quality-btn');
+      const delBtn = document.getElementById('delete-corrupt-btn');
+      const status = document.getElementById('check-quality-status');
+      const results = document.getElementById('check-quality-results');
+
+      btn.disabled = true;
+      delBtn.disabled = true;
+      status.style.display = 'block';
+      status.className = 'status info';
+      status.textContent = 'Checking data quality... (this may take a minute)';
+      results.innerHTML = '';
+
+      try {
+        const r = await fetch('/api/admin/check-data-quality');
+        const d = await r.json();
+
+        if (d.error) {
+          status.className = 'status error';
+          status.textContent = 'Error: ' + d.error;
+        } else {
+          status.className = 'status info';
+          status.textContent = d.message;
+          _corruptRecords = d.corrupt_records || [];
+
+          if (_corruptRecords.length === 0) {
+            status.className = 'status success';
+            status.textContent = 'No corrupt records found. All data quality checks passed.';
+          } else {
+            status.className = 'status error';
+            status.textContent = `Found ${_corruptRecords.length} corrupt records. Review below and delete if desired.`;
+            delBtn.disabled = false;
+
+            let html = '<table><thead><tr><th>Date</th><th>Time</th><th>Price</th><th>Strikes</th></tr></thead><tbody>';
+            for (const rec of _corruptRecords) {
+              html += `<tr><td>${rec.date}</td><td>${rec.time}</td><td>${rec.price}</td><td>${rec.strike_count}</td></tr>`;
+            }
+            html += '</tbody></table>';
+            results.innerHTML = html;
+          }
+        }
+      } catch (e) {
+        status.className = 'status error';
+        status.textContent = 'Error: ' + e.message;
+      }
+
+      btn.disabled = false;
+    }
+
+    async function deleteCorruptRecords() {
+      if (!confirm(`Delete ${_corruptRecords.length} corrupt records? After deletion, you will need to re-sync these dates from OptionAlpha via the GEX page to get correct data.`)) return;
+
+      const btn = document.getElementById('delete-corrupt-btn');
+      const status = document.getElementById('check-quality-status');
+      const results = document.getElementById('check-quality-results');
+
+      btn.disabled = true;
+      status.className = 'status info';
+      status.textContent = 'Deleting corrupt records...';
+
+      try {
+        const r = await fetch('/api/admin/check-data-quality?dry_run=0');
+        const d = await r.json();
+
+        if (d.error) {
+          status.className = 'status error';
+          status.textContent = 'Error: ' + d.error;
+        } else {
+          status.className = 'status success';
+          status.textContent = d.message;
+          results.innerHTML = `<p>Deleted ${d.deleted} records. Use the GEX page "Load Missing Historical" button to re-sync these dates from OptionAlpha.</p>`;
+          _corruptRecords = [];
+          btn.disabled = true;
+        }
+      } catch (e) {
+        status.className = 'status error';
+        status.textContent = 'Error: ' + e.message;
+      }
+
+      btn.disabled = false;
+    }
+
     async function verifyPercentiles() {
       const btn = document.getElementById('verify-pct-btn');
       const status = document.getElementById('verify-pct-status');

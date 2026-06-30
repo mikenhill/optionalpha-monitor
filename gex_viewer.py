@@ -5941,6 +5941,69 @@ def api_admin_purge_test_records():
     })
 
 
+@app.route("/api/admin/check-data-quality")
+def api_admin_check_data_quality():
+    """Identify records with zero OI/volume but non-zero GEX (data quality anomaly).
+
+    GEX is typically calculated as OI × delta, so non-zero GEX with zero OI/volume
+    indicates corrupt or incomplete data from the source API.
+
+    Query params:
+        dry_run: 1 (default) to preview, 0 to actually delete
+    """
+    import json
+    dry_run = request.args.get("dry_run", "1") != "0"
+
+    with _db() as con:
+        rows = con.execute(
+            "SELECT ndate, ntime, price, data FROM gex_strike_window WHERE symbol=? AND source=?",
+            ('SPX', 'gex')
+        ).fetchall()
+
+        corrupt = []
+        for nd, nt, price, data in rows:
+            strikes = json.loads(data) if data else []
+            if not strikes:
+                continue
+
+            # Check if all strikes have zero OI/vol but non-zero GEX
+            has_zero_oi = all(s.get('call_oi', 0) == 0 and s.get('put_oi', 0) == 0 for s in strikes)
+            has_zero_vol = all(s.get('call_vol', 0) == 0 and s.get('put_vol', 0) == 0 for s in strikes)
+            has_gex = any(s.get('cg', 0) != 0 or s.get('pg', 0) != 0 for s in strikes)
+
+            if has_zero_oi and has_zero_vol and has_gex:
+                nd_str = str(nd)
+                date_str = f"{nd_str[:4]}-{nd_str[4:6]}-{nd_str[6:]}"
+                time_str = f"{nt//100:02d}:{nt%100:02d}"
+                corrupt.append({
+                    "ndate": nd,
+                    "ntime": nt,
+                    "date": date_str,
+                    "time": time_str,
+                    "price": price,
+                    "strike_count": len(strikes),
+                })
+
+        deleted = 0
+        if not dry_run and corrupt:
+            # Delete all corrupt records
+            for c in corrupt:
+                con.execute(
+                    "DELETE FROM gex_strike_window WHERE ndate=? AND ntime=? AND symbol='SPX' AND source='gex'",
+                    (c['ndate'], c['ntime'])
+                )
+            deleted = len(corrupt)
+
+    return jsonify({
+        "dry_run": dry_run,
+        "corrupt_records": corrupt,
+        "count": len(corrupt),
+        "deleted": deleted if not dry_run else 0,
+        "message": f"{'Found' if dry_run else 'Deleted'} {len(corrupt)} corrupt records (zero OI/vol but non-zero GEX). "
+                   + ("Pass ?dry_run=0 to delete them and re-sync from OptionAlpha." if dry_run else "Deleted. Re-sync these dates from OptionAlpha to get correct data."),
+    })
+
+
 @app.route("/api/snapshots")
 def api_snapshots():
     """Route now delegates to SnapshotController (Phase 5 migration)."""
