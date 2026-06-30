@@ -5967,8 +5967,8 @@ def api_admin_check_data_quality():
                 continue
 
             # Check if all strikes have zero OI/vol but non-zero GEX
-            has_zero_oi = all(s.get('call_oi', 0) == 0 and s.get('put_oi', 0) == 0 for s in strikes)
-            has_zero_vol = all(s.get('call_vol', 0) == 0 and s.get('put_vol', 0) == 0 for s in strikes)
+            has_zero_oi = all(s.get('coi', 0) == 0 and s.get('poi', 0) == 0 for s in strikes)
+            has_zero_vol = all(s.get('cvol', 0) == 0 and s.get('pvol', 0) == 0 for s in strikes)
             has_gex = any(s.get('cg', 0) != 0 or s.get('pg', 0) != 0 for s in strikes)
 
             if has_zero_oi and has_zero_vol and has_gex:
