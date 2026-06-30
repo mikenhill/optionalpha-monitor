@@ -4505,21 +4505,70 @@ def api_gex_percentiles():
 
 @app.route("/api/gex/percentile")
 def api_gex_percentile():
-    """Calculate percentile for a single metric on-the-fly using recent historical data.
-    
-    Approach:
-    1. Map snapshot time to nearest standard time slot (935, 1000, 1030, etc.)
-    2. Query last N days of data for that specific time slot
-    3. Calculate percentile against those historical values
-    
-    Query params:
-        date: ISO date (YYYY-MM-DD)
-        time: ntime (HHMM format, default 1000)
-        metric: metric name (default net_gex)
-        days: number of days to look back (default 90)
-    """
+    """Calculate percentile for a single metric on-the-fly using recent historical data."""
     from controllers.gex_controller import GexController
     return GexController.calculate_on_the_fly_percentile()
+
+
+@app.route("/gex/percentile-debug")
+def gex_percentile_debug():
+    """HTML debug page showing percentile calculation breakdown."""
+    from controllers.gex_controller import GexController
+    date = request.args.get("date", "")
+    time = request.args.get("time", "1000")
+    metric = request.args.get("metric", "net_gex")
+    days = request.args.get("days", "90")
+
+    if not date:
+        return "<h2>Missing ?date= parameter</h2>", 400
+
+    # Temporarily inject debug=true into the request args
+    from werkzeug.test import EnvironBuilder
+    from werkzeug.wrappers import Request as WerkzeugRequest
+    with app.test_request_context(
+        f"/api/gex/percentile?date={date}&time={time}&metric={metric}&days={days}&debug=true"
+    ):
+        from flask import request as inner_request
+        result = GexController.calculate_on_the_fly_percentile()
+
+    import json as _json
+    data = _json.loads(result.get_data(as_text=True))
+
+    if "error" in data:
+        return f"<h2>Error: {data['error']}</h2>", 500
+
+    history = data.get("history", [])
+    current_val = data["value"]
+    pct = data["percentile"]
+    lookup_time = data["lookup_time"]
+
+    rows_html = ""
+    for i, h in enumerate(history):
+        highlight = ' style="background:#fffbe6;font-weight:bold;"' if h["value"] == current_val else ""
+        rows_html += f'<tr{highlight}><td>{i+1}</td><td>{h["date"]}</td><td>{lookup_time}</td><td>{h["value"]:,.2f}</td></tr>'
+
+    html = f"""<!DOCTYPE html><html><head><title>Percentile Debug</title>
+    <style>
+      body {{ font-family: monospace; padding: 20px; }}
+      table {{ border-collapse: collapse; width: 600px; }}
+      th {{ background: #343a40; color: #fff; padding: 6px 12px; text-align: left; }}
+      td {{ border-bottom: 1px solid #dee2e6; padding: 5px 12px; }}
+      .summary {{ background: #e9f5e9; border: 1px solid #aaa; padding: 12px; margin-bottom: 20px; width: 580px; }}
+    </style></head><body>
+    <h2>Percentile Debug: {metric} @ {date} {time}</h2>
+    <div class="summary">
+      <b>Current value:</b> {current_val:,.2f}<br>
+      <b>Percentile:</b> {pct}th<br>
+      <b>Lookup time slot:</b> {lookup_time}<br>
+      <b>Sample size:</b> {data['sample_size']} (last {days} days)<br>
+      <b>Rank:</b> {round(pct * data['sample_size'] / 100):.0f} of {data['sample_size']}
+    </div>
+    <table>
+      <thead><tr><th>#</th><th>Date</th><th>Time</th><th>{metric}</th></tr></thead>
+      <tbody>{rows_html}</tbody>
+    </table>
+    </body></html>"""
+    return html
 
 
 @app.route("/api/gex/recalc-percentiles")
