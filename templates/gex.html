@@ -252,9 +252,8 @@
       ['K2-pVol', 'Put volume at secondary key strike'],
     ];
 
-    // Col indices: 0-10 = base, 11-17 = key, 18-21 = key2
-    const COL_CLASS = ['','','','','','','','','','','','col-key','col-key','col-key','col-key','col-key','col-key','col-key','col-key2','col-key2','col-key2','col-key2'];
-
+    // Col indices: 0-10 = base, 11-17 = key, 18-21 = key2    
+    const COL_CLASS = ['','','','','','','','','','','','','col-key','col-key','col-key','col-key','col-key','col-key','col-key','col-key2','col-key2','col-key2','col-key2'];
     function buildHeader() {
       return '<thead><tr>' +
         HEADERS.map(([label, tip], i) =>
