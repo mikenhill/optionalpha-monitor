@@ -4267,6 +4267,12 @@ def api_csv_data():
     return CsvController.get_csv_data()
 
 
+@app.route("/api/csv-intraday")
+def api_csv_intraday():
+    """Return all time slots for a single date."""
+    return CsvController.get_csv_intraday()
+
+
 @app.route("/api/snapshot")
 def api_snapshot():
     """Route now delegates to SnapshotController (Phase 5 migration)."""

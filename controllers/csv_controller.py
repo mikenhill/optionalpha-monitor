@@ -18,6 +18,90 @@ class CsvController(BaseController):
     """Controller for CSV data-related API endpoints."""
     
     @staticmethod
+    def get_csv_intraday():
+        """Return all time slots for a single date.
+
+        Query params:
+            date: ISO date (YYYY-MM-DD)
+
+        Returns:
+            JSON response with all snapshots for that date
+        """
+        date_iso = request.args.get("date")
+        if not date_iso:
+            return BaseController.json_response(BaseController.error_response("date required"), 400)
+
+        ndate = int(date_iso.replace("-", ""))
+
+        try:
+            with get_connection() as con:
+                rows = con.execute(
+                    """SELECT ndate, ntime, price, data FROM gex_strike_window
+                       WHERE ndate=? AND symbol='SPX' AND source='gex'
+                       ORDER BY ntime""",
+                    (ndate,)
+                ).fetchall()
+
+            rows_data = []
+            for row in rows:
+                ndate_r, snap_ntime, price, data = row
+                strikes = json.loads(data) if data else []
+                if not strikes or not price:
+                    continue
+
+                sentiment = calculate_sentiment(strikes)
+                gex_ratio = calculate_gex_ratio(strikes)
+                net_gex = calculate_net_gex(strikes)
+                kcs = calculate_kcs(strikes, price)
+                dominance = calculate_dominance(strikes, price)
+                key_stats = calculate_key_strike_stats(strikes, price)
+                oi_vol = calculate_total_oi_and_vol(strikes)
+                total_gex = calculate_total_gex(strikes)
+
+                key_net = (key_stats["key_call_gex"] or 0) - (key_stats["key_put_gex"] or 0)
+                key_net_oi = (key_stats["key_call_oi"] or 0) - (key_stats["key_put_oi"] or 0)
+
+                rows_data.append({
+                    "date": date_iso,
+                    "time": f"{snap_ntime // 100:02d}:{snap_ntime % 100:02d}",
+                    "SPX-last": price,
+                    "sentiment": sentiment,
+                    "gex_ratio": gex_ratio,
+                    "net_gex": net_gex,
+                    "kcs": kcs,
+                    "key_strike": key_stats["key_strike"],
+                    "key_absolute": dominance,
+                    "key_net": key_net,
+                    "key_dominance_pct": dominance,
+                    "key_call_gex": key_stats["key_call_gex"],
+                    "key_put_gex": key_stats["key_put_gex"],
+                    "key_call_oi": key_stats["key_call_oi"],
+                    "key_put_oi": key_stats["key_put_oi"],
+                    "key_net_oi": key_net_oi,
+                    "key_call_vol": key_stats["key_call_vol"],
+                    "OI Calls": oi_vol["total_call_oi"],
+                    "OI Puts": oi_vol["total_put_oi"],
+                    "OI Net": oi_vol["total_call_oi"] - oi_vol["total_put_oi"],
+                    "Vol Calls": oi_vol["total_call_vol"],
+                    "Vol Puts": oi_vol["total_put_vol"],
+                    "Vol Net": oi_vol["total_call_vol"] - oi_vol["total_put_vol"],
+                    "total_call_gex": total_gex["total_call_gex"],
+                    "total_put_gex": total_gex["total_put_gex"],
+                })
+
+            COLUMNS = [
+                "date", "time", "SPX-last", "sentiment", "gex_ratio", "net_gex", "kcs",
+                "key_strike", "key_absolute", "key_net", "key_dominance_pct",
+                "key_call_gex", "key_put_gex", "key_call_oi", "key_put_oi", "key_net_oi",
+                "key_call_vol", "OI Calls", "OI Puts", "OI Net",
+                "Vol Calls", "Vol Puts", "Vol Net",
+                "total_call_gex", "total_put_gex",
+            ]
+            return BaseController.json_response({"columns": COLUMNS, "rows": rows_data})
+        except Exception as e:
+            return BaseController.json_response(BaseController.error_response(str(e)))
+
+    @staticmethod
     @with_test_metadata(dao_name="CsvController")
     def get_csv_data():
         """Return summary metrics for all historical dates at the same time slot.
