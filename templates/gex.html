@@ -233,6 +233,7 @@
       ['Ratio', 'Call/Put GEX ratio'],
       ['Net GEX', 'Net gamma exposure (call GEX minus put GEX)'],
       ['KCS', 'Key strike concentration score'],
+      ['Dom', 'Key strike dominance (share of total absolute GEX)'],
       ['Regime', 'HMM market regime label'],
       ['Put GEX', 'Total put GEX'],
       ['cVol', 'Total call volume'],
@@ -283,6 +284,7 @@
         '<td>' + fmtNum(row.gex_ratio, 1) + '</td>' +
         '<td' + cls(row.net_gex) + '>' + fmtBig(row.net_gex, suffixes.net_gex) + '</td>' +
         '<td>' + fmtNum(row.kcs, 1) + '</td>' +
+        '<td>' + fmtNum(row.dominance, 1) + '</td>' +
         '<td><span class="' + hc + '">' + (row.hmm_label || '--') + '</span></td>' +
         '<td' + cls(-(row.total_put_gex || 0)) + '>' + fmtBig(row.total_put_gex, suffixes.total_put_gex) + '</td>' +
         '<td>' + fmtBig(row.total_call_vol, suffixes.total_call_vol) + '</td>' +
