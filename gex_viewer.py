@@ -153,7 +153,7 @@ def _db() -> sqlite3.Connection:
             return con
         except sqlite3.OperationalError as exc:
             last_exc = exc
-            if "disk I/O" in str(exc):
+            if "disk I/O" in str(exc) or "database is locked" in str(exc):
                 # Try to remove stale WAL/SHM left by Drive sync
                 for f in (wal, shm):
                     try:
@@ -161,7 +161,7 @@ def _db() -> sqlite3.Connection:
                             f.unlink()
                     except OSError:
                         pass
-                _time.sleep(0.5 * (attempt + 1))
+                _time.sleep(1.0 * (attempt + 1))
             else:
                 raise
     # WAL unavailable — fall back to DELETE mode (no WAL files created)
