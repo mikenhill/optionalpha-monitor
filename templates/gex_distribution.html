@@ -180,10 +180,10 @@
       if (selectedSnapshot) {
         let rawValue = selectedSnapshot[metric];
         if (rawValue !== null && rawValue !== undefined) {
-          // Scale to match historical values
+          // Scale to match historical values (API already scales these)
           if (metric.includes('gex') && !metric.includes('ratio')) {
             selectedValue = rawValue / 1e9;
-          } else if (metric.includes('oi')) {
+          } else if (metric.includes('oi') || metric.includes('vol')) {
             selectedValue = rawValue / 1e3;
           } else {
             selectedValue = rawValue;
