@@ -69,6 +69,17 @@
   <h1>Machine Learning Analysis</h1>
 
   <div class="card" style="margin-bottom:15px">
+    <h2 style="margin:0 0 10px">Daily ML Workflow
+      <span style="float:right;display:flex;gap:6px">
+        <button onclick="runDailyWorkflow()" id="btn-workflow" style="padding:4px 12px;font-size:12px;background:#0d6efd;color:#fff;border:none;border-radius:4px;cursor:pointer">▶ Run Full Workflow</button>
+        <label style="margin-left:10px;font-size:12px"><input type="checkbox" id="force-retrain"> Force ML Retrain (daily instead of threshold-based)</label>
+      </span>
+    </h2>
+    <p style="font-size:12px;color:#6c757d;margin:0">Syncs historical data, purges test records, verifies data, updates SPX OHLC, rebuilds ML labels, trains HMM/ML, generates signals, backfills outcomes.</p>
+    <div id="workflow-status" class="status" style="display:none;font-size:12px;margin-top:8px"></div>
+  </div>
+
+  <div class="card" style="margin-bottom:15px">
     <h2 style="margin:0 0 10px">Data Status
       <span style="float:right;display:flex;gap:6px">
         <button onclick="updateOhlc()" id="btn-update" style="padding:4px 12px;font-size:12px;background:#0d6efd;color:#fff;border:none;border-radius:4px;cursor:pointer">↻ Update from yfinance</button>
@@ -905,6 +916,58 @@
       } catch(e) {
         document.getElementById('ot-loading').textContent = '✗ Error: ' + e.message;
       }
+    }
+
+    async function runDailyWorkflow() {
+      const btn = document.getElementById('btn-workflow');
+      const status = document.getElementById('workflow-status');
+      const forceRetrain = document.getElementById('force-retrain').checked;
+      
+      btn.disabled = true;
+      status.style.display = 'block';
+      status.className = 'status info';
+      status.style.color = '#6c757d';
+      status.textContent = 'Running daily workflow (this may take several minutes)...';
+      
+      try {
+        const response = await fetch('/api/admin/daily-workflow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ steps: 'all', force_retrain: forceRetrain })
+        });
+        const result = await response.json();
+        
+        if (result.success) {
+          const stepResults = result.results;
+          let summary = [];
+          for (const [step, r] of Object.entries(stepResults)) {
+            if (r.skipped) {
+              summary.push(`${step}: skipped (${r.reason})`);
+            } else if (r.error) {
+              summary.push(`${step}: error (${r.error})`);
+            } else if (step === 'ml' && r.vol_regime) {
+              const vr = r.vol_regime;
+              const accChange = vr.change > 0 ? '+' + vr.change : vr.change;
+              summary.push(`${step}: trained (accuracy: ${vr.new_accuracy} (${accChange}), samples: ${vr.new_samples})`);
+            } else {
+              summary.push(`${step}: ok`);
+            }
+          }
+          status.className = 'status success';
+          status.style.color = '#198754';
+          status.textContent = 'Complete: ' + summary.join(', ');
+        } else {
+          status.className = 'status error';
+          status.style.color = '#dc3545';
+          status.textContent = 'Failed - see console for details';
+        }
+      } catch (e) {
+        status.className = 'status error';
+        status.style.color = '#dc3545';
+        status.textContent = 'Error: ' + e.message;
+      }
+      
+      btn.disabled = false;
     }
 
     loadDataStatus();
