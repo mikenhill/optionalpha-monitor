@@ -6411,7 +6411,8 @@ def api_gex_snapshot():
         return (max_abs / total_abs) * 100
     
     def calculate_key_strike_stats(strikes, uprice):
-        """Proximity-weighted max abs."""
+        """Proximity-weighted max abs using same formula as controller."""
+        import math
         if not strikes:
             return {
                 "key_strike": None,
@@ -6427,7 +6428,7 @@ def api_gex_snapshot():
                 "key2_put_vol": 0,
             }
         
-        # Calculate weighted score for each strike
+        # Calculate weighted score for each strike using controller formula
         scored = []
         for s in strikes:
             strike = s.get("strike", 0)
@@ -6435,8 +6436,7 @@ def api_gex_snapshot():
                 continue
             
             abs_gex = abs(s.get("cg", 0)) + abs(s.get("pg", 0))
-            proximity = 1 - (abs(strike - uprice) / uprice)
-            proximity = max(0, proximity)
+            proximity = math.exp(-abs(strike - uprice) / 25.0)
             score = abs_gex * proximity
             scored.append((strike, score, s))
         
