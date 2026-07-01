@@ -7990,6 +7990,46 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
                 "VALUES (?, ?, ?, ?, ?, ?)",
                 (ndate, ntime, symbol, 'gex', uprice, json.dumps(window_strikes))
             )
+        
+        # Calculate HMM label for RTH snapshots (ntime >= 935)
+        hmm_state = None
+        hmm_label = None
+        if ntime >= 935:
+            from controllers.gex_calculations import (
+                calculate_sentiment,
+                calculate_net_gex,
+                calculate_kcs,
+                calculate_key_strike_stats,
+                calculate_total_oi_and_vol,
+            )
+            
+            sentiment = calculate_sentiment(window_strikes)
+            net_gex = calculate_net_gex(window_strikes)
+            kcs = calculate_kcs(window_strikes, uprice)
+            key_stats = calculate_key_strike_stats(window_strikes)
+            total_oi_vol = calculate_total_oi_and_vol(window_strikes)
+            
+            snap_features = [{
+                "net_gex": net_gex,
+                "kcs": kcs,
+                "sentiment_pct": sentiment,
+                "key_strike": key_stats["key_strike"],
+                "total_put_vol": total_oi_vol["total_put_vol"],
+            }]
+            
+            hmm_results = predict_hmm_sequence(snap_features)
+            if hmm_results:
+                hmm_state = hmm_results[0].get("state")
+                hmm_label = hmm_results[0].get("label")
+                
+                # Update the stored record with HMM labels
+                with _db() as con:
+                    con.execute(
+                        "UPDATE gex_strike_window SET hmm_state=?, hmm_label=? "
+                        "WHERE ndate=? AND ntime=? AND symbol=? AND source='gex'",
+                        (hmm_state, hmm_label, ndate, ntime, symbol),
+                    )
+        
         # Recalculate percentiles for this time slot
         _recalc_gex_percentiles(ntime)
         return True
