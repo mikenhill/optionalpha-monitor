@@ -1842,6 +1842,19 @@ def _ensure_ml_models_table() -> None:
                 model_blob  BLOB NOT NULL
             )
         """)
+        # Create history table for tracking performance over time
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS ml_model_history (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                model_name  TEXT NOT NULL,
+                trained_at  TEXT NOT NULL,
+                n_samples   INTEGER NOT NULL,
+                accuracy    REAL,
+                features    TEXT NOT NULL,
+                classes     TEXT NOT NULL,
+                created_at  TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
 
 def _extract_gex_features(strikes, uprice) -> dict:
@@ -3565,10 +3578,19 @@ def api_admin_daily_workflow():
                 # Fetch previous model metrics before training
                 with _db() as con:
                     prev_model = con.execute(
-                        "SELECT trained_at, n_samples, accuracy FROM ml_models WHERE model_name='vol_regime'"
+                        "SELECT model_name, trained_at, n_samples, accuracy, features, classes FROM ml_models WHERE model_name='vol_regime'"
                     ).fetchone()
-                    prev_acc = prev_model[2] if prev_model else None
-                    prev_samples = prev_model[1] if prev_model else None
+                    prev_acc = prev_model[3] if prev_model else None
+                    prev_samples = prev_model[2] if prev_model else None
+                    
+                    # Save previous model to history before overwriting
+                    if prev_model:
+                        con.execute(
+                            """INSERT INTO ml_model_history 
+                               (model_name, trained_at, n_samples, accuracy, features, classes)
+                               VALUES (?, ?, ?, ?, ?, ?)""",
+                            (prev_model[0], prev_model[1], prev_model[2], prev_model[3], prev_model[4], prev_model[5])
+                        )
                 
                 result = _train_ml_models()
                 

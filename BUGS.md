@@ -19,3 +19,19 @@
 - **Rationale:** Likely data format change in OptionAlpha API response for older dates
 - **Action:** Investigate fetch_histgex response format for older dates vs newer dates
 - **Retest:** After fix
+
+### Issue: GEX Admin tab navigation loses ML tab state
+- **Description:** When navigating to GEX Admin tab, the ML tab state is lost
+- **Date:** 2026-07-01
+- **Status:** Bug - needs investigation
+- **Rationale:** Tab navigation state not preserved when switching between admin pages
+- **Action:** Investigate tab navigation logic in gex_admin.html
+- **Retest:** After fix
+
+### Issue: PCA variance chart lacks explanation of PC1-PC27
+- **Description:** The "Variance Explained by Principal Component" chart shows PC1 through PC27 without explanation
+- **Date:** 2026-07-01
+- **Status:** Feature request - needs enhancement
+- **Rationale:** Users need to understand what PC1-PC27 represent (principal components from PCA)
+- **Action:** Add tooltip or explanatory text to the PCA variance chart
+- **Retest:** After enhancement
