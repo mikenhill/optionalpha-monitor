@@ -59,7 +59,24 @@ def call_optionalpha_api(payload, session_file=SESSION_FILE):
     }
     response = session.post(API_URL, headers=headers, json=payload, timeout=90)
     response.raise_for_status()
-    return response.json()
+    
+    # Check for CAPTCHA challenge in response
+    try:
+        data = response.json()
+    except json.JSONDecodeError:
+        # Response might be HTML CAPTCHA page
+        if "captcha" in response.text.lower() or "are you human" in response.text.lower():
+            return {"error": "CAPTCHA challenge", "html": response.text[:500]}
+        raise
+    
+    # Check for CAPTCHA indicators in JSON response
+    if isinstance(data, list):
+        for item in data:
+            if isinstance(item, dict):
+                if "captcha" in str(item).lower() or "challenge" in str(item).lower():
+                    return {"error": "CAPTCHA challenge", "response": item}
+    
+    return data
 
 
 def fetch_market_data(symbol="SPX", xid="SPX_20260602", session_file=SESSION_FILE):

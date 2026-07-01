@@ -100,6 +100,11 @@ def build_histgex_payload(symbol: str, ndate: int, ntime: int) -> list:
 def fetch_histgex(symbol: str, ndate: int, ntime: int) -> dict | None:
     payload = build_histgex_payload(symbol, ndate, ntime)
     raw = call_optionalpha_api(payload)
+    
+    # Check for CAPTCHA error
+    if isinstance(raw, dict) and raw.get("error") == "CAPTCHA challenge":
+        return None
+    
     for item in raw:
         if item.get("api") == "market.histgex":
             return item.get("data")

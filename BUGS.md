@@ -15,10 +15,10 @@
 - **Description:** Syncing historical records for dates before 2026-06-28 fails with error "'str' object has no attribute 'get'"
 - **Date:** 2026-07-01
 - **Examples:** 2026-06-28, 2026-06-19, 2026-06-14, 2026-06-13, 2026-06-07, 2026-06-06
-- **Status:** Not a bug - OptionAlpha API data limitation
-- **Rationale:** OptionAlpha API doesn't have historical data for dates before 2026-06-28. Testing confirmed 2026-06-28 returns None from API, while 2026-06-30 returns data successfully.
-- **Action:** No fix needed - this is a data availability limitation from OptionAlpha
-- **Retest:** N/A (external API limitation)
+- **Status:** Not a bug - Weekend dates have no trading data
+- **Rationale:** Testing confirmed 2026-06-28 is a Sunday (weekend) with no trading data. OptionAlpha API returns responses without data field for weekend dates. Other dates work correctly (e.g., 2026-02-18@955 returns 225 data points, 2026-06-30@935 returns 644 data points). Not a CAPTCHA issue - CAPTCHA detection added and confirmed not triggering.
+- **Action:** Removed 1 record for 2026-06-28 from snapshot table. Consider adding weekend date validation to sync function to prevent future attempts.
+- **Retest:** N/A (weekend dates have no trading data)
 
 ### Issue: GEX Admin tab navigation loses ML tab state
 - **Description:** When navigating to GEX Admin tab, the ML tab state is lost
