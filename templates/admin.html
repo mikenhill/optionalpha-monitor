@@ -78,6 +78,15 @@
     </div>
 
     <div class="card">
+        <h2>Daily ML Workflow</h2>
+        <div class="toolbar">
+            <button class="info" onclick="runDailyWorkflow()">Run Full Workflow</button>
+            <label><input type="checkbox" id="force-retrain"> Force ML Retrain</label>
+        </div>
+        <div id="workflow-output" class="status">Syncs historical data, purges test records, verifies data, updates SPX OHLC, rebuilds ML labels, trains HMM/ML, generates signals, backfills outcomes.</div>
+    </div>
+
+    <div class="card">
         <h2>Data Maintenance</h2>
         <div class="toolbar">
             <button class="danger" onclick="regenerateSignals()">Regenerate Trade Signals</button>
@@ -312,6 +321,47 @@
                 output.textContent = 'Error: ' + e.message;
                 output.className = 'error';
                 log('Signal regeneration error: ' + e.message, 'error');
+            }
+        }
+
+        async function runDailyWorkflow() {
+            const output = document.getElementById('workflow-output');
+            const forceRetrain = document.getElementById('force-retrain').checked;
+            output.textContent = 'Running daily workflow (this may take several minutes)...';
+            log('Starting daily ML workflow...');
+            
+            try {
+                const response = await fetch('/api/admin/daily-workflow', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ steps: 'all', force_retrain: forceRetrain })
+                });
+                const result = await response.json();
+                
+                if (result.success) {
+                    const stepResults = result.results;
+                    let summary = [];
+                    for (const [step, r] of Object.entries(stepResults)) {
+                        if (r.skipped) {
+                            summary.push(`${step}: skipped (${r.reason})`);
+                        } else if (r.error) {
+                            summary.push(`${step}: error (${r.error})`);
+                        } else {
+                            summary.push(`${step}: ok`);
+                        }
+                    }
+                    output.textContent = 'Complete: ' + summary.join(', ');
+                    output.className = 'success';
+                    log('Daily workflow complete: ' + summary.join(', '), 'success');
+                } else {
+                    output.textContent = 'Failed';
+                    output.className = 'error';
+                    log('Daily workflow failed', 'error');
+                }
+            } catch (e) {
+                output.textContent = 'Error: ' + e.message;
+                output.className = 'error';
+                log('Daily workflow error: ' + e.message, 'error');
             }
         }
     </script>

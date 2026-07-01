@@ -3489,6 +3489,103 @@ def api_admin_regenerate_signals():
         }), 500
 
 
+@app.route("/api/admin/daily-workflow", methods=["POST"])
+def api_admin_daily_workflow():
+    """Run daily workflow steps.
+    
+    Steps:
+    1. Sync Historical (max 30 days)
+    2. Purge test records (dry_run=False to actually delete)
+    3. Verify data
+    4. Update SPX OHLC
+    5. Rebuild ML labels
+    6. Retrain HMM
+    7. Retrain ML models
+    8. Generate today's trade signals
+    9. Backfill prediction outcomes
+    
+    Query params:
+        steps: comma-separated list of steps to run, or "all" (default)
+              Options: sync,purge,verify,ohlc,labels,hmm,ml,signals,outcomes
+        force_retrain: 1 to force ML retrain regardless of threshold (default 0)
+    """
+    from flask import url_for
+    import requests as _requests
+    
+    body = request.get_json(force=True) or {}
+    steps_param = body.get("steps", "all")
+    force_retrain = body.get("force_retrain", False)
+    
+    all_steps = ["sync", "purge", "verify", "ohlc", "labels", "hmm", "ml", "signals", "outcomes"]
+    if steps_param == "all":
+        steps = all_steps
+    else:
+        steps = [s.strip() for s in steps_param.split(",")]
+    
+    results = {}
+    base_url = "http://localhost:5050"
+    
+    def _call_api(endpoint, method="GET", json_data=None):
+        try:
+            url = f"{base_url}{endpoint}"
+            if method == "POST":
+                resp = _requests.post(url, json=json_data, timeout=300)
+            else:
+                resp = _requests.get(url, timeout=300)
+            return resp.json() if resp.status_code == 200 else {"error": f"HTTP {resp.status_code}"}
+        except Exception as e:
+            return {"error": str(e)}
+    
+    if "sync" in steps:
+        results["sync"] = _call_api("/api/sync-historical?mode=all&max_days=30")
+        _time_mod.sleep(2)
+    
+    if "purge" in steps:
+        results["purge"] = _call_api("/api/admin/purge-test-records?dry_run=0")
+    
+    if "verify" in steps:
+        results["verify"] = _call_api("/api/admin/verify-data", method="POST")
+    
+    if "ohlc" in steps:
+        results["ohlc"] = _call_api("/api/ml/update-ohlc")
+    
+    if "labels" in steps:
+        results["labels"] = _call_api("/api/ml/rebuild-labels")
+    
+    if "hmm" in steps:
+        results["hmm"] = _call_api("/api/hmm/train", method="POST")
+    
+    if "ml" in steps:
+        if force_retrain:
+            results["ml"] = _call_api("/api/ml/retrain")
+        else:
+            # Check if retrain is needed
+            with _db() as con:
+                row = con.execute(
+                    "SELECT trained_at, n_samples FROM ml_models WHERE model_name='vol_regime'"
+                ).fetchone()
+                current_samples = con.execute(
+                    "SELECT COUNT(*) FROM ml_labels WHERE range_regime IS NOT NULL AND direction_eod IS NOT NULL"
+                ).fetchone()[0]
+            
+            if row is None or (current_samples - row[1] >= 70):
+                results["ml"] = _call_api("/api/ml/retrain")
+            else:
+                results["ml"] = {"skipped": True, "reason": f"Dataset not grown enough ({current_samples} vs {row[1]})"}
+    
+    if "signals" in steps:
+        results["signals"] = _call_api("/api/trade-signals/generate", method="POST", json_data={})
+    
+    if "outcomes" in steps:
+        results["outcomes"] = _call_api("/api/ml/backfill-outcomes")
+    
+    return jsonify({
+        "success": all("error" not in r for r in results.values()),
+        "steps_run": steps,
+        "results": results
+    })
+
+
 @app.route("/api/metric/history")
 def api_metric_history():
     """Return historical EOD values for a metric and current value context."""
