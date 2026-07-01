@@ -3562,7 +3562,28 @@ def api_admin_daily_workflow():
     if "ml" in steps:
         if force_retrain:
             try:
-                results["ml"] = _train_ml_models()
+                # Fetch previous model metrics before training
+                with _db() as con:
+                    prev_model = con.execute(
+                        "SELECT trained_at, n_samples, accuracy FROM ml_models WHERE model_name='vol_regime'"
+                    ).fetchone()
+                    prev_acc = prev_model[2] if prev_model else None
+                    prev_samples = prev_model[1] if prev_model else None
+                
+                result = _train_ml_models()
+                
+                # Add comparison to result
+                if prev_acc is not None:
+                    new_acc = result.get("models", {}).get("vol_regime", {}).get("accuracy")
+                    result["vol_regime"] = {
+                        "previous_accuracy": prev_acc,
+                        "new_accuracy": new_acc,
+                        "change": round(new_acc - prev_acc, 4) if new_acc else None,
+                        "previous_samples": prev_samples,
+                        "new_samples": result.get("models", {}).get("vol_regime", {}).get("samples")
+                    }
+                
+                results["ml"] = result
             except Exception as e:
                 results["ml"] = {"error": str(e)}
         else:

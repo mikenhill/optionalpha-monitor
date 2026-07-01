@@ -430,12 +430,18 @@
               summary.push(`${step}: skipped (${r.reason})`);
             } else if (r.error) {
               summary.push(`${step}: error (${r.error})`);
+            } else if (step === 'ml' && r.vol_regime) {
+              // Show ML performance comparison
+              const vr = r.vol_regime;
+              const accChange = vr.change > 0 ? '+' + vr.change : vr.change;
+              const accColor = vr.change > 0 ? 'green' : vr.change < 0 ? 'red' : 'gray';
+              summary.push(`${step}: trained (accuracy: ${vr.new_accuracy} (${accChange}), samples: ${vr.new_samples})`);
             } else {
               summary.push(`${step}: ok`);
             }
           }
           status.className = 'status success';
-          status.textContent = 'Complete: ' + summary.join(', ');
+          status.innerHTML = 'Complete: ' + summary.join(', ');
         } else {
           status.className = 'status error';
           status.textContent = 'Failed - see console for details';
