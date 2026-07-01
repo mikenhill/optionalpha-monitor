@@ -5763,11 +5763,6 @@ def hscatter():
     from time import time
     return render_template("hscatter.html", cache_bust=int(time()))
 
-@app.route("/admin")
-def admin():
-    from time import time
-    return render_template("admin.html", cache_bust=int(time()))
-
 @app.route("/spx")
 def spx():
     from time import time
