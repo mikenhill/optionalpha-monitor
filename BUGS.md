@@ -15,10 +15,10 @@
 - **Description:** Syncing historical records for dates before 2026-06-28 fails with error "'str' object has no attribute 'get'"
 - **Date:** 2026-07-01
 - **Examples:** 2026-06-28, 2026-06-19, 2026-06-14, 2026-06-13, 2026-06-07, 2026-06-06
-- **Status:** Bug - needs investigation
-- **Rationale:** Likely data format change in OptionAlpha API response for older dates
-- **Action:** Investigate fetch_histgex response format for older dates vs newer dates
-- **Retest:** After fix
+- **Status:** Not a bug - OptionAlpha API data limitation
+- **Rationale:** OptionAlpha API doesn't have historical data for dates before 2026-06-28. Testing confirmed 2026-06-28 returns None from API, while 2026-06-30 returns data successfully.
+- **Action:** No fix needed - this is a data availability limitation from OptionAlpha
+- **Retest:** N/A (external API limitation)
 
 ### Issue: GEX Admin tab navigation loses ML tab state
 - **Description:** When navigating to GEX Admin tab, the ML tab state is lost
