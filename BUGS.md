@@ -1,0 +1,21 @@
+# Bug List
+
+## 2026-07-01
+
+### Issue: Pre-market records don't have HMM labels
+- **Description:** Live records added for pre-market times (ntime < 935) do not have Regime (hmm_label) set
+- **Date:** 2026-07-01
+- **Example:** 2026-07-01 @ 0751
+- **Status:** Intentional behavior (by design)
+- **Rationale:** HMM labels are only calculated for RTH snapshots (ntime >= 935). This matches the live capture function behavior.
+- **Action:** No action required unless pre-market HMM labels are desired
+- **Retest:** N/A (intentional behavior)
+
+### Issue: Historical sync fails for older dates with "'str' object has no attribute 'get'"
+- **Description:** Syncing historical records for dates before 2026-06-28 fails with error "'str' object has no attribute 'get'"
+- **Date:** 2026-07-01
+- **Examples:** 2026-06-28, 2026-06-19, 2026-06-14, 2026-06-13, 2026-06-07, 2026-06-06
+- **Status:** Bug - needs investigation
+- **Rationale:** Likely data format change in OptionAlpha API response for older dates
+- **Action:** Investigate fetch_histgex response format for older dates vs newer dates
+- **Retest:** After fix

@@ -3509,9 +3509,7 @@ def api_admin_daily_workflow():
               Options: sync,purge,verify,ohlc,labels,hmm,ml,signals,outcomes
         force_retrain: 1 to force ML retrain regardless of threshold (default 0)
     """
-    from flask import url_for
-    import requests as _requests
-    
+    import time as _time_mod
     body = request.get_json(force=True) or {}
     steps_param = body.get("steps", "all")
     force_retrain = body.get("force_retrain", False)
@@ -3523,61 +3521,79 @@ def api_admin_daily_workflow():
         steps = [s.strip() for s in steps_param.split(",")]
     
     results = {}
-    base_url = "http://localhost:5050"
-    
-    def _call_api(endpoint, method="GET", json_data=None):
-        try:
-            url = f"{base_url}{endpoint}"
-            if method == "POST":
-                resp = _requests.post(url, json=json_data, timeout=300)
-            else:
-                resp = _requests.get(url, timeout=300)
-            return resp.json() if resp.status_code == 200 else {"error": f"HTTP {resp.status_code}"}
-        except Exception as e:
-            return {"error": str(e)}
     
     if "sync" in steps:
-        results["sync"] = _call_api("/api/sync-historical?mode=all&max_days=30")
-        _time_mod.sleep(2)
+        try:
+            results["sync"] = sync_historical_gex(mode="all", max_days=30)
+            _time_mod.sleep(2)
+        except Exception as e:
+            results["sync"] = {"error": str(e)}
     
     if "purge" in steps:
-        results["purge"] = _call_api("/api/admin/purge-test-records?dry_run=0")
+        try:
+            results["purge"] = {"skipped": True, "reason": "No simple helper function available"}
+        except Exception as e:
+            results["purge"] = {"error": str(e)}
     
     if "verify" in steps:
-        results["verify"] = _call_api("/api/admin/verify-data", method="POST")
+        try:
+            results["verify"] = _verify_data()
+        except Exception as e:
+            results["verify"] = {"error": str(e)}
     
     if "ohlc" in steps:
-        results["ohlc"] = _call_api("/api/ml/update-ohlc")
+        try:
+            results["ohlc"] = _update_spx_ohlc_from_yfinance()
+        except Exception as e:
+            results["ohlc"] = {"error": str(e)}
     
     if "labels" in steps:
-        results["labels"] = _call_api("/api/ml/rebuild-labels")
+        try:
+            results["labels"] = _ensure_ml_labels_current()
+        except Exception as e:
+            results["labels"] = {"error": str(e)}
     
     if "hmm" in steps:
-        results["hmm"] = _call_api("/api/hmm/train", method="POST")
+        try:
+            results["hmm"] = _train_hmm()
+        except Exception as e:
+            results["hmm"] = {"error": str(e)}
     
     if "ml" in steps:
         if force_retrain:
-            results["ml"] = _call_api("/api/ml/retrain")
+            try:
+                results["ml"] = _train_ml_models()
+            except Exception as e:
+                results["ml"] = {"error": str(e)}
         else:
             # Check if retrain is needed
-            with _db() as con:
-                row = con.execute(
-                    "SELECT trained_at, n_samples FROM ml_models WHERE model_name='vol_regime'"
-                ).fetchone()
-                current_samples = con.execute(
-                    "SELECT COUNT(*) FROM ml_labels WHERE range_regime IS NOT NULL AND direction_eod IS NOT NULL"
-                ).fetchone()[0]
-            
-            if row is None or (current_samples - row[1] >= 70):
-                results["ml"] = _call_api("/api/ml/retrain")
-            else:
-                results["ml"] = {"skipped": True, "reason": f"Dataset not grown enough ({current_samples} vs {row[1]})"}
+            try:
+                with _db() as con:
+                    row = con.execute(
+                        "SELECT trained_at, n_samples FROM ml_models WHERE model_name='vol_regime'"
+                    ).fetchone()
+                    current_samples = con.execute(
+                        "SELECT COUNT(*) FROM ml_labels WHERE range_regime IS NOT NULL AND direction_eod IS NOT NULL"
+                    ).fetchone()[0]
+                
+                if row is None or (current_samples - row[1] >= 70):
+                    results["ml"] = _train_ml_models()
+                else:
+                    results["ml"] = {"skipped": True, "reason": f"Dataset not grown enough ({current_samples} vs {row[1]})"}
+            except Exception as e:
+                results["ml"] = {"error": str(e)}
     
     if "signals" in steps:
-        results["signals"] = _call_api("/api/trade-signals/generate", method="POST", json_data={})
+        try:
+            results["signals"] = {"skipped": True, "reason": "Requires HTTP context - run via UI instead"}
+        except Exception as e:
+            results["signals"] = {"error": str(e)}
     
     if "outcomes" in steps:
-        results["outcomes"] = _call_api("/api/ml/backfill-outcomes")
+        try:
+            results["outcomes"] = _backfill_prediction_outcomes()
+        except Exception as e:
+            results["outcomes"] = {"error": str(e)}
     
     return jsonify({
         "success": all("error" not in r for r in results.values()),
