@@ -65,20 +65,19 @@
 ---
 
 #### `ml_models` - Trained ML Models
-**Purpose:** Stores serialized trained models (RandomForest + StandardScaler)  
+**Purpose:** Stores serialized trained models  
 **Schema:**
-- `id` - Auto-increment primary key
-- `model_name` - 'vol_regime' or 'direction'
+- `model_name` - 'vol_regime' or 'direction' (PRIMARY KEY)
 - `trained_at` - Training timestamp
 - `n_samples` - Number of training samples
 - `accuracy` - Cross-validated accuracy
 - `features` - JSON array of feature names used
 - `classes` - JSON array of class labels
-- `model_blob` - Pickled model + scaler (BLOB)
+- `model_blob` - Pickled model + scaler + label_encoder (BLOB)
 
 **Models:**
-- `vol_regime` - Binary: TIGHT vs WIDE (NORMAL collapsed to TIGHT)
-- `direction` - Multi-class: UP/FLAT/DOWN at 2hr horizon
+- `vol_regime` - Binary: TIGHT vs WIDE (NORMAL collapsed to TIGHT) - Uses RandomForest
+- `direction` - Multi-class: UP/FLAT/DOWN at 2hr horizon - Uses XGBoost
 
 ---
 
@@ -252,6 +251,38 @@
 - `dist_to_key`, `dist_to_flip` - Distance from price to key/flip levels
 
 **Key Architectural Decision:** No flat summary columns in `gex_strike_window`. All metrics computed on-demand from raw JSON.
+
+---
+
+### ML Features
+
+**ML_FEATURES array (28 features total):**
+
+**Original GEX features (21):**
+- `net_gex`, `total_call_gex`, `total_put_gex` - Gamma exposure metrics
+- `sentiment`, `gex_ratio`, `kcs`, `dominance` - Sentiment and key strike metrics
+- `key_call_gex`, `key_put_gex`, `key_call_oi`, `key_put_oi`, `key_call_vol`, `key_put_vol` - Key strike data
+- `total_call_oi`, `total_put_oi`, `total_call_vol`, `total_put_vol` - Total OI/volume
+- `oi_ratio`, `vol_ratio` - OI/volume ratios
+- `dist_to_key`, `dist_to_flip` - Distance metrics
+
+**Price momentum features (2):**
+- `price_change` - Absolute price change from previous snapshot
+- `price_change_pct` - Percentage price change from previous snapshot
+
+**Lagged GEX features (3):**
+- `net_gex_change` - Change in net_gex from previous snapshot
+- `sentiment_change` - Change in sentiment from previous snapshot
+- `gex_ratio_change` - Change in gex_ratio from previous snapshot
+
+**Time-of-day features (2):**
+- `hour_sin` - Cyclical encoding of hour (sine)
+- `hour_cos` - Cyclical encoding of hour (cosine)
+
+**Feature Engineering:**
+- Previous snapshot data is tracked during training to calculate momentum and lagged features
+- Previous snapshot resets on new trading day
+- For real-time predictions, momentum/lagged features default to 0 (no previous data)
 
 ---
 
@@ -494,6 +525,7 @@
 ### Python Packages
 - **Flask** - Web framework
 - **scikit-learn** - ML models (RandomForest, StandardScaler, PCA)
+- **xgboost** - Gradient boosting for direction model (improves accuracy)
 - **numpy**, **pandas** - Data manipulation
 - **yfinance** - SPX OHLC data
 - **Playwright** - Browser automation for OptionAlpha login
@@ -590,8 +622,9 @@ optionalpha-monitor/
 - **Use `symbol='SPX'`** in queries unless working with other tickers
 
 ### ML Model Training
-- **Vol regime model** is reliable (70-80% accuracy expected)
-- **Direction model** is poor (expect ~45% accuracy currently)
+- **Vol regime model** is reliable (70-80% accuracy expected) - Uses RandomForest
+- **Direction model** improved with XGBoost + new features (2026-07-05)
+- **New features:** Price momentum, lagged GEX changes, time-of-day encoding
 - **Force retrain** after loading new historical data
 - **Model versioning** happens automatically on force retrain
 
@@ -613,6 +646,15 @@ optionalpha-monitor/
 ---
 
 ## 11. Version History
+
+**2026-07-05:**
+- Added help popup dialogs for PCA variance explained chart (explains PC1-PC27 with concrete GEX interpretations)
+- Added help popup dialog for Feature Importance Ranking table
+- Added Trade Signals Report tab to ML page with API endpoint `/api/trade-signals/performance`
+- Trade Signals Report shows: outcome distribution, performance by structure, financial P&L, win rate by action
+- Added help popup dialogs for all 4 Trade Signals Report sections
+- Renamed "ML Trade Performance" tab to "ML Model Performance" to avoid confusion with Trade Signals Report
+- Added descriptive subtitles to both tabs to clarify distinction (ML predictions vs trade signals performance)
 
 **2026-07-04:**
 - Separated "Load Missing Historical" from daily workflow

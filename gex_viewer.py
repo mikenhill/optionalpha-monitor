@@ -1984,6 +1984,7 @@ def _compute_trade_performance(ndate: int, model_version: str = "default", force
 
 # Feature set used for ML models (subset of full PCA features — top ranked, non-redundant)
 ML_FEATURES = [
+    # Original GEX features
     "net_gex", "total_call_gex", "total_put_gex",
     "sentiment", "gex_ratio", "kcs", "dominance",
     "key_call_gex", "key_put_gex",
@@ -1993,6 +1994,12 @@ ML_FEATURES = [
     "total_call_vol", "total_put_vol",
     "oi_ratio", "vol_ratio",
     "dist_to_key", "dist_to_flip",
+    # Price momentum features
+    "price_change", "price_change_pct",
+    # Lagged GEX features (change from previous snapshot)
+    "net_gex_change", "sentiment_change", "gex_ratio_change",
+    # Time-of-day features
+    "hour_sin", "hour_cos",
 ]
 
 # Trade recommendation matrix: (vol_regime, direction) → trade type
@@ -2036,8 +2043,15 @@ def _ensure_ml_models_table() -> None:
         """)
 
 
-def _extract_gex_features(strikes, uprice) -> dict:
+def _extract_gex_features(strikes, uprice, prev_price=None, prev_feats=None, ntime=None) -> dict:
     """Extract all ML features from a strike list and SPX price.
+
+    Args:
+        strikes: Strike data list
+        uprice: Current SPX price
+        prev_price: Previous snapshot price (for momentum features)
+        prev_feats: Previous snapshot features dict (for lagged GEX features)
+        ntime: Current time in HHMM format (for time-of-day encoding)
 
     Returns a dict keyed by ML_FEATURES names, or None if insufficient data.
     """
@@ -2064,6 +2078,31 @@ def _extract_gex_features(strikes, uprice) -> dict:
     tcvol = oi_vol["total_call_vol"] or 0
     tpvol = oi_vol["total_put_vol"]  or 0
 
+    # Price momentum features
+    price_change = 0.0
+    price_change_pct = 0.0
+    if prev_price and prev_price > 0:
+        price_change = uprice - prev_price
+        price_change_pct = (price_change / prev_price) * 100
+
+    # Lagged GEX features (change from previous snapshot)
+    net_gex_change = 0.0
+    sentiment_change = 0.0
+    gex_ratio_change = 0.0
+    if prev_feats:
+        net_gex_change = net_gex - prev_feats.get("net_gex", net_gex)
+        sentiment_change = sentiment - prev_feats.get("sentiment", sentiment)
+        gex_ratio_change = gex_ratio - prev_feats.get("gex_ratio", gex_ratio)
+
+    # Time-of-day encoding (cyclical)
+    hour_sin = 0.0
+    hour_cos = 0.0
+    if ntime:
+        import numpy as np
+        hour = (ntime // 100) + (ntime % 100) / 60  # Convert HHMM to hours
+        hour_sin = np.sin(2 * np.pi * hour / 24)
+        hour_cos = np.cos(2 * np.pi * hour / 24)
+
     return {
         "net_gex":       net_gex,
         "total_call_gex": total_gex["total_call_gex"],
@@ -2077,15 +2116,22 @@ def _extract_gex_features(strikes, uprice) -> dict:
         "key_call_oi":   key_stats["key_call_oi"],
         "key_put_oi":    key_stats["key_put_oi"],
         "key_call_vol":  key_stats["key_call_vol"],
-        "key_put_vol":   key_stats["key_put_vol"],
+        "key_put_vol":  key_stats["key_put_vol"],
         "total_call_oi": tcoi,
         "total_put_oi":  tpoi,
         "total_call_vol": tcvol,
-        "total_put_vol":  tpvol,
+        "total_put_vol": tpvol,
         "oi_ratio":      round(tcoi / tpoi, 4) if tpoi else 0,
         "vol_ratio":     round(tcvol / tpvol, 4) if tpvol else 0,
         "dist_to_key":   abs(uprice - (key_stats["key_strike"] or uprice)),
         "dist_to_flip":  abs(uprice - flip) if flip else 0,
+        "price_change":  price_change,
+        "price_change_pct": price_change_pct,
+        "net_gex_change": net_gex_change,
+        "sentiment_change": sentiment_change,
+        "gex_ratio_change": gex_ratio_change,
+        "hour_sin": hour_sin,
+        "hour_cos": hour_cos,
     }
 
 
@@ -2093,7 +2139,8 @@ def _train_ml_models() -> dict:
     """Train Vol Regime and Direction classifiers on ml_labels + GEX features.
 
     Stores model blobs in ml_models table. Returns a summary dict.
-    Uses RandomForest with class_weight='balanced' to handle label imbalance.
+    Uses XGBoost for direction model, RandomForest for vol_regime.
+    Includes price momentum, lagged GEX, and time-of-day features.
     Minimum 30 labelled samples required.
     """
     import pickle
@@ -2105,6 +2152,11 @@ def _train_ml_models() -> dict:
         from sklearn.model_selection import cross_val_score
     except ImportError:
         return {"status": "error", "reason": "scikit-learn not installed"}
+
+    try:
+        import xgboost as xgb
+    except ImportError:
+        return {"status": "error", "reason": "xgboost not installed"}
 
     # Pull labelled snapshots joined to GEX features
     with _db() as con:
@@ -2123,19 +2175,37 @@ def _train_ml_models() -> dict:
 
     import json as _json
     X, y_regime, y_direction = [], [], []
+    
+    # Track previous snapshot for each row
+    prev_price = None
+    prev_feats = None
+    prev_ndate = None
+    
     for ndate, ntime, uprice, data_json, range_regime, direction_2hr in rows:
         try:
             strikes = _json.loads(data_json) if data_json else []
         except Exception:
             continue
-        feats = _extract_gex_features(strikes, uprice)
+        
+        # Reset previous snapshot on new day
+        if ndate != prev_ndate:
+            prev_price = None
+            prev_feats = None
+            prev_ndate = ndate
+        
+        feats = _extract_gex_features(strikes, uprice, prev_price, prev_feats, ntime)
         if feats is None:
             continue
+        
         X.append([feats[f] for f in ML_FEATURES])
         # Collapse NORMAL→TIGHT: model predicts WIDE (dangerous) vs TIGHT (safe to sell premium)
         regime_label = "WIDE" if range_regime == "WIDE" else "TIGHT"
         y_regime.append(regime_label)
         y_direction.append(direction_2hr)
+        
+        # Update previous snapshot for next iteration
+        prev_price = uprice
+        prev_feats = feats
 
     if len(X) < 30:
         return {"status": "error", "reason": f"insufficient valid feature rows ({len(X)})"}
@@ -2151,43 +2221,75 @@ def _train_ml_models() -> dict:
     trained_at = datetime.now().strftime("%Y-%m-%dT%H:%M:%S")
     results = {}
 
-    for model_name, y in [("vol_regime", y_regime), ("direction", y_direction)]:
-        clf = RandomForestClassifier(
-            n_estimators=200,
-            max_depth=8,
-            class_weight="balanced",
-            random_state=42,
-            n_jobs=-1,
-        )
-        clf.fit(X_scaled, y)
+    # Train vol_regime with RandomForest (working well)
+    clf_vol = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=8,
+        class_weight="balanced",
+        random_state=42,
+        n_jobs=-1,
+    )
+    clf_vol.fit(X_scaled, y_regime)
+    try:
+        cv_scores = cross_val_score(clf_vol, X_scaled, y_regime, cv=3, scoring="accuracy")
+        vol_accuracy = round(float(cv_scores.mean()), 4)
+    except Exception:
+        vol_accuracy = None
 
-        # Cross-validated accuracy (3-fold)
-        try:
-            cv_scores = cross_val_score(clf, X_scaled, y, cv=3, scoring="accuracy")
-            accuracy = round(float(cv_scores.mean()), 4)
-        except Exception:
-            accuracy = None
+    blob_vol = pickle.dumps({"clf": clf_vol, "scaler": scaler, "features": ML_FEATURES})
+    with _db() as con:
+        con.execute("""
+            INSERT OR REPLACE INTO ml_models
+            (model_name, trained_at, n_samples, features, classes, accuracy, model_blob)
+            VALUES (?,?,?,?,?,?,?)
+        """, ("vol_regime", trained_at, len(X), json.dumps(ML_FEATURES),
+              json.dumps(sorted(set(y_regime))), vol_accuracy, blob_vol))
 
-        blob = pickle.dumps({"clf": clf, "scaler": scaler, "features": ML_FEATURES})
-        classes = sorted(set(y))
+    results["vol_regime"] = {
+        "samples": len(X), "classes": sorted(set(y_regime)), "accuracy": vol_accuracy
+    }
 
-        with _db() as con:
-            con.execute("""
-                INSERT OR REPLACE INTO ml_models
-                (model_name, trained_at, n_samples, features, classes, accuracy, model_blob)
-                VALUES (?,?,?,?,?,?,?)
-            """, (model_name, trained_at, len(X), json.dumps(ML_FEATURES),
-                  json.dumps(classes), accuracy, blob))
+    # Train direction with XGBoost (to improve accuracy)
+    # Encode labels to numeric for XGBoost
+    label_encoder = {label: idx for idx, label in enumerate(sorted(set(y_direction)))}
+    y_direction_encoded = [label_encoder[y] for y in y_direction]
+    
+    clf_dir = xgb.XGBClassifier(
+        n_estimators=200,
+        max_depth=8,
+        learning_rate=0.1,
+        objective='multi:softprob',
+        num_class=len(label_encoder),
+        eval_metric='mlogloss',
+        random_state=42,
+        n_jobs=-1,
+    )
+    clf_dir.fit(X_scaled, y_direction_encoded)
+    
+    try:
+        cv_scores = cross_val_score(clf_dir, X_scaled, y_direction_encoded, cv=3, scoring="accuracy")
+        dir_accuracy = round(float(cv_scores.mean()), 4)
+    except Exception:
+        dir_accuracy = None
 
-        results[model_name] = {
-            "samples": len(X), "classes": classes, "accuracy": accuracy
-        }
+    blob_dir = pickle.dumps({"clf": clf_dir, "scaler": scaler, "features": ML_FEATURES, "label_encoder": label_encoder})
+    with _db() as con:
+        con.execute("""
+            INSERT OR REPLACE INTO ml_models
+            (model_name, trained_at, n_samples, features, classes, accuracy, model_blob)
+            VALUES (?,?,?,?,?,?,?)
+        """, ("direction", trained_at, len(X), json.dumps(ML_FEATURES),
+              json.dumps(sorted(set(y_direction))), dir_accuracy, blob_dir))
+
+    results["direction"] = {
+        "samples": len(X), "classes": sorted(set(y_direction)), "accuracy": dir_accuracy
+    }
 
     return {"status": "ok", "trained_at": trained_at, "models": results}
 
 
 def _load_ml_model(model_name: str):
-    """Load a trained ML model from DB. Returns (clf, scaler, features) or (None, None, None)."""
+    """Load a trained ML model from DB. Returns (clf, scaler, features, label_encoder) or (None, None, None, None)."""
     import pickle
     with _db() as con:
         row = con.execute(
@@ -2195,13 +2297,19 @@ def _load_ml_model(model_name: str):
             (model_name,)
         ).fetchone()
     if not row:
-        return None, None, None
+        return None, None, None, None
     payload = pickle.loads(row[0])
-    return payload["clf"], payload["scaler"], payload["features"]
+    label_encoder = payload.get("label_encoder", None)
+    return payload["clf"], payload["scaler"], payload["features"], label_encoder
 
 
-def _predict_snapshot(strikes, uprice) -> dict:
+def _predict_snapshot(strikes, uprice, ntime=None) -> dict:
     """Run Vol Regime + Direction predictions for a snapshot.
+
+    Args:
+        strikes: Strike data list
+        uprice: Current SPX price
+        ntime: Current time in HHMM format (for time-of-day encoding)
 
     Returns a dict with:
         vol_regime, vol_regime_proba   - TIGHT/NORMAL/WIDE + confidence
@@ -2212,7 +2320,8 @@ def _predict_snapshot(strikes, uprice) -> dict:
     """
     import numpy as np
 
-    feats = _extract_gex_features(strikes, uprice)
+    # For real-time predictions, we don't have previous snapshot data
+    feats = _extract_gex_features(strikes, uprice, prev_price=None, prev_feats=None, ntime=ntime)
     if feats is None:
         return {"error": "insufficient features"}
 
@@ -2221,13 +2330,22 @@ def _predict_snapshot(strikes, uprice) -> dict:
 
     results = {}
     for model_name in ("vol_regime", "direction"):
-        clf, scaler, features = _load_ml_model(model_name)
+        clf, scaler, features, label_encoder = _load_ml_model(model_name)
         if clf is None:
             return {"error": f"{model_name} model not trained yet"}
         X_scaled = scaler.transform(X)
-        pred = clf.predict(X_scaled)[0]
+        pred_encoded = clf.predict(X_scaled)[0]
         proba = clf.predict_proba(X_scaled)[0]
         max_proba = float(max(proba))
+        
+        # Decode label if using XGBoost (has label_encoder)
+        if label_encoder:
+            # Reverse encoder: {idx: label}
+            reverse_encoder = {idx: label for label, idx in label_encoder.items()}
+            pred = reverse_encoder.get(pred_encoded, str(pred_encoded))
+        else:
+            pred = pred_encoded
+        
         results[model_name] = {"label": pred, "confidence": max_proba}
 
     vol   = results["vol_regime"]["label"]
@@ -2828,8 +2946,8 @@ def api_ml_backtest_accuracy():
     """
     import numpy as np
 
-    clf_v, scaler_v, _ = _load_ml_model("vol_regime")
-    clf_d, scaler_d, _ = _load_ml_model("direction")
+    clf_v, scaler_v, _, _ = _load_ml_model("vol_regime")
+    clf_d, scaler_d, _, _ = _load_ml_model("direction")
     if clf_v is None or clf_d is None:
         return jsonify({"error": "models not trained yet"}), 404
 
@@ -3159,6 +3277,59 @@ def api_ml_trade_performance():
     })
 
 
+@app.route("/api/trade-signals/performance")
+def api_trade_signals_performance():
+    """Return trade signals performance metrics.
+
+    Returns:
+        Overall stats, performance by structure, financial performance, win rate by action
+    """
+    with _db() as con:
+        # Overall stats
+        overall = con.execute("SELECT COUNT(*) FROM trade_signals").fetchone()[0]
+        
+        # Outcome distribution
+        outcomes = con.execute("""
+            SELECT outcome, COUNT(*) 
+            FROM trade_signals 
+            GROUP BY outcome
+        """).fetchall()
+        
+        # Performance by structure
+        structure_perf = con.execute("""
+            SELECT structure, outcome, COUNT(*) 
+            FROM trade_signals 
+            WHERE outcome IS NOT NULL 
+            GROUP BY structure, outcome
+            ORDER BY structure, outcome
+        """).fetchall()
+        
+        # Financial performance
+        financial = con.execute("""
+            SELECT action, SUM(outcome_points), AVG(outcome_points), COUNT(*) 
+            FROM trade_signals 
+            WHERE outcome_points IS NOT NULL 
+            GROUP BY action
+        """).fetchall()
+        
+        # Win rate by action
+        win_rates = con.execute("""
+            SELECT action, 
+                   SUM(CASE WHEN outcome IN ('WIN', 'CORRECT', 'PARTIAL') THEN 1 ELSE 0 END) as wins,
+                   COUNT(*) as total
+            FROM trade_signals 
+            WHERE outcome IS NOT NULL 
+            GROUP BY action
+        """).fetchall()
+    
+    return jsonify({
+        "total_signals": overall,
+        "outcomes": [{"outcome": o, "count": c} for o, c in outcomes],
+        "structure_performance": [{"structure": s, "outcome": o, "count": c} for s, o, c in structure_perf],
+        "financial": [{"action": a, "total_points": tp, "avg_points": ap, "trades": t} for a, tp, ap, t in financial],
+        "win_rates": [{"action": a, "wins": w, "total": t, "win_rate": round(w/t*100, 1) if t > 0 else 0} for a, w, t in win_rates]
+    })
+
 @app.route("/api/ml/trade-performance-summary")
 def api_ml_trade_performance_summary():
     """Return summary of trade performance metrics.
@@ -3329,7 +3500,7 @@ def api_ml_session_range():
     # Run live prediction if no stored prediction yet
     if not ml_pred and strikes and uprice:
         try:
-            ml_pred = _predict_snapshot(strikes, uprice)
+            ml_pred = _predict_snapshot(strikes, uprice, ntime)
         except Exception:
             pass
 
@@ -7225,7 +7396,7 @@ def api_gex_fetch_live():
         ml_signal = None
         if ntime >= 935:
             try:
-                ml_signal = _predict_snapshot(window_strikes, uprice)
+                ml_signal = _predict_snapshot(window_strikes, uprice, ntime)
                 _save_prediction(ndate, ntime, ml_signal)
             except Exception as _ml_err:
                 ml_signal = {"error": str(_ml_err)}
