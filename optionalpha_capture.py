@@ -162,10 +162,10 @@ def main():
         page.goto(LOGIN_URL, wait_until="domcontentloaded", timeout=60000)
 
         if args.session_only:
-            # Session-only mode: wait 20 seconds for login, save cookies, exit
-            print("Waiting 20 seconds for you to log in, then saving session cookies...")
+            # Session-only mode: wait 60 seconds for login, save cookies, exit
+            print("Waiting 60 seconds for you to log in, then saving session cookies...")
             import time
-            time.sleep(20)
+            time.sleep(60)
             context.storage_state(path=str(SESSION_FILE))
             print(f"Saved reusable session: {SESSION_FILE}")
             browser.close()

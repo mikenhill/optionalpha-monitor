@@ -71,11 +71,12 @@
   <div class="card" style="margin-bottom:15px">
     <h2 style="margin:0 0 10px">Daily ML Workflow
       <span style="float:right;display:flex;gap:6px">
+        <button onclick="syncHistorical()" id="btn-sync" style="padding:4px 12px;font-size:12px;background:#6c757d;color:#fff;border:none;border-radius:4px;cursor:pointer">↻ Load Missing Historical</button>
         <button onclick="runDailyWorkflow()" id="btn-workflow" style="padding:4px 12px;font-size:12px;background:#0d6efd;color:#fff;border:none;border-radius:4px;cursor:pointer">▶ Run Full Workflow</button>
         <label style="margin-left:10px;font-size:12px"><input type="checkbox" id="force-retrain"> Force ML Retrain (daily instead of threshold-based)</label>
       </span>
     </h2>
-    <p style="font-size:12px;color:#6c757d;margin:0">Syncs historical data, purges test records, verifies data, updates SPX OHLC, rebuilds ML labels, trains HMM/ML, generates signals, backfills outcomes.</p>
+    <p style="font-size:12px;color:#6c757d;margin:0">Purges test records, verifies data, updates SPX OHLC, rebuilds ML labels, trains HMM/ML, generates signals, backfills outcomes. Use 'Load Missing Historical' separately to sync historical GEX data.</p>
     <div id="workflow-status" class="status" style="display:none;font-size:12px;margin-top:8px"></div>
   </div>
 
@@ -94,6 +95,7 @@
     <button class="tab-btn" onclick="switchTab('outcomes',true)">Outcome Tracking</button>
     <button class="tab-btn" onclick="switchTab('anomaly',true)">Anomaly Detection</button>
     <button class="tab-btn" onclick="switchTab('price-prediction',true)">Session Range Forecast</button>
+    <button class="tab-btn" onclick="switchTab('trade-performance',true)">Trade Signal Performance</button>
   </div>
 
   <!-- ══ TAB: FEATURE ANALYSIS ══════════════════════════════════════════════ -->
@@ -309,6 +311,35 @@
     </div>
   </div>
 
+  <!-- ══ TAB: TRADE SIGNAL PERFORMANCE ═══════════════════════════════ -->
+  <div id="tab-trade-performance" class="tab-pane">
+    <div id="tp-loading" class="loading">Loading trade performance data...</div>
+    <div id="tp-content" style="display:none">
+
+      <div class="stat-row" id="tp-stats"></div>
+
+      <div class="card" style="margin-bottom:15px">
+        <h2>Daily Trade Accuracy</h2>
+        <p style="font-size:12px;color:#6c757d;margin:0 0 10px">Trade signal accuracy over time (WIN+CORRECT vs total)</p>
+        <div id="chart-accuracy" class="chart"></div>
+      </div>
+
+      <div class="two-col">
+        <div class="card">
+          <h2>Accuracy by Trade Type</h2>
+          <p style="font-size:12px;color:#6c757d;margin:0 0 10px">Historical accuracy for each trade strategy</p>
+          <div id="chart-trade-types" class="chart"></div>
+        </div>
+        <div class="card">
+          <h2>Confidence Calibration</h2>
+          <p style="font-size:12px;color:#6c757d;margin:0 0 10px">Does HIGH confidence actually outperform MEDIUM?</p>
+          <div id="chart-confidence" class="chart"></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
   <script>
     const GROUP_COLOURS = {
       'GEX': '#084298', 'Regime': '#3d0a91', 'Key Strike': '#0a3622',
@@ -327,6 +358,7 @@
 
     let _outcomesLoaded = false;
     let _anomalyLoaded  = false;
+    let _tradePerfLoaded = false;
     function switchTab(id, load) {
       document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
       document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
@@ -335,6 +367,7 @@
       if (id === 'outcomes' && !_outcomesLoaded) { _outcomesLoaded = true; loadOutcomes(); }
       if (id === 'anomaly'  && !_anomalyLoaded)  { _anomalyLoaded  = true; loadAnomaly(); }
       if (id === 'price-prediction' && !_rangeLoaded) { _rangeLoaded = true; loadSessionRange(); }
+      if (id === 'trade-performance' && !_tradePerfLoaded) { _tradePerfLoaded = true; loadTradePerformance(); }
     }
 
     let _rangeLoaded = false;
@@ -918,17 +951,51 @@
       }
     }
 
+    async function syncHistorical() {
+      const btn = document.getElementById('btn-sync');
+      const status = document.getElementById('workflow-status');
+
+      btn.disabled = true;
+      status.style.display = 'block';
+      status.className = 'status info';
+      status.style.color = '#6c757d';
+      status.textContent = 'Syncing historical GEX data (max 30 days)...';
+
+      try {
+        const response = await fetch('/api/sync-historical?mode=all&max_days=30');
+        const result = await response.json();
+
+        if (response.ok) {
+          const added = result.fetched ?? result.added ?? result.synced ?? '?';
+          const skipped = result.skipped ?? '';
+          status.className = 'status success';
+          status.style.color = '#198754';
+          status.textContent = '✓ Sync complete — ' + added + ' added' + (skipped ? ', ' + skipped + ' skipped' : '');
+        } else {
+          status.className = 'status error';
+          status.style.color = '#dc3545';
+          status.textContent = 'Sync failed: ' + (result.error || 'Unknown error');
+        }
+      } catch (e) {
+        status.className = 'status error';
+        status.style.color = '#dc3545';
+        status.textContent = 'Error: ' + e.message;
+      }
+
+      btn.disabled = false;
+    }
+
     async function runDailyWorkflow() {
       const btn = document.getElementById('btn-workflow');
       const status = document.getElementById('workflow-status');
       const forceRetrain = document.getElementById('force-retrain').checked;
-      
+
       btn.disabled = true;
       status.style.display = 'block';
       status.className = 'status info';
       status.style.color = '#6c757d';
       status.textContent = 'Running daily workflow (this may take several minutes)...';
-      
+
       try {
         const response = await fetch('/api/admin/daily-workflow', {
           method: 'POST',
@@ -936,7 +1003,7 @@
           body: JSON.stringify({ steps: 'all', force_retrain: forceRetrain })
         });
         const result = await response.json();
-        
+
         if (result.success) {
           const stepResults = result.results;
           let summary = [];
@@ -966,7 +1033,211 @@
         status.style.color = '#dc3545';
         status.textContent = 'Error: ' + e.message;
       }
-      
+
+      btn.disabled = false;
+    }
+
+    async function loadTradePerformance() {
+      const loading = document.getElementById('tp-loading');
+      const content = document.getElementById('tp-content');
+
+      loading.style.display = 'block';
+      content.style.display = 'none';
+
+      try {
+        const [perfResp, summaryResp] = await Promise.all([
+          fetch('/api/ml/trade-performance?days=30'),
+          fetch('/api/ml/trade-performance-summary')
+        ]);
+
+        const perfData = await perfResp.json();
+        const summaryData = await summaryResp.json();
+
+        if (!perfData.success || !summaryData.success) {
+          throw new Error('API request failed');
+        }
+
+        const perf = perfData.data;
+        const summary = summaryData;
+
+        // Summary stats
+        const statsHtml = `
+          <div class="stat">
+            <div class="stat-val">${summary.aggregated.total_days || 0}</div>
+            <div class="stat-lbl">Days Tracked</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val">${(summary.aggregated.avg_accuracy * 100).toFixed(1)}%</div>
+            <div class="stat-lbl">Overall Accuracy</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val">${summary.aggregated.total_points?.toFixed(0) || 0}</div>
+            <div class="stat-lbl">Total Points</div>
+          </div>
+          <div class="stat">
+            <div class="stat-val">${summary.aggregated.avg_daily_points?.toFixed(1) || 0}</div>
+            <div class="stat-lbl">Avg Daily Points</div>
+          </div>
+        `;
+        document.getElementById('tp-stats').innerHTML = statsHtml;
+
+        // Daily trade accuracy chart
+        const dates = perf.map(r => String(r.ndate));
+        const accuracy = perf.map(r => r.trade_correct + r.trade_incorrect > 0
+          ? ((r.trade_correct / (r.trade_correct + r.trade_incorrect)) * 100).toFixed(1)
+          : null);
+
+        Plotly.newPlot('chart-accuracy', [{
+          x: dates,
+          y: accuracy,
+          type: 'scatter',
+          mode: 'lines+markers',
+          line: {color: '#0d6efd', width: 2},
+          marker: {size: 6}
+        }], {
+          margin: {t: 10, b: 60, l: 50, r: 10},
+          yaxis: {title: 'Accuracy %', range: [0, 100]},
+          xaxis: {title: 'Date'},
+          height: 300
+        }, {responsive: true});
+
+        // Trade type breakdown
+        const tradeTypes = ['IC', 'SPS', 'SCS', 'LCS', 'LPS'];
+        const tradeNames = {'IC': 'Iron Condor', 'SPS': 'Sh Put Spread', 'SCS': 'Sh Call Spread', 'LCS': 'Lg Call Spread', 'LPS': 'Lg Put Spread'};
+
+        const typeAccuracy = tradeTypes.map(type => {
+          const typeData = perf.filter(r => r[`${type.toLowerCase()}_total`] > 0);
+          if (typeData.length === 0) return null;
+          const totalCorrect = typeData.reduce((sum, r) => sum + (r[`${type.toLowerCase()}_correct`] || 0), 0);
+          const total = typeData.reduce((sum, r) => sum + (r[`${type.toLowerCase()}_total`] || 0), 0);
+          return {type, name: tradeNames[type], accuracy: (totalCorrect / total) * 100, total};
+        }).filter(t => t !== null);
+
+        Plotly.newPlot('chart-trade-types', [{
+          x: typeAccuracy.map(t => t.name),
+          y: typeAccuracy.map(t => t.accuracy.toFixed(1)),
+          type: 'bar',
+          marker: {color: typeAccuracy.map(t => t.accuracy >= 50 ? '#198754' : t.accuracy >= 35 ? '#fd7e14' : '#dc3545')},
+          text: typeAccuracy.map(t => `${t.accuracy.toFixed(1)}%<br>(n=${t.total})`),
+          textposition: 'outside'
+        }], {
+          margin: {t: 10, b: 100, l: 50, r: 10},
+          yaxis: {title: 'Accuracy %', range: [0, 100]},
+          xaxis: {tickangle: -45},
+          height: 350
+        }, {responsive: true});
+
+        // Confidence calibration
+        const highConfAcc = perf.filter(r => r.high_conf_total > 0).map(r => (r.high_conf_accuracy || 0) * 100);
+        const mediumConfAcc = perf.filter(r => r.medium_conf_total > 0).map(r => (r.medium_conf_accuracy || 0) * 100);
+
+        Plotly.newPlot('chart-confidence', [{
+          x: highConfAcc,
+          name: 'HIGH Confidence',
+          type: 'box',
+          marker: {color: '#198754'}
+        }, {
+          x: mediumConfAcc,
+          name: 'MEDIUM Confidence',
+          type: 'box',
+          marker: {color: '#fd7e14'}
+        }], {
+          margin: {t: 10, b: 60, l: 50, r: 10},
+          xaxis: {title: 'Accuracy %', range: [0, 100]},
+          height: 300
+        }, {responsive: true});
+
+        loading.style.display = 'none';
+        content.style.display = '';
+
+      } catch(e) {
+        loading.textContent = '✗ Error: ' + e.message;
+      }
+    }
+
+    async function syncHistorical() {
+      const btn = document.getElementById('btn-sync');
+      const status = document.getElementById('workflow-status');
+
+      btn.disabled = true;
+      status.style.display = 'block';
+      status.className = 'status info';
+      status.style.color = '#6c757d';
+      status.textContent = 'Syncing historical GEX data (max 30 days)...';
+
+      try {
+        const response = await fetch('/api/sync-historical?mode=all&max_days=30');
+        const result = await response.json();
+
+        if (response.ok) {
+          const added = result.fetched ?? result.added ?? result.synced ?? '?';
+          const skipped = result.skipped ?? '';
+          status.className = 'status success';
+          status.style.color = '#198754';
+          status.textContent = '✓ Sync complete — ' + added + ' added' + (skipped ? ', ' + skipped + ' skipped' : '');
+        } else {
+          status.className = 'status error';
+          status.style.color = '#dc3545';
+          status.textContent = 'Sync failed: ' + (result.error || 'Unknown error');
+        }
+      } catch (e) {
+        status.className = 'status error';
+        status.style.color = '#dc3545';
+        status.textContent = 'Error: ' + e.message;
+      }
+
+      btn.disabled = false;
+    }
+
+    async function runDailyWorkflow() {
+      const btn = document.getElementById('btn-workflow');
+      const status = document.getElementById('workflow-status');
+      const forceRetrain = document.getElementById('force-retrain').checked;
+
+      btn.disabled = true;
+      status.style.display = 'block';
+      status.className = 'status info';
+      status.style.color = '#6c757d';
+      status.textContent = 'Running daily workflow (this may take several minutes)...';
+
+      try {
+        const response = await fetch('/api/admin/daily-workflow', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ steps: 'all', force_retrain: forceRetrain })
+        });
+        const result = await response.json();
+
+        if (result.success) {
+          const stepResults = result.results;
+          let summary = [];
+          for (const [step, r] of Object.entries(stepResults)) {
+            if (r.skipped) {
+              summary.push(`${step}: skipped (${r.reason})`);
+            } else if (r.error) {
+              summary.push(`${step}: error (${r.error})`);
+            } else if (step === 'ml' && r.vol_regime) {
+              const vr = r.vol_regime;
+              const accChange = vr.change > 0 ? '+' + vr.change : vr.change;
+              summary.push(`${step}: trained (accuracy: ${vr.new_accuracy} (${accChange}), samples: ${vr.new_samples})`);
+            } else {
+              summary.push(`${step}: ok`);
+            }
+          }
+          status.className = 'status success';
+          status.style.color = '#198754';
+          status.textContent = 'Complete: ' + summary.join(', ');
+        } else {
+          status.className = 'status error';
+          status.style.color = '#dc3545';
+          status.textContent = 'Failed - see console for details';
+        }
+      } catch (e) {
+        status.className = 'status error';
+        status.style.color = '#dc3545';
+        status.textContent = 'Error: ' + e.message;
+      }
+
       btn.disabled = false;
     }
 

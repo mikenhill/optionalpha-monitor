@@ -1803,6 +1803,185 @@ def _backfill_prediction_outcomes() -> dict:
     return {"status": "ok", "filled": filled}
 
 
+def _compute_trade_performance(ndate: int, model_version: str = "default", force_retrain: bool = False) -> dict:
+    """Compute trade signal performance metrics for a given date.
+
+    Joins ml_predictions with trade_signals to calculate accuracy, financial metrics,
+    and breakdowns by trade type and confidence level. Persists results to ml_trade_performance.
+
+    Args:
+        ndate: Date in YYYYMMDD format
+        model_version: Identifier for the model version that made predictions
+        force_retrain: Whether forced retrain was used
+
+    Returns:
+        Dict with computed metrics
+    """
+    from datetime import datetime as _dt
+
+    with _db() as con:
+        # Join ml_predictions with trade_signals to get predictions + actual outcomes
+        rows = con.execute("""
+            SELECT
+                p.confidence,
+                p.trade_code,
+                p.vol_regime_pred, p.vol_regime_actual,
+                p.direction_pred, p.direction_2hr_actual,
+                t.outcome,
+                t.outcome_points,
+                t.action
+            FROM ml_predictions p
+            LEFT JOIN trade_signals t ON t.ndate=p.ndate AND t.ntime=p.ntime AND t.symbol='SPX'
+            WHERE p.ndate=?
+        """, (ndate,)).fetchall()
+
+    if not rows:
+        return {"status": "skipped", "reason": "no predictions found for this date"}
+
+    # Initialize counters
+    total = len(rows)
+    high_conf = medium_conf = low_conf = 0
+    trade_correct = trade_incorrect = trade_neutral = 0
+
+    # Trade type counters
+    trade_type_counts = {
+        "IC": {"correct": 0, "total": 0},
+        "SPS": {"correct": 0, "total": 0},
+        "SCS": {"correct": 0, "total": 0},
+        "LCS": {"correct": 0, "total": 0},
+        "LPS": {"correct": 0, "total": 0},
+    }
+
+    # Confidence-specific accuracy
+    high_conf_correct = high_conf_total = 0
+    medium_conf_correct = medium_conf_total = 0
+
+    # Financial metrics
+    total_points = 0.0
+    points_list = []
+
+    # Vol regime accuracy
+    vol_correct = vol_total = 0
+
+    # Direction accuracy
+    dir_correct = dir_total = 0
+
+    for row in rows:
+        confidence, trade_code, vol_pred, vol_actual, dir_pred, dir_actual, outcome, outcome_points, action = row
+
+        # Count by confidence
+        if confidence == "HIGH":
+            high_conf += 1
+            high_conf_total += 1
+        elif confidence == "MEDIUM":
+            medium_conf += 1
+            medium_conf_total += 1
+        else:
+            low_conf += 1
+
+        # Trade outcome classification
+        if outcome in ("WIN", "CORRECT", "PARTIAL"):
+            trade_correct += 1
+            if confidence == "HIGH":
+                high_conf_correct += 1
+            elif confidence == "MEDIUM":
+                medium_conf_correct += 1
+        elif outcome in ("LOSS", "MISSED"):
+            trade_incorrect += 1
+        elif outcome == "NEUTRAL":
+            trade_neutral += 1
+
+        # Trade type breakdown
+        if trade_code in trade_type_counts:
+            trade_type_counts[trade_code]["total"] += 1
+            if outcome in ("WIN", "CORRECT", "PARTIAL"):
+                trade_type_counts[trade_code]["correct"] += 1
+
+        # Financial metrics
+        if outcome_points is not None:
+            total_points += outcome_points
+            points_list.append(outcome_points)
+
+        # Vol regime accuracy
+        if vol_pred and vol_actual:
+            vol_total += 1
+            if vol_pred == vol_actual:
+                vol_correct += 1
+
+        # Direction accuracy
+        if dir_pred and dir_actual:
+            dir_total += 1
+            if dir_pred == dir_actual:
+                dir_correct += 1
+
+    # Calculate derived metrics
+    high_conf_accuracy = (high_conf_correct / high_conf_total) if high_conf_total > 0 else None
+    medium_conf_accuracy = (medium_conf_correct / medium_conf_total) if medium_conf_total > 0 else None
+    avg_points = (total_points / len(points_list)) if points_list else None
+
+    # Calculate max drawdown (largest losing streak)
+    max_drawdown = None
+    if points_list:
+        cumulative = 0
+        min_cumulative = 0
+        for p in points_list:
+            cumulative += p
+            if cumulative < min_cumulative:
+                min_cumulative = cumulative
+        max_drawdown = abs(min_cumulative)
+
+    # Get model training date
+    training_date = None
+    with _db() as con:
+        model_row = con.execute(
+            "SELECT trained_at FROM ml_models WHERE model_name='vol_regime' ORDER BY trained_at DESC LIMIT 1"
+        ).fetchone()
+        if model_row:
+            training_date = model_row[0]
+
+    # Computed timestamp
+    computed_at = _dt.now().strftime("%Y-%m-%dT%H:%M:%S")
+
+    # Persist to database
+    with _db() as con:
+        con.execute("""
+            INSERT OR REPLACE INTO ml_trade_performance
+            (ndate, model_version, training_date, force_retrain,
+             total_predictions, high_conf_predictions, medium_conf_predictions, low_conf_predictions,
+             trade_correct, trade_incorrect, trade_neutral,
+             ic_correct, ic_total, sps_correct, sps_total, scs_correct, scs_total,
+             lcs_correct, lcs_total, lps_correct, lps_total,
+             high_conf_accuracy, medium_conf_accuracy,
+             total_outcome_points, avg_outcome_points, max_drawdown,
+             vol_regime_correct, vol_regime_total, vol_regime_accuracy,
+             direction_2hr_correct, direction_2hr_total, direction_2hr_accuracy,
+             computed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            ndate, model_version, training_date, 1 if force_retrain else 0,
+            total, high_conf, medium_conf, low_conf,
+            trade_correct, trade_incorrect, trade_neutral,
+            trade_type_counts["IC"]["correct"], trade_type_counts["IC"]["total"],
+            trade_type_counts["SPS"]["correct"], trade_type_counts["SPS"]["total"],
+            trade_type_counts["SCS"]["correct"], trade_type_counts["SCS"]["total"],
+            trade_type_counts["LCS"]["correct"], trade_type_counts["LCS"]["total"],
+            trade_type_counts["LPS"]["correct"], trade_type_counts["LPS"]["total"],
+            high_conf_accuracy, medium_conf_accuracy,
+            total_points, avg_points, max_drawdown,
+            vol_correct, vol_total, (vol_correct / vol_total) if vol_total > 0 else None,
+            dir_correct, dir_total, (dir_correct / dir_total) if dir_total > 0 else None,
+            computed_at
+        ))
+
+    return {
+        "status": "ok",
+        "ndate": ndate,
+        "total_predictions": total,
+        "trade_accuracy": (trade_correct / (trade_correct + trade_incorrect)) if (trade_correct + trade_incorrect) > 0 else None,
+        "total_outcome_points": total_points
+    }
+
+
 # Feature set used for ML models (subset of full PCA features — top ranked, non-redundant)
 ML_FEATURES = [
     "net_gex", "total_call_gex", "total_put_gex",
@@ -2930,6 +3109,145 @@ def api_ml_anomaly():
     })
 
 
+@app.route("/api/ml/trade-performance")
+def api_ml_trade_performance():
+    """Return historical trade performance metrics.
+
+    Query params:
+        days: number of recent days to return (default 30)
+
+    Returns:
+        List of performance records with metrics by date
+    """
+    days = int(request.args.get("days", 30))
+
+    with _db() as con:
+        rows = con.execute("""
+            SELECT
+                ndate, model_version, training_date, force_retrain,
+                total_predictions, high_conf_predictions, medium_conf_predictions, low_conf_predictions,
+                trade_correct, trade_incorrect, trade_neutral,
+                ic_correct, ic_total, sps_correct, sps_total, scs_correct, scs_total,
+                lcs_correct, lcs_total, lps_correct, lps_total,
+                high_conf_accuracy, medium_conf_accuracy,
+                total_outcome_points, avg_outcome_points, max_drawdown,
+                vol_regime_correct, vol_regime_total, vol_regime_accuracy,
+                direction_2hr_correct, direction_2hr_total, direction_2hr_accuracy,
+                computed_at
+            FROM ml_trade_performance
+            ORDER BY ndate DESC
+            LIMIT ?
+        """, (days,)).fetchall()
+
+    cols = ["ndate", "model_version", "training_date", "force_retrain",
+            "total_predictions", "high_conf_predictions", "medium_conf_predictions", "low_conf_predictions",
+            "trade_correct", "trade_incorrect", "trade_neutral",
+            "ic_correct", "ic_total", "sps_correct", "sps_total", "scs_correct", "scs_total",
+            "lcs_correct", "lcs_total", "lps_correct", "lps_total",
+            "high_conf_accuracy", "medium_conf_accuracy",
+            "total_outcome_points", "avg_outcome_points", "max_drawdown",
+            "vol_regime_correct", "vol_regime_total", "vol_regime_accuracy",
+            "direction_2hr_correct", "direction_2hr_total", "direction_2hr_accuracy",
+            "computed_at"]
+
+    performance = [dict(zip(cols, r)) for r in rows]
+
+    return jsonify({
+        "success": True,
+        "data": performance,
+        "count": len(performance)
+    })
+
+
+@app.route("/api/ml/trade-performance-summary")
+def api_ml_trade_performance_summary():
+    """Return summary of trade performance metrics.
+
+    Returns:
+        Latest performance record + aggregated stats over all time
+    """
+    with _db() as con:
+        # Get latest performance record
+        latest = con.execute("""
+            SELECT * FROM ml_trade_performance
+            ORDER BY ndate DESC LIMIT 1
+        """).fetchone()
+
+        # Get aggregated stats
+        agg = con.execute("""
+            SELECT
+                COUNT(*) as total_days,
+                SUM(total_predictions) as total_predictions,
+                SUM(trade_correct) as total_correct,
+                SUM(trade_incorrect) as total_incorrect,
+                AVG(trade_correct * 1.0 / NULLIF(trade_correct + trade_incorrect, 0)) as avg_accuracy,
+                SUM(total_outcome_points) as total_points,
+                AVG(avg_outcome_points) as avg_daily_points
+            FROM ml_trade_performance
+        """).fetchone()
+
+    cols = ["id", "ndate", "model_version", "training_date", "force_retrain",
+            "total_predictions", "high_conf_predictions", "medium_conf_predictions", "low_conf_predictions",
+            "trade_correct", "trade_incorrect", "trade_neutral",
+            "ic_correct", "ic_total", "sps_correct", "sps_total", "scs_correct", "scs_total",
+            "lcs_correct", "lcs_total", "lps_correct", "lps_total",
+            "high_conf_accuracy", "medium_conf_accuracy",
+            "total_outcome_points", "avg_outcome_points", "max_drawdown",
+            "vol_regime_correct", "vol_regime_total", "vol_regime_accuracy",
+            "direction_2hr_correct", "direction_2hr_total", "direction_2hr_accuracy",
+            "computed_at"]
+
+    latest_dict = dict(zip(cols, latest)) if latest else None
+
+    agg_dict = {
+        "total_days": agg[0],
+        "total_predictions": agg[1],
+        "total_correct": agg[2],
+        "total_incorrect": agg[3],
+        "avg_accuracy": round(agg[4], 4) if agg[4] else None,
+        "total_points": round(agg[5], 2) if agg[5] else None,
+        "avg_daily_points": round(agg[6], 2) if agg[6] else None
+    }
+
+    return jsonify({
+        "success": True,
+        "latest": latest_dict,
+        "aggregated": agg_dict
+    })
+
+
+@app.route("/api/ml/model-versions")
+def api_ml_model_versions():
+    """Return list of model versions with their performance metrics.
+
+    Returns:
+        List of unique model versions with their performance summary
+    """
+    with _db() as con:
+        rows = con.execute("""
+            SELECT
+                model_version,
+                training_date,
+                COUNT(*) as days_used,
+                AVG(trade_correct * 1.0 / NULLIF(trade_correct + trade_incorrect, 0)) as avg_accuracy,
+                SUM(total_outcome_points) as total_points,
+                MIN(ndate) as first_used,
+                MAX(ndate) as last_used
+            FROM ml_trade_performance
+            GROUP BY model_version, training_date
+            ORDER BY first_used DESC
+        """).fetchall()
+
+    cols = ["model_version", "training_date", "days_used", "avg_accuracy", "total_points", "first_used", "last_used"]
+    versions = [dict(zip(cols, r)) for r in rows]
+
+    return jsonify({
+        "success": True,
+        "versions": versions,
+        "count": len(versions)
+    })
+
+
 @app.route("/api/ml/session-range")
 def api_ml_session_range():
     """Session Range Forecast: given today's vol regime + direction, return historical
@@ -3505,29 +3823,32 @@ def api_admin_regenerate_signals():
 @app.route("/api/admin/daily-workflow", methods=["POST"])
 def api_admin_daily_workflow():
     """Run daily workflow steps.
-    
+
     Steps:
-    1. Sync Historical (max 30 days)
-    2. Purge test records (dry_run=False to actually delete)
-    3. Verify data
-    4. Update SPX OHLC
-    5. Rebuild ML labels
-    6. Retrain HMM
-    7. Retrain ML models
-    8. Generate today's trade signals
-    9. Backfill prediction outcomes
-    
+    1. Purge test records (dry_run=False to actually delete)
+    2. Verify data
+    3. Update SPX OHLC
+    4. Rebuild ML labels
+    5. Retrain HMM
+    6. Retrain ML models
+    7. Generate today's trade signals
+    8. Backfill prediction outcomes
+    9. Compute trade performance metrics
+
+    Note: Sync Historical is now a separate operation (use 'Load Missing Historical' button)
+
     Query params:
         steps: comma-separated list of steps to run, or "all" (default)
-              Options: sync,purge,verify,ohlc,labels,hmm,ml,signals,outcomes
+              Options: purge,verify,ohlc,labels,hmm,ml,signals,outcomes,performance
         force_retrain: 1 to force ML retrain regardless of threshold (default 0)
     """
     import time as _time_mod
+    from datetime import datetime as _dt
     body = request.get_json(force=True) or {}
     steps_param = body.get("steps", "all")
     force_retrain = body.get("force_retrain", False)
-    
-    all_steps = ["sync", "purge", "verify", "ohlc", "labels", "hmm", "ml", "signals", "outcomes"]
+
+    all_steps = ["purge", "verify", "ohlc", "labels", "hmm", "ml", "signals", "outcomes", "performance"]
     if steps_param == "all":
         steps = all_steps
     else:
@@ -6740,7 +7061,7 @@ def api_gex_capture_session():
         )
         return jsonify({
             "status": "launched",
-            "message": "Chromium is opening — log in within 20 seconds. Session will save automatically.",
+            "message": "Chromium is opening — log in within 60 seconds. Session will save automatically.",
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
@@ -9250,148 +9571,24 @@ loadDates();
 # ---------------------------------------------------------------------------
 
 def _verify_data() -> dict:
-    """Verify data integrity across the unified snapshot table.
-    
-    Checks:
-    1. Source field is 'gex' or 'histgex'
-    2. Raw JSON presence (excludes known-missing gex snapshots from dates 20260622-20260626)
-    3. Deep verification: recalculate from raw data and compare to persisted values
-    
-    Returns dict with verification results.
+    """Verify data integrity - basic table existence check only.
+
+    gex_strike_window uses raw JSON data with on-the-fly calculations,
+    so flat column verification is not applicable.
     """
-    import json
     from datetime import datetime
-    from zoneinfo import ZoneInfo
-    
-    results = {
-        "timestamp": datetime.now().isoformat(),
-        "total_snapshots": 0,
-        "source_errors": [],
-        "raw_json_errors": [],
-        "calculation_errors": [],
-        "known_missing_json": 0,
-        "summary": {}
-    }
-    
-    # Known-missing JSON: source='gex' snapshots from 20260622-20260626
-    known_missing_dates = [20260622, 20260623, 20260624, 20260625, 20260626]
-    
+
     with _db() as con:
-        # Get all SPX snapshots from snapshot table
-        cursor = con.execute('''
-            SELECT ndate, ntime, symbol, source, raw_json, uprice,
-                   net_gex, total_call_gex, total_put_gex, sentiment, gex_ratio,
-                   kcs, key_strike, key_call_gex, key_put_gex
-            FROM snapshot 
-            WHERE symbol='SPX'
-            ORDER BY ndate, ntime
-        ''')
-        rows = cursor.fetchall()
-        results["total_snapshots"] = len(rows)
-        
-        for row in rows:
-            (ndate, ntime, symbol, source, raw_json, uprice,
-             db_net_gex, db_total_call_gex, db_total_put_gex, db_sentiment, db_gex_ratio,
-             db_kcs, db_key_strike, db_key_call_gex, db_key_put_gex) = row
-            
-            # Check 1: Source field
-            if source not in ['gex', 'histgex']:
-                results["source_errors"].append({
-                    "ndate": ndate,
-                    "ntime": ntime,
-                    "error": f"Invalid source: {source}"
-                })
-            
-            # Check 2: Raw JSON (exclude known-missing gex snapshots)
-            if raw_json is None:
-                if source == 'gex' and ndate in known_missing_dates:
-                    results["known_missing_json"] += 1
-                else:
-                    results["raw_json_errors"].append({
-                        "ndate": ndate,
-                        "ntime": ntime,
-                        "source": source,
-                        "error": "Missing raw_json"
-                    })
-            
-            # Check 3: Deep verification (recalculate from raw data)
-            # Skip for known-missing dates (20260622-20260626) which have API errors in raw_json
-            if raw_json is not None and ndate not in known_missing_dates:
-                try:
-                    raw_data = json.loads(raw_json)
-                    # If raw_data is a list, wrap with uprice so windowing works correctly
-                    if isinstance(raw_data, list):
-                        raw_data = {"data": raw_data, "uprice": uprice or 0}
-                    elif isinstance(raw_data, dict) and "uprice" not in raw_data:
-                        raw_data["uprice"] = uprice or 0
-                    recalculated = _compute_flat_summary(raw_data)
-                    
-                    # Compare key fields (allow small floating point differences)
-                    tolerance = 0.01
-                    
-                    if abs(recalculated.get("net_gex", 0) - db_net_gex) > tolerance:
-                        results["calculation_errors"].append({
-                            "ndate": ndate,
-                            "ntime": ntime,
-                            "field": "net_gex",
-                            "db_value": db_net_gex,
-                            "calc_value": recalculated.get("net_gex", 0)
-                        })
-                    
-                    if abs(recalculated.get("total_call_gex", 0) - db_total_call_gex) > tolerance:
-                        results["calculation_errors"].append({
-                            "ndate": ndate,
-                            "ntime": ntime,
-                            "field": "total_call_gex",
-                            "db_value": db_total_call_gex,
-                            "calc_value": recalculated.get("total_call_gex", 0)
-                        })
-                    
-                    if abs(recalculated.get("total_put_gex", 0) - db_total_put_gex) > tolerance:
-                        results["calculation_errors"].append({
-                            "ndate": ndate,
-                            "ntime": ntime,
-                            "field": "total_put_gex",
-                            "db_value": db_total_put_gex,
-                            "calc_value": recalculated.get("total_put_gex", 0)
-                        })
-                    
-                    if abs(recalculated.get("gex_ratio", 0) - db_gex_ratio) > tolerance:
-                        results["calculation_errors"].append({
-                            "ndate": ndate,
-                            "ntime": ntime,
-                            "field": "gex_ratio",
-                            "db_value": db_gex_ratio,
-                            "calc_value": recalculated.get("gex_ratio", 0)
-                        })
-                    
-                    if abs(recalculated.get("kcs", 0) - db_kcs) > tolerance:
-                        results["calculation_errors"].append({
-                            "ndate": ndate,
-                            "ntime": ntime,
-                            "field": "kcs",
-                            "db_value": db_kcs,
-                            "calc_value": recalculated.get("kcs", 0)
-                        })
-                    
-                except Exception as e:
-                    results["calculation_errors"].append({
-                        "ndate": ndate,
-                        "ntime": ntime,
-                        "error": f"Recalculation failed: {str(e)[:100]}"
-                    })
-    
-    # Summary
-    results["summary"] = {
-        "total_snapshots": results["total_snapshots"],
-        "source_errors": len(results["source_errors"]),
-        "raw_json_errors": len(results["raw_json_errors"]),
-        "calculation_errors": len(results["calculation_errors"]),
-        "known_missing_json": results["known_missing_json"],
-        "valid_snapshots": results["total_snapshots"] - len(results["source_errors"]) - len(results["raw_json_errors"]) - len(results["calculation_errors"])
+        # Basic check: count SPX snapshots in gex_strike_window
+        count = con.execute(
+            "SELECT COUNT(*) FROM gex_strike_window WHERE symbol='SPX'"
+        ).fetchone()[0]
+
+    return {
+        "timestamp": datetime.now().isoformat(),
+        "total_snapshots": count,
+        "status": "ok"
     }
-    
-    return results
 
 
 if __name__ == "__main__":
@@ -9424,6 +9621,22 @@ if __name__ == "__main__":
     # _HISTORY_CACHE.clear()  # REMOVED: no longer needed
     # _populate_metric_history()  # populate EOD metric values from histograms - DISABLED TEMPORARILY
     _ensure_percentile_history_table()
+    # _populate_percentile_history()  # populate time-slot percentiles for rankings - DISABLED TEMPORARILY
+    _ensure_narratives_table()
+    # _train_hmm()  # train on startup if model is missing or >7 days old; also backfills HMM labels - DISABLED TEMPORARILY
+    # _backfill_hmm_labels_for_snapshot(only_null=True)  # fill labels for any newly added snapshots - DISABLED TEMPORARILY
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--port", type=int, default=5050)
+    args = parser.parse_args()
+    PORT = args.port
+    def open_browser():
+        import time; time.sleep(1.2)
+        webbrowser.open(f"http://localhost:{PORT}")
+    threading.Thread(target=open_browser, daemon=True).start()
+    print(f"GEX Viewer running at http://localhost:{PORT}")
+    print("Press Ctrl+C to stop.")
+    app.run(port=PORT, debug=False)
     # _populate_percentile_history()  # populate time-slot percentiles for rankings - DISABLED TEMPORARILY
     _ensure_narratives_table()
     # _train_hmm()  # train on startup if model is missing or >7 days old; also backfills HMM labels - DISABLED TEMPORARILY
