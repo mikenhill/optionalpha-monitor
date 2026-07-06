@@ -1088,28 +1088,34 @@ def _backfill_snapshot_summary(limit: int | None = None, force: bool = False) ->
 
 
 def _backfill_snapshot_gex_ratio() -> dict:
-    """Recompute gex_ratio for all snapshot rows using the new flip-sign formula."""
+    """Recompute gex_ratio for all snapshot rows using the corrected formula."""
+    from controllers.gex_calculations import calculate_gex_ratio
+    
     updated = 0
     with _db() as con:
         rows = con.execute(
-            "SELECT ndate, ntime, total_call_gex, total_put_gex FROM snapshot WHERE total_call_gex IS NOT NULL"
+            "SELECT ndate, ntime, raw_json FROM snapshot WHERE raw_json IS NOT NULL"
         ).fetchall()
 
-    for ndate, ntime, total_call_gex, total_put_gex in rows:
-        # New formula: flip sign based on which side is larger
-        total_call_gex_sum = total_call_gex or 0
-        total_put_gex_sum = abs(total_put_gex or 0)
-        if total_call_gex_sum > total_put_gex_sum:
-            gex_ratio = round(total_call_gex_sum / total_put_gex_sum, 1) if total_put_gex_sum else 0
-        else:
-            gex_ratio = round(-total_put_gex_sum / total_call_gex_sum, 1) if total_call_gex_sum else 0
-
-        with _db() as con:
-            con.execute(
-                "UPDATE snapshot SET gex_ratio=? WHERE ndate=? AND ntime=?",
-                (gex_ratio, ndate, ntime)
-            )
-        updated += 1
+    for ndate, ntime, raw_json in rows:
+        try:
+            import json
+            data = json.loads(raw_json)
+            strikes = data.get("data", [])
+            
+            if strikes:
+                # Use the corrected centralized calculation function
+                gex_ratio = calculate_gex_ratio(strikes)
+                
+                with _db() as con:
+                    con.execute(
+                        "UPDATE snapshot SET gex_ratio=? WHERE ndate=? AND ntime=?",
+                        (gex_ratio, ndate, ntime)
+                    )
+                updated += 1
+        except Exception:
+            # Skip rows that can't be processed
+            continue
 
     return {"updated": updated}
 
@@ -4864,11 +4870,9 @@ def summarise_snapshot(data: dict) -> dict:
 
     pos_bars = sum(1 for r in window_rows if (r.get("net", 0) or 0) > 0)
     sentiment_pct = round(pos_bars / len(window_rows) * 100) if window_rows else 50
-    # New formula: flip sign based on which side is larger
-    if cg > abs(pg):
-        gex_ratio = round(cg / abs(pg), 2) if pg else 0
-    else:
-        gex_ratio = round(-abs(pg) / cg, 2) if cg else 0
+    # Use corrected GEX ratio calculation
+    from controllers.gex_calculations import calculate_gex_ratio
+    gex_ratio = calculate_gex_ratio(window_rows)
 
     snap = {
         "uprice": uprice, "net_gex": net, "call_gex": cg, "put_gex": pg,
@@ -4978,13 +4982,9 @@ def _compute_flat_summary(data: dict) -> dict:
     pos_bars = sum(1 for n in net_gex if n > 0)
     sentiment_pct = round(pos_bars / len(net_gex) * 100) if net_gex else 50
 
-    # Ratio flips sign based on which side is larger
-    total_call_gex_sum = sum(call_gex)
-    total_put_gex_sum = abs(sum(put_gex))
-    if total_call_gex_sum > total_put_gex_sum:
-        gex_ratio = round(total_call_gex_sum / total_put_gex_sum, 1) if total_put_gex_sum else 0
-    else:
-        gex_ratio = round(-total_put_gex_sum / total_call_gex_sum, 1) if total_call_gex_sum else 0
+    # Use corrected GEX ratio calculation
+    from controllers.gex_calculations import calculate_gex_ratio
+    gex_ratio = calculate_gex_ratio(rows)
 
     net_g = sum(net_gex)
 
@@ -6204,13 +6204,9 @@ def _snapshot_computed_stats(date_iso: str, ntime: int) -> dict | None:
     pos_bars = sum(1 for n in net_gex if n > 0)
     sentiment_pct = round(pos_bars / len(net_gex) * 100) if net_gex else 50
 
-    # Ratio flips sign based on which side is larger
-    total_call_gex_sum = sum(call_gex)
-    total_put_gex_sum = abs(sum(put_gex))
-    if total_call_gex_sum > total_put_gex_sum:
-        gex_ratio = round(total_call_gex_sum / total_put_gex_sum, 1) if total_put_gex_sum else 0
-    else:
-        gex_ratio = round(-total_put_gex_sum / total_call_gex_sum, 1) if total_call_gex_sum else 0
+    # Use corrected GEX ratio calculation
+    from controllers.gex_calculations import calculate_gex_ratio
+    gex_ratio = calculate_gex_ratio(rows)
 
     return {
         "net_gex":  sum(net_gex),
@@ -6825,12 +6821,9 @@ def api_gex_snapshot():
         return (positive / len(strikes)) * 100
     
     def calculate_gex_ratio(strikes):
-        """call_gex / put_gex with sign flip."""
-        total_cg = sum(s.get("cg", 0) for s in strikes)
-        total_pg = sum(s.get("pg", 0) for s in strikes)
-        if total_pg == 0:
-            return 0
-        return (total_cg / abs(total_pg)) * 100
+        """Use corrected GEX ratio calculation."""
+        from controllers.gex_calculations import calculate_gex_ratio as centralized_ratio
+        return centralized_ratio(strikes)
     
     def calculate_net_gex(strikes):
         """call_gex + put_gex."""
@@ -8917,13 +8910,9 @@ def _api_live_fetch_inner():
     pos_bars = sum(1 for n in net_gex if n > 0)
     sentiment_pct = round(pos_bars / len(net_gex) * 100) if net_gex else 50
 
-    # Ratio flips sign based on which side is larger
-    total_call_gex_sum = sum(call_gex)
-    total_put_gex_sum = abs(sum(put_gex))
-    if total_call_gex_sum > total_put_gex_sum:
-        gex_ratio = round(total_call_gex_sum / total_put_gex_sum, 1) if total_put_gex_sum else 0
-    else:
-        gex_ratio = round(-total_put_gex_sum / total_call_gex_sum, 1) if total_call_gex_sum else 0
+    # Use corrected GEX ratio calculation
+    from controllers.gex_calculations import calculate_gex_ratio
+    gex_ratio = calculate_gex_ratio(rows)
     net_g = sum(net_gex)
 
     snap["sentiment_pct"] = sentiment_pct
@@ -9398,13 +9387,9 @@ def api_live_snapshot():
 
     pos_bars = sum(1 for n in net_gex if n > 0)
     sentiment_pct = round(pos_bars / len(net_gex) * 100) if net_gex else 50
-    # Ratio flips sign based on which side is larger
-    total_call_gex_sum = sum(call_gex)
-    total_put_gex_sum = abs(sum(put_gex))
-    if total_call_gex_sum > total_put_gex_sum:
-        gex_ratio = round(total_call_gex_sum / total_put_gex_sum, 1) if total_put_gex_sum else 0
-    else:
-        gex_ratio = round(-total_put_gex_sum / total_call_gex_sum, 1) if total_call_gex_sum else 0
+    # Use corrected GEX ratio calculation
+    from controllers.gex_calculations import calculate_gex_ratio
+    gex_ratio = calculate_gex_ratio(rows)
     net_g = sum(net_gex)
 
     snap["sentiment_pct"]  = sentiment_pct

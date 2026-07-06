@@ -25,11 +25,15 @@ def calculate_sentiment(strikes):
 
 def calculate_gex_ratio(strikes):
     """Calculate GEX ratio.
+
+    GEX ratio = ratio of negative to positive gamma exposure, with sign flip.
+    Positive when call GEX dominates, negative when put GEX dominates.
+    Only includes displayed bars (strikes near current price, typically ±40 strikes).
     
-    GEX ratio = call_gex / put_gex (with sign flip based on which absolute value is larger)
-    Example: 2b neg and 3b pos = 3b / 2b = 1.5x (positive)
-             3b neg and 2b pos = -3b / 2b = -1.5x (negative)
-    
+    Examples:
+    - 2b neg and 3b pos = 3b / 2b = 1.5x positive to negative GEX ratio (green)
+    - 3b neg and 2b pos = -3b / 2b = -1.5x negative to positive GEX ratio (red)
+
     Args:
         strikes: List of strike dictionaries with 'cg' and 'pg' fields
         
@@ -38,36 +42,39 @@ def calculate_gex_ratio(strikes):
     """
     if not strikes:
         return 0
-    
+
+    # Sum all call and put gamma directly (not derived from net_gex)
     call_gex = sum(r.get("cg", 0) or 0 for r in strikes)
     put_gex = sum(r.get("pg", 0) or 0 for r in strikes)
     
-    abs_call = abs(call_gex)
-    abs_put = abs(put_gex)
+    # Calculate ratio based on which side is larger
+    abs_cg = abs(call_gex)
+    abs_pg = abs(put_gex)
     
-    if abs_call > abs_put:
-        return round((call_gex / abs_put) * 100, 1) if abs_put else 0
+    if abs_cg > abs_pg:
+        # Call GEX dominates - positive ratio
+        return round(call_gex / abs_pg, 2) if abs_pg else 0
     else:
-        return round((-abs_put / call_gex) * 100, 1) if call_gex else 0
+        # Put GEX dominates - negative ratio  
+        return round(put_gex / abs_cg, 2) if abs_cg else 0
 
 
 def calculate_net_gex(strikes):
     """Calculate net GEX.
-    
-    Net GEX = call_gex + put_gex (put_gex is already negative)
-    
+
+    Net GEX = sum of 'total' field from raw JSON data (not derived from cg + pg)
+
     Args:
-        strikes: List of strike dictionaries with 'cg' and 'pg' fields
-        
+        strikes: List of strike dictionaries with 'total' field
+
     Returns:
         float: Net GEX
     """
     if not strikes:
         return 0
-    
-    call_gex = sum(r.get("cg", 0) or 0 for r in strikes)
-    put_gex = sum(r.get("pg", 0) or 0 for r in strikes)
-    return call_gex + put_gex
+
+    # Use raw 'total' field from JSON data, not derived calculation
+    return sum(r.get("total", 0) or 0 for r in strikes)
 
 
 def calculate_kcs(strikes, uprice):
