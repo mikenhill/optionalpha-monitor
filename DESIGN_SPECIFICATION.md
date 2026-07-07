@@ -235,25 +235,11 @@
 
 ### Derived Data (Calculated On-The-Fly)
 
-**Centralized Calculation Functions (`controllers/gex_calculations.py`):**
-All GEX metrics use centralized calculation functions to ensure consistency:
-- `calculate_net_gex(strikes)` - Uses 'total' field from raw JSON
-- `calculate_gex_ratio(strikes)` - Corrected ratio formula (no ×100)
-- `calculate_sentiment(strikes)` - % of positive net GEX bars
-- `calculate_kcs(strikes, uprice)` - Key Call Support score
-- `calculate_dominance(strikes, uprice)` - Key strike dominance %
-- `calculate_key_strike_stats(strikes, uprice)` - Key strike details
-- `calculate_total_oi_and_vol(strikes)` - Total OI and volume
-- `calculate_flip_level(strikes)` - GEX flip level calculation
-
 **All GEX metrics are derived from raw JSON in `data` column:**
-- `net_gex` - Sum of 'total' field from raw JSON data (NOT calculated as cg+pg)
+- `net_gex` - Total call GEX - total put GEX
 - `total_call_gex`, `total_put_gex` - Sum across all strikes
-- `sentiment_pct` - % of strikes with positive net GEX (0-100%)
-- `gex_ratio` - Ratio of call GEX to put GEX with sign flip:
-  - Positive when call GEX dominates: `call_gex / abs(put_gex)`
-  - Negative when put GEX dominates: `put_gex / abs(call_gex)`
-  - No ×100 multiplier (returns values like 2.2, not 218.4)
+- `sentiment_pct` - call_gex / (call_gex + put_gex)
+- `gex_ratio` - Ratio flipping sign based on which side is larger
 - `kcs` - Key Call Strike (highest call GEX)
 - `dominance` - Key strike GEX as % of total
 - `key_call_gex`, `key_put_gex` - GEX at key strike
@@ -634,13 +620,6 @@ optionalpha-monitor/
 - **Do NOT query flat columns** (net_gex, kcs, etc.) - they don't exist
 - **Derive metrics from `data` column** using JSON parsing
 - **Use `symbol='SPX'`** in queries unless working with other tickers
-
-### GEX Calculations (Updated 2026-07-06)
-- **Always use centralized functions** in `controllers/gex_calculations.py`
-- **NEVER hardcode calculations** - all logic centralized to prevent inconsistencies
-- **Net GEX**: Use 'total' field from raw JSON, NOT cg+pg calculation
-- **GEX Ratio**: No ×100 multiplier, returns values like 2.2 not 218.4
-- **API endpoints**: Must use centralized functions, no local calculations
 
 ### ML Model Training
 - **Vol regime model** is reliable (70-80% accuracy expected) - Uses RandomForest
