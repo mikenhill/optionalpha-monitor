@@ -1962,7 +1962,7 @@ def _compute_trade_performance(ndate: int, model_version: str = "default", force
              vol_regime_correct, vol_regime_total, vol_regime_accuracy,
              direction_2hr_correct, direction_2hr_total, direction_2hr_accuracy,
              computed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             ndate, model_version, training_date, 1 if force_retrain else 0,
             total, high_conf, medium_conf, low_conf,
