@@ -7049,6 +7049,51 @@ def api_recalc_gex_percentiles():
         }), 500
 
 
+@app.route("/api/gex/backfill-percentiles")
+def api_backfill_gex_percentiles():
+    """Recalculate percentiles for all historical time slots.
+    
+    This deletes old percentile records and re-computes them using the
+    current 11-metric set across all snapshots in gex_strike_window.
+    """
+    from datetime import date
+    
+    try:
+        with _db() as con:
+            # Get all distinct ntime values from historical snapshots (excluding today)
+            today = date.today()
+            today_ndate = int(today.strftime("%Y%m%d"))
+            rows = con.execute(
+                "SELECT DISTINCT ntime FROM gex_strike_window WHERE symbol='SPX' AND source='gex' AND ndate != ? ORDER BY ntime",
+                (today_ndate,)
+            ).fetchall()
+            
+            ntimes = [r[0] for r in rows]
+        
+        processed = 0
+        errors = []
+        for ntime in ntimes:
+            try:
+                _recalc_gex_percentiles(ntime)
+                processed += 1
+            except Exception as slot_err:
+                errors.append({"ntime": ntime, "error": str(slot_err)})
+        
+        return jsonify({
+            "success": len(errors) == 0,
+            "processed_slots": processed,
+            "total_slots": len(ntimes),
+            "errors": errors
+        })
+        
+    except Exception as e:
+        import traceback
+        return jsonify({
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }), 500
+
+
 @app.route("/api/gex/snapshot")
 def api_gex_snapshot():
     """Get a single GEX snapshot from gex_strike_window with calculated summary metrics.
