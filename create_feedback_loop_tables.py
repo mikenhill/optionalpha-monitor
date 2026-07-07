@@ -21,11 +21,21 @@ def create_trade_signal_features_table():
                 ntime INTEGER NOT NULL,
                 symbol TEXT NOT NULL,
                 
-                -- Trade Signal Performance Features
+                -- Trade Signal Performance Features (ALL SIGNAL TYPES)
                 call_wall_success_rate_7d REAL,
                 call_wall_success_rate_30d REAL,
                 put_wall_success_rate_7d REAL,
                 put_wall_success_rate_30d REAL,
+                butterfly_success_rate_7d REAL,
+                butterfly_success_rate_30d REAL,
+                condor_success_rate_7d REAL,
+                condor_success_rate_30d REAL,
+                pillar_success_rate_7d REAL,
+                pillar_success_rate_30d REAL,
+                notrade_success_rate_7d REAL,
+                notrade_success_rate_30d REAL,
+                
+                -- Composite Features
                 wall_strength_score REAL,
                 signal_reliability_score REAL,
                 recent_signal_performance_5 REAL,

@@ -25,8 +25,8 @@ def calculate_trade_signal_features(ndate: int, ntime: int, symbol: str = 'SPX')
     """
     features = {}
     
-    # Calculate CALL_WALL and PUT_WALL success rates
-    features.update(calculate_wall_success_rates(ndate, ntime))
+    # Calculate success rates for ALL signal types
+    features.update(calculate_all_signal_success_rates(ndate, ntime))
     
     # Calculate wall strength score
     features['wall_strength_score'] = calculate_wall_strength_score(ndate, ntime)
@@ -43,39 +43,75 @@ def calculate_trade_signal_features(ndate: int, ntime: int, symbol: str = 'SPX')
     return features
 
 
-def calculate_wall_success_rates(ndate: int, ntime: int) -> Dict:
+def calculate_all_signal_success_rates(ndate: int, ntime: int) -> Dict:
     """
-    Calculate historical success rates for CALL_WALL and PUT_WALL signals.
+    Calculate historical success rates for ALL signal types.
     
     Returns:
-        Dict with success rate features
+        Dict with success rate features for all signal types
     """
     with sqlite3.connect('gex.db') as con:
-        # 7-day CALL_WALL success rate
+        # CALL_WALL success rates
         call_success_7d = calculate_success_rate(
             con, ndate, ntime, 'CALL_WALL', days=7
         )
-        
-        # 30-day CALL_WALL success rate
         call_success_30d = calculate_success_rate(
             con, ndate, ntime, 'CALL_WALL', days=30
         )
         
-        # 7-day PUT_WALL success rate
+        # PUT_WALL success rates
         put_success_7d = calculate_success_rate(
             con, ndate, ntime, 'PUT_WALL', days=7
         )
-        
-        # 30-day PUT_WALL success rate
         put_success_30d = calculate_success_rate(
             con, ndate, ntime, 'PUT_WALL', days=30
+        )
+        
+        # PIN (Iron Butterfly) success rates
+        butterfly_success_7d = calculate_success_rate(
+            con, ndate, ntime, 'PIN', days=7
+        )
+        butterfly_success_30d = calculate_success_rate(
+            con, ndate, ntime, 'PIN', days=30
+        )
+        
+        # POS_GAMMA (Iron Condor) success rates
+        condor_success_7d = calculate_success_rate(
+            con, ndate, ntime, 'POS_GAMMA', days=7
+        )
+        condor_success_30d = calculate_success_rate(
+            con, ndate, ntime, 'POS_GAMMA', days=30
+        )
+        
+        # PUT_PILLAR success rates
+        pillar_success_7d = calculate_success_rate(
+            con, ndate, ntime, 'PUT_PILLAR', days=7
+        )
+        pillar_success_30d = calculate_success_rate(
+            con, ndate, ntime, 'PUT_PILLAR', days=30
+        )
+        
+        # No Trade decision accuracy
+        notrade_success_7d = calculate_success_rate(
+            con, ndate, ntime, 'NEG_GAMMA', days=7
+        )
+        notrade_success_30d = calculate_success_rate(
+            con, ndate, ntime, 'NEG_GAMMA', days=30
         )
         
         return {
             'call_wall_success_rate_7d': call_success_7d,
             'call_wall_success_rate_30d': call_success_30d,
             'put_wall_success_rate_7d': put_success_7d,
-            'put_wall_success_rate_30d': put_success_30d
+            'put_wall_success_rate_30d': put_success_30d,
+            'butterfly_success_rate_7d': butterfly_success_7d,
+            'butterfly_success_rate_30d': butterfly_success_30d,
+            'condor_success_rate_7d': condor_success_7d,
+            'condor_success_rate_30d': condor_success_30d,
+            'pillar_success_rate_7d': pillar_success_7d,
+            'pillar_success_rate_30d': pillar_success_30d,
+            'notrade_success_rate_7d': notrade_success_7d,
+            'notrade_success_rate_30d': notrade_success_30d
         }
 
 
@@ -154,6 +190,54 @@ def calculate_wall_strength_score(ndate: int, ntime: int) -> float:
         strength_score = success_rate
         
         return min(max(strength_score, 0.0), 1.0)
+
+
+def calculate_strike_wall_score(ndate: int, ntime: int, setup_type: str, short_strike: float) -> float:
+    """
+    Calculate strike-specific wall performance score.
+    
+    This is more granular than setup-type success rates - it tracks performance
+    of a specific strike level (e.g., CALL_WALL at 7550 vs 7520).
+    
+    Args:
+        ndate: Current date
+        ntime: Current time
+        setup_type: 'CALL_WALL' or 'PUT_WALL'
+        short_strike: The strike level to evaluate
+    
+    Returns:
+        Strike wall score (0.0 to 1.0), higher = stronger wall
+    """
+    with sqlite3.connect('gex.db') as con:
+        # Look back 90 days for same strike level
+        current_date = datetime.strptime(str(ndate), '%Y%m%d')
+        start_date = current_date - timedelta(days=90)
+        start_date_int = int(start_date.strftime('%Y%m%d'))
+        
+        query = """
+            SELECT outcome, COUNT(*) 
+            FROM trade_signals 
+            WHERE setup_type = ? 
+            AND short_strike = ?
+            AND ndate BETWEEN ? AND ?
+            AND outcome IS NOT NULL
+            AND outcome != 'NEUTRAL'
+            GROUP BY outcome
+        """
+        
+        cursor = con.execute(query, (setup_type, short_strike, start_date_int, ndate))
+        results = cursor.fetchall()
+        
+        wins = sum(count for outcome, count in results if outcome in ['WIN', 'CORRECT'])
+        losses = sum(count for outcome, count in results if outcome in ['LOSS', 'MISSED'])
+        total_decisive = wins + losses
+        
+        if total_decisive == 0:
+            # No decisive history, default to setup-type success rate
+            return calculate_success_rate(con, ndate, ntime, setup_type, days=30)
+        
+        # Use win rate among decisive outcomes
+        return wins / total_decisive
 
 
 def calculate_signal_reliability_score(ndate: int, ntime: int) -> float:
@@ -399,17 +483,29 @@ def persist_trade_signal_features(ndate: int, ntime: int, symbol: str = 'SPX'):
             (ndate, ntime, symbol,
              call_wall_success_rate_7d, call_wall_success_rate_30d,
              put_wall_success_rate_7d, put_wall_success_rate_30d,
+             butterfly_success_rate_7d, butterfly_success_rate_30d,
+             condor_success_rate_7d, condor_success_rate_30d,
+             pillar_success_rate_7d, pillar_success_rate_30d,
+             notrade_success_rate_7d, notrade_success_rate_30d,
              wall_strength_score, signal_reliability_score,
              recent_signal_performance_5, recent_signal_performance_20,
              high_volatility_regime, trending_market, choppy_market, macro_event_risk,
              calculated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             ndate, ntime, symbol,
             features.get('call_wall_success_rate_7d', 0.5),
             features.get('call_wall_success_rate_30d', 0.5),
             features.get('put_wall_success_rate_7d', 0.5),
             features.get('put_wall_success_rate_30d', 0.5),
+            features.get('butterfly_success_rate_7d', 0.5),
+            features.get('butterfly_success_rate_30d', 0.5),
+            features.get('condor_success_rate_7d', 0.5),
+            features.get('condor_success_rate_30d', 0.5),
+            features.get('pillar_success_rate_7d', 0.5),
+            features.get('pillar_success_rate_30d', 0.5),
+            features.get('notrade_success_rate_7d', 0.5),
+            features.get('notrade_success_rate_30d', 0.5),
             features.get('wall_strength_score', 0.5),
             features.get('signal_reliability_score', 0.5),
             features.get('recent_signal_performance_5', 0.0),

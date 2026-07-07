@@ -334,6 +334,15 @@ def _generate_trade_signal(snap: dict, prev_snap: dict | None, prev_signal: dict
     sentiment   = snap.get("sentiment_pct", snap.get("sentiment", 50)) or 50
     hmm_label   = snap.get("hmm_label", "") or ""
     key_dominance = snap.get("key_dominance_pct", snap.get("dominance", 0)) or 0
+    
+    # Get feedback loop features for signal filtering
+    ndate = snap.get("ndate")
+    ntime = snap.get("ntime")
+    feedback_features = _get_feedback_features(ndate, ntime) if ndate and ntime else {}
+    
+    # Apply feedback loop filtering
+    if feedback_features:
+        setup_type = _filter_signal_with_feedback(setup_type, feedback_features, snap)
 
     WING = 10  # default wing width in SPX points
 
@@ -2006,6 +2015,16 @@ ML_FEATURES = [
     "net_gex_change", "sentiment_change", "gex_ratio_change",
     # Time-of-day features
     "hour_sin", "hour_cos",
+    # Trade Signal Feedback Loop Features
+    "call_wall_success_rate_7d", "call_wall_success_rate_30d",
+    "put_wall_success_rate_7d", "put_wall_success_rate_30d",
+    "butterfly_success_rate_7d", "butterfly_success_rate_30d",
+    "condor_success_rate_7d", "condor_success_rate_30d",
+    "pillar_success_rate_7d", "pillar_success_rate_30d",
+    "notrade_success_rate_7d", "notrade_success_rate_30d",
+    "wall_strength_score", "signal_reliability_score",
+    "recent_signal_performance_5", "recent_signal_performance_20",
+    "high_volatility_regime", "trending_market", "choppy_market", "macro_event_risk",
 ]
 
 # Trade recommendation matrix: (vol_regime, direction) → trade type
@@ -2049,7 +2068,7 @@ def _ensure_ml_models_table() -> None:
         """)
 
 
-def _extract_gex_features(strikes, uprice, prev_price=None, prev_feats=None, ntime=None) -> dict:
+def _extract_gex_features(strikes, uprice, prev_price=None, prev_feats=None, ntime=None, ndate=None) -> dict:
     """Extract all ML features from a strike list and SPX price.
 
     Args:
@@ -2109,6 +2128,9 @@ def _extract_gex_features(strikes, uprice, prev_price=None, prev_feats=None, nti
         hour_sin = np.sin(2 * np.pi * hour / 24)
         hour_cos = np.cos(2 * np.pi * hour / 24)
 
+    # Get feedback loop features if available
+    feedback_features = _get_feedback_features(ndate, ntime) if ntime else {}
+    
     return {
         "net_gex":       net_gex,
         "total_call_gex": total_gex["total_call_gex"],
@@ -2138,7 +2160,169 @@ def _extract_gex_features(strikes, uprice, prev_price=None, prev_feats=None, nti
         "gex_ratio_change": gex_ratio_change,
         "hour_sin": hour_sin,
         "hour_cos": hour_cos,
+        # Trade Signal Feedback Loop Features
+        "call_wall_success_rate_7d": feedback_features.get("call_wall_success_rate_7d", 0.5),
+        "call_wall_success_rate_30d": feedback_features.get("call_wall_success_rate_30d", 0.5),
+        "put_wall_success_rate_7d": feedback_features.get("put_wall_success_rate_7d", 0.5),
+        "put_wall_success_rate_30d": feedback_features.get("put_wall_success_rate_30d", 0.5),
+        "butterfly_success_rate_7d": feedback_features.get("butterfly_success_rate_7d", 0.5),
+        "butterfly_success_rate_30d": feedback_features.get("butterfly_success_rate_30d", 0.5),
+        "condor_success_rate_7d": feedback_features.get("condor_success_rate_7d", 0.5),
+        "condor_success_rate_30d": feedback_features.get("condor_success_rate_30d", 0.5),
+        "pillar_success_rate_7d": feedback_features.get("pillar_success_rate_7d", 0.5),
+        "pillar_success_rate_30d": feedback_features.get("pillar_success_rate_30d", 0.5),
+        "notrade_success_rate_7d": feedback_features.get("notrade_success_rate_7d", 0.5),
+        "notrade_success_rate_30d": feedback_features.get("notrade_success_rate_30d", 0.5),
+        "wall_strength_score": feedback_features.get("wall_strength_score", 0.5),
+        "signal_reliability_score": feedback_features.get("signal_reliability_score", 0.5),
+        "recent_signal_performance_5": feedback_features.get("recent_signal_performance_5", 0.0),
+        "recent_signal_performance_20": feedback_features.get("recent_signal_performance_20", 0.0),
+        "high_volatility_regime": feedback_features.get("high_volatility_regime", 0),
+        "trending_market": feedback_features.get("trending_market", 0),
+        "choppy_market": feedback_features.get("choppy_market", 1),
+        "macro_event_risk": feedback_features.get("macro_event_risk", 0),
     }
+
+
+def _filter_signal_with_feedback(setup_type: str, feedback_features: dict, snap: dict) -> str:
+    """Filter trade signals based on feedback loop performance data.
+    
+    Uses both setup-type success rates AND strike-specific wall performance
+    to avoid blocking good walls when another wall at a different strike failed.
+    
+    Args:
+        setup_type: Original signal setup type (CALL_WALL, PIN, etc.)
+        feedback_features: Dictionary of feedback performance metrics
+        snap: Current snapshot data
+    
+    Returns:
+        Filtered setup type (may be changed to NEG_GAMMA if conditions are poor)
+    """
+    # Extract key feedback metrics
+    wall_strength = feedback_features.get("wall_strength_score", 0.5)
+    signal_reliability = feedback_features.get("signal_reliability_score", 0.5)
+    choppy_market = feedback_features.get("choppy_market", 0)
+    high_volatility = feedback_features.get("high_volatility_regime", 0)
+    
+    # Get signal-specific success rates
+    call_wall_success_7d = feedback_features.get("call_wall_success_rate_7d", 0.5)
+    call_wall_success_30d = feedback_features.get("call_wall_success_rate_30d", 0.5)
+    butterfly_success_7d = feedback_features.get("butterfly_success_rate_7d", 0.5)
+    butterfly_success_30d = feedback_features.get("butterfly_success_rate_30d", 0.5)
+    pillar_success_7d = feedback_features.get("pillar_success_rate_7d", 0.5)
+    pillar_success_30d = feedback_features.get("pillar_success_rate_30d", 0.5)
+    
+    # Get current snapshot details for strike-specific filtering
+    ndate = snap.get("ndate")
+    ntime = snap.get("ntime")
+    key_strike = snap.get("key_strike") or 0
+    
+    # Apply filtering rules
+    
+    # Rule 1: Filter CALL_WALL signals using strike-specific performance
+    if setup_type == "CALL_WALL":
+        # Calculate strike-specific wall score
+        from controllers.feedback_loop_features import calculate_strike_wall_score
+        strike_score = 0.5
+        if ndate and ntime and key_strike:
+            try:
+                strike_score = calculate_strike_wall_score(ndate, ntime, "CALL_WALL", key_strike)
+            except Exception:
+                strike_score = call_wall_success_30d
+        
+        # Block if this specific strike has poor history
+        if strike_score < 0.25:
+            # Specific strike has poor track record (e.g., 7520 wall)
+            return "NEG_GAMMA"
+            
+        # Block if setup-type is performing poorly AND market conditions are bad
+        if (call_wall_success_30d < 0.3 and 
+            signal_reliability < 0.35 and 
+            choppy_market == 1):
+            return "NEG_GAMMA"
+            
+        # Block extremely weak walls
+        if wall_strength < 0.25:
+            return "NEG_GAMMA"
+    
+    # Rule 2: Filter PIN (Iron Butterfly) signals during poor performance
+    elif setup_type == "PIN":
+        if butterfly_success_30d < 0.3:  # Poor butterfly performance
+            return "NEG_GAMMA"
+            
+        if signal_reliability < 0.3 and choppy_market == 1:
+            return "NEG_GAMMA"
+    
+    # Rule 3: Filter PUT_PILLAR signals using strike-specific performance
+    elif setup_type == "PUT_PILLAR":
+        from controllers.feedback_loop_features import calculate_strike_wall_score
+        strike_score = 0.5
+        if ndate and ntime and key_strike:
+            try:
+                strike_score = calculate_strike_wall_score(ndate, ntime, "PUT_PILLAR", key_strike)
+            except Exception:
+                strike_score = pillar_success_30d
+        
+        if strike_score < 0.2:
+            return "NEG_GAMMA"
+            
+        if wall_strength < 0.3:  # Weak support levels
+            return "NEG_GAMMA"
+    
+    # Rule 4: General market condition filtering
+    if signal_reliability < 0.20:  # Extremely poor overall system performance
+        return "NEG_GAMMA"
+        
+    if high_volatility == 1 and signal_reliability < 0.4:
+        # Avoid directional signals during high volatility with poor reliability
+        return "NEG_GAMMA"
+    
+    # If no filtering triggered, return original setup_type
+    return setup_type
+
+
+def _get_feedback_features(ndate: int, ntime: int) -> dict:
+    """Retrieve trade signal feedback features for a specific snapshot.
+    
+    Args:
+        ndate: Date in YYYYMMDD format
+        ntime: Time in HHMM format
+    
+    Returns:
+        Dictionary of feedback features or empty dict if not found
+    """
+    try:
+        with _db() as con:
+            cursor = con.execute("""
+                SELECT * FROM trade_signal_features 
+                WHERE ndate = ? AND ntime = ?
+            """, (ndate, ntime))
+            
+            row = cursor.fetchone()
+            if not row:
+                return {}
+            
+            # Map columns to feature names
+            columns = [
+                'ndate', 'ntime', 'symbol',
+                'call_wall_success_rate_7d', 'call_wall_success_rate_30d',
+                'put_wall_success_rate_7d', 'put_wall_success_rate_30d',
+                'butterfly_success_rate_7d', 'butterfly_success_rate_30d',
+                'condor_success_rate_7d', 'condor_success_rate_30d',
+                'pillar_success_rate_7d', 'pillar_success_rate_30d',
+                'notrade_success_rate_7d', 'notrade_success_rate_30d',
+                'wall_strength_score', 'signal_reliability_score',
+                'recent_signal_performance_5', 'recent_signal_performance_20',
+                'high_volatility_regime', 'trending_market', 'choppy_market', 'macro_event_risk',
+                'calculated_at'
+            ]
+            
+            return {columns[i]: row[i] for i in range(len(columns)) if i < len(row)}
+            
+    except Exception as e:
+        # If feedback features aren't available, return empty dict
+        # This allows the system to work without feedback loop initially
+        return {}
 
 
 def _train_ml_models() -> dict:
@@ -2199,7 +2383,7 @@ def _train_ml_models() -> dict:
             prev_feats = None
             prev_ndate = ndate
         
-        feats = _extract_gex_features(strikes, uprice, prev_price, prev_feats, ntime)
+        feats = _extract_gex_features(strikes, uprice, prev_price, prev_feats, ntime, ndate)
         if feats is None:
             continue
         
@@ -2327,7 +2511,7 @@ def _predict_snapshot(strikes, uprice, ntime=None) -> dict:
     import numpy as np
 
     # For real-time predictions, we don't have previous snapshot data
-    feats = _extract_gex_features(strikes, uprice, prev_price=None, prev_feats=None, ntime=ntime)
+    feats = _extract_gex_features(strikes, uprice, prev_price=None, prev_feats=None, ntime=ntime, ndate=None)
     if feats is None:
         return {"error": "insufficient features"}
 
@@ -2985,7 +3169,7 @@ def api_ml_backtest_accuracy():
             strikes = json.loads(data_json) if data_json else []
         except Exception:
             continue
-        feats = _extract_gex_features(strikes, uprice)
+        feats = _extract_gex_features(strikes, uprice, ndate=ndate)
         if feats is None:
             continue
         X_list.append([feats[f] for f in ML_FEATURES])
