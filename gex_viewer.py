@@ -3076,7 +3076,7 @@ def _compute_pca() -> dict:
     if len(records) < 5:
         return {"status": "error", "reason": "insufficient data (<5 snapshots)"}
 
-    df = pd.DataFrame(records)[FEATURES]
+    df = pd.DataFrame(records)[FEATURES].fillna(0)
     X_scaled = StandardScaler().fit_transform(df.values)
 
     n_components = min(len(FEATURES), len(records) - 1)
@@ -3118,7 +3118,8 @@ def _compute_pca() -> dict:
     ], key=lambda x: -x["score"])
 
     # Correlation matrix (upper triangle, |r| > 0.7 only)
-    corr = df.corr().round(3)
+    # Replace NaN with 0 (constant/zero-variance features produce NaN correlation)
+    corr = df.corr().round(3).fillna(0)
     high_corr = []
     for i in range(len(FEATURES)):
         for j in range(i + 1, len(FEATURES)):
