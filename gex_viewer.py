@@ -2887,7 +2887,8 @@ def _compute_pca() -> dict:
         calculate_raw_aggregates,
     )
 
-    # Full feature set covering all raw aggregates, derived metrics and distance features
+    # Full feature set covering all raw aggregates, derived metrics, distance features
+    # AND the trade signal feedback loop features used by the ML models.
     FEATURES = [
         # GEX
         "net_gex", "total_call_gex", "total_put_gex",
@@ -2909,6 +2910,16 @@ def _compute_pca() -> dict:
         "pcmag", "cotm", "potm",
         # Distance features
         "dist_to_key", "dist_to_flip",
+        # Trade Signal Feedback Loop Features
+        "call_wall_success_rate_7d", "call_wall_success_rate_30d",
+        "put_wall_success_rate_7d", "put_wall_success_rate_30d",
+        "butterfly_success_rate_7d", "butterfly_success_rate_30d",
+        "condor_success_rate_7d", "condor_success_rate_30d",
+        "pillar_success_rate_7d", "pillar_success_rate_30d",
+        "notrade_success_rate_7d", "notrade_success_rate_30d",
+        "wall_strength_score", "signal_reliability_score",
+        "recent_signal_performance_5", "recent_signal_performance_20",
+        "high_volatility_regime", "trending_market", "choppy_market", "macro_event_risk",
     ]
 
     FEATURE_GROUPS = {
@@ -2924,6 +2935,16 @@ def _compute_pca() -> dict:
         "oi_ratio": "OI/Vol", "vol_ratio": "OI/Vol",
         "pcmag": "Raw", "cotm": "Raw", "potm": "Raw",
         "dist_to_key": "Distance", "dist_to_flip": "Distance",
+        "call_wall_success_rate_7d": "Feedback", "call_wall_success_rate_30d": "Feedback",
+        "put_wall_success_rate_7d": "Feedback", "put_wall_success_rate_30d": "Feedback",
+        "butterfly_success_rate_7d": "Feedback", "butterfly_success_rate_30d": "Feedback",
+        "condor_success_rate_7d": "Feedback", "condor_success_rate_30d": "Feedback",
+        "pillar_success_rate_7d": "Feedback", "pillar_success_rate_30d": "Feedback",
+        "notrade_success_rate_7d": "Feedback", "notrade_success_rate_30d": "Feedback",
+        "wall_strength_score": "Feedback", "signal_reliability_score": "Feedback",
+        "recent_signal_performance_5": "Feedback", "recent_signal_performance_20": "Feedback",
+        "high_volatility_regime": "Feedback", "trending_market": "Feedback",
+        "choppy_market": "Feedback", "macro_event_risk": "Feedback",
     }
 
     with _db() as con:
@@ -2933,6 +2954,38 @@ def _compute_pca() -> dict:
             "WHERE symbol='SPX' AND source='gex' AND ntime>=935 "
             "ORDER BY ndate, ntime"
         ).fetchall()
+        
+        # Load feedback features for all relevant snapshots
+        feedback_rows = con.execute(
+            "SELECT ndate, ntime, "
+            "call_wall_success_rate_7d, call_wall_success_rate_30d, "
+            "put_wall_success_rate_7d, put_wall_success_rate_30d, "
+            "butterfly_success_rate_7d, butterfly_success_rate_30d, "
+            "condor_success_rate_7d, condor_success_rate_30d, "
+            "pillar_success_rate_7d, pillar_success_rate_30d, "
+            "notrade_success_rate_7d, notrade_success_rate_30d, "
+            "wall_strength_score, signal_reliability_score, "
+            "recent_signal_performance_5, recent_signal_performance_20, "
+            "high_volatility_regime, trending_market, choppy_market, macro_event_risk "
+            "FROM trade_signal_features"
+        ).fetchall()
+
+    # Build feedback lookup
+    feedback_lookup = {}
+    for fb in feedback_rows:
+        feedback_lookup[(fb[0], fb[1])] = fb[2:]
+
+    feedback_cols = [
+        "call_wall_success_rate_7d", "call_wall_success_rate_30d",
+        "put_wall_success_rate_7d", "put_wall_success_rate_30d",
+        "butterfly_success_rate_7d", "butterfly_success_rate_30d",
+        "condor_success_rate_7d", "condor_success_rate_30d",
+        "pillar_success_rate_7d", "pillar_success_rate_30d",
+        "notrade_success_rate_7d", "notrade_success_rate_30d",
+        "wall_strength_score", "signal_reliability_score",
+        "recent_signal_performance_5", "recent_signal_performance_20",
+        "high_volatility_regime", "trending_market", "choppy_market", "macro_event_risk",
+    ]
 
     records = []
     for row in rows:
@@ -2974,7 +3027,8 @@ def _compute_pca() -> dict:
         oi_ratio = round(tcoi / tpoi, 4) if tpoi else 0
         vol_ratio = round(tcvol / tpvol, 4) if tpvol else 0
 
-        records.append({
+        # Base GEX-derived features
+        record = {
             "net_gex": net_gex,
             "total_call_gex": total_gex_vals["total_call_gex"],
             "total_put_gex": total_gex_vals["total_put_gex"],
@@ -3002,7 +3056,22 @@ def _compute_pca() -> dict:
             "potm": raw["potm"],
             "dist_to_key": dist_to_key,
             "dist_to_flip": dist_to_flip,
-        })
+        }
+        
+        # Add feedback loop features if available
+        fb_values = feedback_lookup.get((ndate, ntime))
+        if fb_values:
+            for col, val in zip(feedback_cols, fb_values):
+                record[col] = val if val is not None else 0.0
+        else:
+            # Default values for missing feedback features
+            for col in feedback_cols:
+                if "_regime" in col or "_market" in col or col == "macro_event_risk":
+                    record[col] = 0
+                else:
+                    record[col] = 0.5
+        
+        records.append(record)
 
     if len(records) < 5:
         return {"status": "error", "reason": "insufficient data (<5 snapshots)"}
