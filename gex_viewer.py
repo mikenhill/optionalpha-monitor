@@ -9957,7 +9957,7 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
             sentiment = calculate_sentiment(window_strikes)
             net_gex = calculate_net_gex(window_strikes)
             kcs = calculate_kcs(window_strikes, uprice)
-            key_stats = calculate_key_strike_stats(window_strikes)
+            key_stats = calculate_key_strike_stats(window_strikes, uprice)
             total_oi_vol = calculate_total_oi_and_vol(window_strikes)
             
             snap_features = [{
