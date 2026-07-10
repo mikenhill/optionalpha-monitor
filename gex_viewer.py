@@ -1,4 +1,4 @@
-﻿"""
+"""
 GEX Viewer — Interactive intraday GEX + SPX educator
 ======================================================
 Flask server that serves an interactive HTML page for stepping through a
@@ -16,7 +16,7 @@ import json
 import math
 import sqlite3
 import subprocess
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from pathlib import Path
 
 import joblib
@@ -2614,6 +2614,1052 @@ def _maybe_retrain_ml_models() -> dict:
         return _train_ml_models()
 
     return {"status": "skipped", "reason": "models up to date", "samples": current_samples}
+
+
+# =============================================================================
+# Daily Analysis helpers
+# =============================================================================
+
+ANALYSIS_DIR = BASE_DIR / "analysis"
+
+
+def _find_existing_analysis_report(ndate: int) -> Path | None:
+    """Find the latest analysis-concise-YYYYMMDD-*.md file for a date."""
+    prefix = f"analysis-concise-{ndate}-"
+    candidates = sorted(ANALYSIS_DIR.glob(f"{prefix}*.md"), key=lambda p: p.name, reverse=True)
+    return candidates[0] if candidates else None
+
+
+def _save_analysis_report(ndate: int, ntime: int, content: str) -> Path:
+    """Save a generated daily analysis report to the analysis directory."""
+    ANALYSIS_DIR.mkdir(parents=True, exist_ok=True)
+    suffix = f"{ntime:04d}"
+    path = ANALYSIS_DIR / f"analysis-concise-{ndate}-{suffix}.md"
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def _fetch_yahoo_ohlc_for_date(date_iso: str) -> dict:
+    """Fetch daily OHLC for a single date from Yahoo Finance (^GSPC).
+
+    Returns {"open": ..., "high": ..., "low": ..., "close": ...} or empty dict on failure.
+    """
+    try:
+        import yfinance as yf
+    except ImportError:
+        return {}
+
+    try:
+        dt = datetime.strptime(date_iso, "%Y-%m-%d")
+        ticker = yf.Ticker("^GSPC")
+        # Request a small window around the target date
+        start = (dt - timedelta(days=3)).strftime("%Y-%m-%d")
+        end = (dt + timedelta(days=3)).strftime("%Y-%m-%d")
+        df = ticker.history(start=start, end=end, interval="1d", auto_adjust=True)
+        if df is None or df.empty:
+            return {}
+
+        # Yahoo index is timezone-aware; normalize to naive date
+        target_str = date_iso
+        for ts, row in df.iterrows():
+            ts_date = ts.date() if hasattr(ts, "date") else ts
+            if str(ts_date) == target_str:
+                return {
+                    "open": round(float(row["Open"]), 2),
+                    "high": round(float(row["High"]), 2),
+                    "low": round(float(row["Low"]), 2),
+                    "close": round(float(row["Close"]), 2),
+                }
+        return {}
+    except Exception:
+        return {}
+
+
+def _compute_concise_summary_from_strikes(strikes: list, last: float, ndate: int, ntime: int) -> dict:
+    """Compute concise GEX summary metrics from a gex_strike_window snapshot.
+
+    Mirrors process_gex_window.summarize_gex() using the 40-strike window already stored
+    in the database. This keeps report generation fast and self-contained.
+    """
+    if not strikes or last is None:
+        return {}
+
+    def v(row, key):
+        return row.get(key, 0) or 0
+
+    rows = strikes
+    positive_rows = [r for r in rows if v(r, "total") > 0]
+    negative_rows = [r for r in rows if v(r, "total") < 0]
+
+    PROX_BANDWIDTH = 50.0
+
+    def proximity_weighted_abs(row):
+        dist = abs(v(row, "strike") - last)
+        decay = math.exp(-0.5 * (dist / PROX_BANDWIDTH) ** 2)
+        return abs(v(row, "abs")) * decay
+
+    sorted_by_abs = sorted(rows, key=proximity_weighted_abs, reverse=True)
+    highest_abs_row = sorted_by_abs[0]
+    second_highest_row = sorted_by_abs[1] if len(sorted_by_abs) > 1 else None
+
+    # Key strike stats
+    cg_abs = abs(v(highest_abs_row, "cg"))
+    pg_abs = abs(v(highest_abs_row, "pg"))
+    key_balance_total = cg_abs + pg_abs
+    key_strike_balance = round((cg_abs - pg_abs) / key_balance_total * 100, 2) if key_balance_total else None
+
+    total_abs_gex = sum(abs(v(r, "abs")) for r in rows)
+    key_abs = abs(v(highest_abs_row, "abs"))
+    key_strike_dominance_pct = round(key_abs / total_abs_gex * 100, 2) if total_abs_gex else None
+
+    ks_coi = v(highest_abs_row, "coi")
+    ks_poi = v(highest_abs_row, "poi")
+    ks_oi_total = ks_coi + ks_poi
+    key_strike_oi_balance = round((ks_coi - ks_poi) / ks_oi_total * 100, 2) if ks_oi_total else None
+
+    ks_cvol = v(highest_abs_row, "cvol")
+    ks_pvol = v(highest_abs_row, "pvol")
+    ks_vol_total = ks_cvol + ks_pvol
+    key_strike_vol_balance = round((ks_cvol - ks_pvol) / ks_vol_total * 100, 2) if ks_vol_total else None
+
+    # Top OI / vol strikes
+    top_oi_row = max(rows, key=lambda r: v(r, "coi") + v(r, "poi"))
+    top_vol_row = max(rows, key=lambda r: v(r, "cvol") + v(r, "pvol"))
+
+    # Totals
+    positive_net_value = sum(v(r, "net") for r in positive_rows)
+    negative_net_value = sum(v(r, "net") for r in negative_rows)
+    total_call_gex = sum(v(r, "cg") for r in rows)
+    total_put_gex = sum(v(r, "pg") for r in rows)
+    net_gex = total_call_gex + total_put_gex
+
+    # Flip level: cumulative net GEX crosses zero within the window
+    from controllers.gex_calculations import calculate_flip_level
+    flip = calculate_flip_level(rows)
+
+    # KCS (Key Call Support) using the same formula as gex_calculations.py
+    total_oi = sum(v(r, "coi") + v(r, "poi") for r in rows)
+    total_vol = sum(v(r, "cvol") + v(r, "pvol") for r in rows)
+    key_strike_price = v(highest_abs_row, "strike")
+    distance = abs(key_strike_price - last)
+    prox_kcs = math.exp(-distance / 25.0)
+    gex_share = key_abs / total_abs_gex if total_abs_gex else 0.0
+    oi_share = (ks_coi + ks_poi) / total_oi if total_oi else 0.0
+    vol_share = (ks_cvol + ks_pvol) / total_vol if total_vol else 0.0
+    kcs = round((0.5 * gex_share + 0.3 * oi_share + 0.2 * vol_share) * prox_kcs * 100, 2)
+
+    if abs(total_call_gex) >= abs(total_put_gex):
+        gex_ratio = abs(total_call_gex) / abs(total_put_gex) if total_put_gex else None
+    else:
+        gex_ratio = -(abs(total_put_gex) / abs(total_call_gex)) if total_call_gex else None
+
+    # Weighted mean strikes
+    put_gex_weights = [(v(r, "strike"), abs(v(r, "pg"))) for r in rows if v(r, "pg") != 0]
+    total_put_gex_weight = sum(w for _, w in put_gex_weights)
+    weighted_mean_put_strike_gex = round(sum(s * w for s, w in put_gex_weights) / total_put_gex_weight, 2) if total_put_gex_weight else None
+
+    put_oi_weights = [(v(r, "strike"), v(r, "poi")) for r in rows if v(r, "poi") > 0]
+    total_put_oi_weight = sum(w for _, w in put_oi_weights)
+    weighted_mean_put_strike_oi = round(sum(s * w for s, w in put_oi_weights) / total_put_oi_weight, 2) if total_put_oi_weight else None
+
+    put_vol_weights = [(v(r, "strike"), v(r, "pvol")) for r in rows if v(r, "pvol") > 0]
+    total_put_vol_weight = sum(w for _, w in put_vol_weights)
+    weighted_mean_put_strike_vol = round(sum(s * w for s, w in put_vol_weights) / total_put_vol_weight, 2) if total_put_vol_weight else None
+
+    call_gex_weights = [(v(r, "strike"), abs(v(r, "cg"))) for r in rows if v(r, "cg") != 0]
+    total_call_gex_weight = sum(w for _, w in call_gex_weights)
+    weighted_mean_call_strike_gex = round(sum(s * w for s, w in call_gex_weights) / total_call_gex_weight, 2) if total_call_gex_weight else None
+
+    call_oi_weights = [(v(r, "strike"), v(r, "coi")) for r in rows if v(r, "coi") > 0]
+    total_call_oi_weight = sum(w for _, w in call_oi_weights)
+    weighted_mean_call_strike_oi = round(sum(s * w for s, w in call_oi_weights) / total_call_oi_weight, 2) if total_call_oi_weight else None
+
+    call_vol_weights = [(v(r, "strike"), v(r, "cvol")) for r in rows if v(r, "cvol") > 0]
+    total_call_vol_weight = sum(w for _, w in call_vol_weights)
+    weighted_mean_call_strike_vol = round(sum(s * w for s, w in call_vol_weights) / total_call_vol_weight, 2) if total_call_vol_weight else None
+
+    def _spread(call, put):
+        if call is not None and put is not None:
+            return round(call - put, 2)
+        return None
+
+    return {
+        "symbol": "SPX",
+        "date": f"{str(ndate)[:4]}-{str(ndate)[4:6]}-{str(ndate)[6:8]} {ntime//100:02d}:{ntime%100:02d}",
+        "last": round(last, 2),
+        "nearest_strike": min(rows, key=lambda r: (abs(v(r, "strike") - last), r["strike"]))["strike"],
+        "positive_gex_bars": len(positive_rows),
+        "negative_gex_bars": len(negative_rows),
+        "sentiment": round((len(positive_rows) / len(rows)) * 100, 4) if rows else 0,
+        "gex_ratio": round(gex_ratio, 4) if gex_ratio is not None else None,
+        "positive_gex_net_value": round(positive_net_value, 4),
+        "negative_gex_net_value": round(negative_net_value, 4),
+        "total_call_gex": round(total_call_gex, 4),
+        "total_put_gex": round(total_put_gex, 4),
+        "net_gex": round(net_gex, 4),
+        "total_call_oi": sum(v(r, "coi") for r in rows),
+        "total_put_oi": sum(v(r, "poi") for r in rows),
+        "total_call_vol": sum(v(r, "cvol") for r in rows),
+        "total_put_vol": sum(v(r, "pvol") for r in rows),
+        "flip": flip,
+        "key_strike": v(highest_abs_row, "strike"),
+        "key_absolute": abs(v(highest_abs_row, "abs")),
+        "key_net": v(highest_abs_row, "net"),
+        "key_call_gex": v(highest_abs_row, "cg"),
+        "key_put_gex": v(highest_abs_row, "pg"),
+        "key_call_oi": ks_coi,
+        "key_put_oi": ks_poi,
+        "key_net_oi": ks_coi - ks_poi,
+        "key_call_vol": ks_cvol,
+        "key_put_vol": ks_pvol,
+        "key_vol_net": ks_cvol - ks_pvol,
+        "key_dominance_pct": key_strike_dominance_pct,
+        "kcs": kcs,
+        "dist_to_key": round(abs(last - v(highest_abs_row, "strike")), 2),
+        "key_strike_balance": key_strike_balance,
+        "key_strike_oi_balance": key_strike_oi_balance,
+        "key_strike_vol_balance": key_strike_vol_balance,
+        "key2_strike": v(second_highest_row, "strike") if second_highest_row else None,
+        "key2_absolute": abs(v(second_highest_row, "abs")) if second_highest_row else None,
+        "top_oi_strike": v(top_oi_row, "strike"),
+        "top_oi_total": v(top_oi_row, "coi") + v(top_oi_row, "poi"),
+        "top_vol_strike": v(top_vol_row, "strike"),
+        "top_vol_total": v(top_vol_row, "cvol") + v(top_vol_row, "pvol"),
+        "weighted_mean_put_strike_gex": weighted_mean_put_strike_gex,
+        "weighted_mean_put_strike_oi": weighted_mean_put_strike_oi,
+        "weighted_mean_put_strike_vol": weighted_mean_put_strike_vol,
+        "weighted_mean_call_strike_gex": weighted_mean_call_strike_gex,
+        "weighted_mean_call_strike_oi": weighted_mean_call_strike_oi,
+        "weighted_mean_call_strike_vol": weighted_mean_call_strike_vol,
+        "call_put_gex_strike_spread": _spread(weighted_mean_call_strike_gex, weighted_mean_put_strike_gex),
+        "call_put_oi_strike_spread": _spread(weighted_mean_call_strike_oi, weighted_mean_put_strike_oi),
+        "call_put_vol_strike_spread": _spread(weighted_mean_call_strike_vol, weighted_mean_put_strike_vol),
+    }
+
+
+def _get_historical_context(summary: dict) -> dict:
+    """Load historical concise CSV rows and compute relative stats for the latest summary."""
+    concise_path = BASE_DIR / "results" / "daily_gex_summary-concise.csv"
+    ctx = {
+        "history_count": 0,
+        "sentiment_rank": None,
+        "net_gex_rank": None,
+        "key_absolute_rank": None,
+        "dominance_rank": None,
+        "prev_date": None,
+        "prev_key_strike": None,
+    }
+
+    if not concise_path.exists():
+        return ctx
+
+    try:
+        df = pd.read_csv(concise_path)
+    except Exception:
+        return ctx
+
+    if df.empty:
+        return ctx
+
+    # Map concise CSV columns to our summary names
+    numeric_cols = ["sentiment", "net_gex", "key_absolute", "key_dominance_pct"]
+    for col in numeric_cols:
+        if col in df.columns:
+            # Handle B/M suffixes in CSV (e.g. "-2.79B", "3.57B")
+            def _parse_number(x):
+                if pd.isna(x):
+                    return None
+                s = str(x).strip()
+                if not s:
+                    return None
+                try:
+                    if s.endswith("B"):
+                        return float(s[:-1]) * 1e9
+                    if s.endswith("M"):
+                        return float(s[:-1]) * 1e6
+                    if s.endswith("K"):
+                        return float(s[:-1]) * 1e3
+                    return float(s)
+                except ValueError:
+                    return None
+            df[col] = df[col].apply(_parse_number)
+
+    ctx["history_count"] = len(df)
+
+    def rank(series, value):
+        clean = series.dropna()
+        if clean.empty or value is None or pd.isna(value):
+            return None
+        # % of historical values <= current value
+        return round((clean <= value).mean() * 100, 1)
+
+    ctx["sentiment_rank"] = rank(df.get("sentiment"), summary.get("sentiment"))
+    ctx["net_gex_rank"] = rank(df.get("net_gex"), summary.get("net_gex"))
+    ctx["key_absolute_rank"] = rank(df.get("key_absolute"), summary.get("key_absolute"))
+    ctx["dominance_rank"] = rank(df.get("key_dominance_pct"), summary.get("key_dominance_pct"))
+
+    # Previous row by date
+    if "date" in df.columns and len(df) > 1:
+        prev = df.iloc[-2]
+        ctx["prev_date"] = str(prev.get("date", ""))
+        ctx["prev_key_strike"] = prev.get("key_strike")
+
+    return ctx
+
+
+def _get_ml_enrichment(strikes: list, uprice: float, ndate: int, ntime: int, summary: dict | None = None) -> dict:
+    """Gather ML predictions and feedback-loop features for a snapshot."""
+    enrichment = {
+        "vol_regime": None,
+        "direction": None,
+        "rf_outcome": None,
+        "hmm_label": None,
+        "feedback": {},
+    }
+
+    try:
+        ml_pred = _predict_snapshot(strikes, uprice, ntime)
+        if ml_pred and "error" not in ml_pred:
+            enrichment["vol_regime"] = {
+                "label": ml_pred.get("vol_regime"),
+                "proba": ml_pred.get("vol_regime_proba"),
+            }
+            enrichment["direction"] = {
+                "label": ml_pred.get("direction"),
+                "proba": ml_pred.get("direction_proba"),
+            }
+    except Exception:
+        pass
+
+    # RF outcome model
+    try:
+        from controllers.gex_calculations import calculate_key_strike_stats
+        ks = calculate_key_strike_stats(strikes, uprice)
+        snap_for_rf = {
+            "uprice": uprice,
+            "net_gex": sum(r.get("net", 0) or 0 for r in strikes),
+            "sentiment": (summary or {}).get("sentiment", 50),
+            "sentiment_pct": None,
+            "gex_ratio": None,
+            "kcs": None,
+            "dominance": None,
+            "key_dominance_pct": ks.get("key_dominance_pct") if hasattr(ks, "get") else None,
+            "total_call_gex": sum(r.get("cg", 0) or 0 for r in strikes),
+            "total_put_gex": sum(r.get("pg", 0) or 0 for r in strikes),
+            "total_call_oi": sum(r.get("coi", 0) or 0 for r in strikes),
+            "total_put_oi": sum(r.get("poi", 0) or 0 for r in strikes),
+            "total_call_vol": sum(r.get("cvol", 0) or 0 for r in strikes),
+            "total_put_vol": sum(r.get("pvol", 0) or 0 for r in strikes),
+            "key_strike": ks.get("key_strike") if hasattr(ks, "get") else None,
+            "key_call_gex": ks.get("key_call_gex") if hasattr(ks, "get") else None,
+            "key_put_gex": ks.get("key_put_gex") if hasattr(ks, "get") else None,
+            "key_call_oi": ks.get("key_call_oi") if hasattr(ks, "get") else None,
+            "key_put_oi": ks.get("key_put_oi") if hasattr(ks, "get") else None,
+            "key_call_vol": ks.get("key_call_vol") if hasattr(ks, "get") else None,
+            "key_put_vol": ks.get("key_put_vol") if hasattr(ks, "get") else None,
+            "key2_strike": ks.get("key2_strike") if hasattr(ks, "get") else None,
+            "key2_abs": ks.get("key2_abs") if hasattr(ks, "get") else None,
+            "key2_call_vol": ks.get("key2_call_vol") if hasattr(ks, "get") else None,
+            "key2_put_vol": ks.get("key2_put_vol") if hasattr(ks, "get") else None,
+            "flip": None,
+        }
+        rf = _predict_rf_outcome(snap_for_rf)
+        if rf:
+            enrichment["rf_outcome"] = rf
+    except Exception:
+        pass
+
+    # Feedback loop features
+    try:
+        feedback = _get_feedback_features(ndate, ntime)
+        if feedback:
+            enrichment["feedback"] = feedback
+    except Exception:
+        pass
+
+    # HMM label from gex_strike_window row
+    try:
+        with _db() as con:
+            row = con.execute(
+                "SELECT hmm_label FROM gex_strike_window WHERE ndate=? AND ntime=? AND symbol='SPX' AND source='gex'",
+                (ndate, ntime),
+            ).fetchone()
+            if row:
+                enrichment["hmm_label"] = row[0]
+    except Exception:
+        pass
+
+    return enrichment
+
+
+def _get_percentile_context_for_snapshot(ndate: int, ntime: int, stats: dict) -> dict:
+    """Fetch pre-computed percentile ranks for the snapshot's time slot.
+
+    stats: dict with keys net_gex, call_gex, put_gex, call_oi, put_oi, call_vol, put_vol, kcs, dominance
+    Returns a dict with percentile info for each metric, or empty dict if no percentile_history data.
+    """
+    context = {}
+    try:
+        with _db() as con:
+            # Check if we have percentile_history for this exact slot
+            row = con.execute(
+                "SELECT COUNT(*) FROM percentile_history WHERE ndate=? AND ntime=?",
+                (ndate, ntime)
+            ).fetchone()
+            has_exact = row and row[0] > 0
+
+            # Fallback: find the time slot with the most historical data
+            if not has_exact:
+                best_ntime = ntime
+                best_size = 0
+                for t in TIMES:
+                    size = con.execute(
+                        "SELECT COUNT(*) FROM percentile_history WHERE ntime=?", (t,)
+                    ).fetchone()[0]
+                    if size > best_size:
+                        best_size = size
+                        best_ntime = t
+                cache_ntime = best_ntime
+            else:
+                cache_ntime = ntime
+
+            def pct_for(metric_name, value, invert=False):
+                if value is None:
+                    return None
+                if has_exact:
+                    r = con.execute(
+                        "SELECT percentile FROM percentile_history WHERE ndate=? AND ntime=? AND metric_name=?",
+                        (ndate, ntime, metric_name)
+                    ).fetchone()
+                    if r:
+                        p = r[0]
+                        return round(100 - p, 1) if invert else round(p, 1)
+                # Live-style percentile: compare current value to slot distribution
+                below = con.execute(
+                    "SELECT COUNT(*) FROM percentile_history WHERE ntime=? AND metric_name=? AND value<=?",
+                    (cache_ntime, metric_name, value)
+                ).fetchone()[0]
+                total = con.execute(
+                    "SELECT COUNT(*) FROM percentile_history WHERE ntime=? AND metric_name=?",
+                    (cache_ntime, metric_name)
+                ).fetchone()[0]
+                if total == 0:
+                    return None
+                p = round(below / total * 100, 1)
+                return round(100 - p, 1) if invert else p
+
+            context = {
+                "net_gex": pct_for("net_gex", stats.get("net_gex"), invert=True),
+                "total_call_gex": pct_for("total_call_gex", stats.get("total_call_gex")),
+                "total_put_gex": pct_for("total_put_gex", stats.get("total_put_gex")),
+                "total_call_oi": pct_for("total_call_oi", stats.get("total_call_oi")),
+                "total_put_oi": pct_for("total_put_oi", stats.get("total_put_oi")),
+                "total_call_vol": pct_for("total_call_vol", stats.get("total_call_vol")),
+                "total_put_vol": pct_for("total_put_vol", stats.get("total_put_vol")),
+                "kcs": pct_for("kcs", stats.get("kcs")),
+                "dominance": pct_for("dominance", stats.get("dominance")),
+                "sample_size": con.execute(
+                    "SELECT COUNT(DISTINCT ndate) FROM percentile_history WHERE ntime=?", (cache_ntime,)
+                ).fetchone()[0],
+                "ntime_used": cache_ntime,
+            }
+    except Exception:
+        pass
+    return context
+
+
+def _get_trade_signal_for_snapshot(ndate: int, ntime: int, summary: dict, ml: dict) -> dict:
+    """Generate the live trade signal for the snapshot using the same pipeline as the GEX page."""
+    try:
+        snap = {
+            "ndate": ndate,
+            "ntime": ntime,
+            "uprice": summary.get("last", 0),
+            "net_gex": summary.get("net_gex", 0) or 0,
+            "gex_ratio": summary.get("gex_ratio", 1) or 1,
+            "dominance": summary.get("key_dominance_pct", 0) or 0,
+            "key_strike": summary.get("key_strike", 0),
+            "key_call_gex": summary.get("key_call_gex", 0) or 0,
+            "key_put_gex": summary.get("key_put_gex", 0) or 0,
+            "key_call_oi": summary.get("key_call_oi", 0) or 0,
+            "key_put_oi": summary.get("key_put_oi", 0) or 0,
+            "key_dominance_pct": summary.get("key_dominance_pct", 0) or 0,
+            "sentiment_pct": summary.get("sentiment", 50),
+            "kcs": summary.get("kcs", 0) or 0,
+            "key2_strike": summary.get("key2_strike", 0) or 0,
+            "key2_abs": summary.get("key2_absolute", 0) or 0,
+            "flip": summary.get("flip"),
+            "is_premarket": 1 if ntime < 930 else 0,
+            "hmm_label": ml.get("hmm_label", ""),
+        }
+        signal = _generate_trade_signal(snap, None, None)
+        return signal or {}
+    except Exception:
+        return {}
+
+
+def _get_oi_character(row: dict, price: float) -> str:
+    """Classify a strike as CALL WALL, PUT PILLAR, or balanced based on OI."""
+    coi = row.get("call_oi", 0) or 0
+    poi = row.get("put_oi", 0) or 0
+    total = coi + poi
+    if total == 0:
+        return "balanced"
+    call_pct = coi / total
+    put_pct = poi / total
+    if call_pct >= 0.65 and row["strike"] >= price:
+        return "CALL WALL"
+    if put_pct >= 0.65 and row["strike"] <= price:
+        return "PUT PILLAR"
+    if call_pct >= 0.65:
+        return "call-heavy"
+    if put_pct >= 0.65:
+        return "put-heavy"
+    return "balanced"
+
+
+def _build_lessons_section(primary_setup: str, summary: dict, trade_signal: dict) -> list:
+    """Build the Lessons from GEX Teaching section based on setup and metrics."""
+    lines = []
+    lines.append("## I — Lessons from GEX Teaching Files")
+    lines.append("")
+
+    # General principles
+    lines.append("### Core Principles")
+    lines.append("- Gamma is potential energy — it is highest at at-the-money, short-dated strikes.")
+    lines.append("- Market makers hedge continuously to stay delta-neutral; their hedging creates pressure at key strikes.")
+    lines.append("- Open interest alone is not directional — it can be condors, hedges, or spreads (Captain Condor artifact).")
+    lines.append("- GEX works best on normal days; it is less reliable on monthly expiration, FOMC, CPI, triple witching, and end-of-month/quarter/year.")
+    lines.append("- Charm (delta decay) causes hedging flows to change over time even if price does not move.")
+    lines.append("")
+
+    # Setup-specific lesson + recommendation
+    lines.append("### Setup-Specific Recommendation")
+    key_strike = summary.get("key_strike", 0)
+    key2_strike = summary.get("key2_strike")
+    price = summary.get("last", 0)
+
+    if primary_setup == "PIN":
+        lines.append(
+            "**PIN / MAGNET lesson:** When call and put gamma are balanced at one dominant strike, "
+            "market makers are continuously buying and selling around that level as price oscillates. "
+            "This creates a gravitational pull (pin) that can last for much of the session."
+        )
+        lines.append(f"- **Trade:** Short iron butterfly at {key_strike} (sell ATM call + put, buy OTM wings).")
+        lines.append(f"- **Entry zone:** price within ~5 pts of {key_strike}; wait for a small stretch beyond and reversion.")
+        lines.append(f"- **Zero-risk construction:** If price dips below {key_strike}, sell an ITM short put spread for credit; "
+                     f"if it rebounds to {key_strike}, sell a short call spread. If combined credit >= wing width, max risk is zero.")
+        lines.append(f"- **Key validation:** Tomorrow's GEX should also show {key_strike} as a key level; otherwise the pin degrades late in the session.")
+        lines.append(f"- **Invalidation:** clean break of {key2_strike or 'key2'} with volume and momentum.")
+
+    elif primary_setup == "PUT_PILLAR":
+        lines.append(
+            "**PUT PILLAR lesson:** A strike with outsized put gamma + put open interest acts as a support floor. "
+            "As price drops toward it, market makers buy hedges, creating upward pressure."
+        )
+        lines.append(f"- **Trade:** Short put spread at/just below {key_strike} (sell put at {key_strike}, buy further OTM put).")
+        lines.append(f"- **Entry zone:** price at or just below {key_strike} after a small overshoot.")
+        lines.append(f"- **Thesis:** put pillar holds as support; both legs expire worthless; keep full credit.")
+        lines.append(f"- **Invalidation:** price breaks {key_strike} with momentum and holds below.")
+
+    elif primary_setup == "CALL_WALL":
+        lines.append(
+            "**CALL WALL lesson:** A strike with outsized call gamma + call open interest acts as a resistance ceiling. "
+            "As price rises toward it, market makers sell hedges, creating downward pressure."
+        )
+        lines.append(f"- **Trade:** Short call spread at/just above {key_strike} (sell call at {key_strike}, buy further OTM call).")
+        lines.append(f"- **Entry zone:** price at or just above {key_strike} after a small overshoot.")
+        lines.append(f"- **Thesis:** call wall holds as resistance; both legs expire worthless; keep full credit.")
+        lines.append(f"- **Invalidation:** price breaks {key_strike} on strong volume and holds above.")
+
+    elif primary_setup == "NEG_GAMMA":
+        lines.append(
+            "**NEGATIVE GAMMA lesson:** When net GEX is strongly negative, market makers are short gamma. "
+            "They sell into falls and buy into rallies, which can amplify moves in either direction (convexity / cascade risk)."
+        )
+        lines.append("- **Trade:** No short premium. Avoid credit spreads and iron butterflies.")
+        lines.append("- **Opportunity:** Long directional spreads (long call or put spreads) in the direction of the break, but only on confirmed momentum.")
+        lines.append(f"- **Caution:** If key2 ({key2_strike or 'key2'}) is close below key ({key_strike}), a break of both can produce a rapid move.")
+
+    elif primary_setup == "GEX_SLIDE":
+        lines.append(
+            "**GEX SLIDE lesson:** When gamma is distributed across many strikes, there is no clean anchor. "
+            "Price action tends to be fast, disjointed, and whipsaw-prone as hedging occurs at each strike touched."
+        )
+        lines.append("- **Trade:** No directional short-premium trade. Wait for KCS > 12 and dominance > 10%.")
+        lines.append("- **Opportunity:** Far out-of-the-money directional scalps only if a clear intraday level emerges.")
+        lines.append("- **Caution:** Do not force a pin or pillar trade when the profile is distributed.")
+
+    elif primary_setup == "POS_GAMMA":
+        lines.append(
+            "**POSITIVE GAMMA lesson:** When net GEX is positive and sentiment is high, market makers are long gamma. "
+            "They buy dips and sell rallies, which tends to dampen moves and create mean reversion."
+        )
+        lines.append(f"- **Trade:** Short premium near {key_strike} if a clear pin/wall/pillar exists; otherwise stay selective.")
+        lines.append("- **Caution:** Positive gamma stabilises but does not eliminate directional moves on high-conviction news.")
+
+    else:
+        lines.append(
+            "**NO CLEAR SETUP lesson:** When no dominant GEX level exists, the market is not broadcasting a high-probability "
+            "gamma-driven trade. The highest-probability move is to do nothing."
+        )
+        lines.append("- **Trade:** No trade. Wait for a clear wall, pillar, pin, or negative gamma cascade setup.")
+        lines.append("- **Caution:** Avoid forcing trades out of boredom or fear of missing out.")
+
+    lines.append("")
+
+    # Discipline checklist
+    lines.append("### Discipline Checklist (from transcripts)")
+    lines.append("- [ ] Why am I making this trade? Is the gamma profile still valid at entry?")
+    lines.append("- [ ] Did I wait for price to stretch slightly beyond the key level before entering on reversion?")
+    lines.append("- [ ] Is this a defined-risk structure (spread / butterfly / condor)? No naked shorts.")
+    lines.append("- [ ] Have I checked tomorrow's GEX profile to confirm the same key strike?")
+    lines.append("- [ ] Is today a normal day, or is it end-of-month, FOMC, CPI, or triple witching?")
+    lines.append("- [ ] Am I in a state of peace / logic, or chasing/recovering from a previous loss?")
+    lines.append("- [ ] Did I set a profit target and invalidation level before entering?")
+    lines.append("")
+
+    # Trade signal integration
+    if trade_signal:
+        action = trade_signal.get("action") or trade_signal.get("setup_type")
+        structure = trade_signal.get("structure")
+        caution = trade_signal.get("caution")
+        if action and structure:
+            lines.append("### Live Trade Signal Integration")
+            lines.append(f"- **Action:** {action}")
+            lines.append(f"- **Structure:** {structure}")
+            if caution:
+                lines.append(f"- **Caution:** {caution}")
+            lines.append("- **Teaching note:** The live signal applies the same embedded rules plus feedback-loop filtering and RF outcome override. Use it as a confirmation, not a guarantee.")
+            lines.append("")
+
+    return lines
+
+
+def _build_daily_analysis_report(
+    summary: dict,
+    ohlc: dict,
+    history: dict,
+    ml: dict,
+    top_oi_rows: list,
+    percentile_context: dict,
+    trade_signal: dict,
+) -> str:
+    """Build a comprehensive markdown GEX report mirroring the GEX page plus teaching lessons."""
+
+    def fmt_billions(val):
+        if val is None:
+            return "N/A"
+        return f"{val / 1e9:.2f}B"
+
+    def fmt_millions(val):
+        if val is None:
+            return "N/A"
+        return f"{val / 1e6:.2f}M"
+
+    def rank_text(metric, rank):
+        if rank is None:
+            return "N/A"
+        if rank >= 80:
+            return f"{rank}% — high/extreme vs history"
+        elif rank <= 20:
+            return f"{rank}% — low/extreme vs history"
+        return f"{rank}% — middle of historical range"
+
+    def fmt_int(val):
+        if val is None:
+            return "N/A"
+        try:
+            return f"{int(val):,}"
+        except (TypeError, ValueError):
+            return str(val)
+
+    def pct_text(metric):
+        val = percentile_context.get(metric)
+        if val is None:
+            return "N/A"
+        return f"{val}% percentile ({percentile_context.get('sample_size', 0)} days at {percentile_context.get('ntime_used', 'this time')})"
+
+    # --- Classify setup using the same function as live trade signals ---
+    snap_for_setup = {
+        "ndate": int(summary["date"][:4] + summary["date"][5:7] + summary["date"][8:10]),
+        "ntime": int(summary["date"][11:13] + summary["date"][14:16]),
+        "uprice": summary.get("last", 0),
+        "net_gex": summary.get("net_gex", 0) or 0,
+        "key_strike": summary.get("key_strike", 0),
+        "key_call_gex": summary.get("key_call_gex", 0) or 0,
+        "key_put_gex": summary.get("key_put_gex", 0) or 0,
+        "key_call_oi": summary.get("key_call_oi", 0) or 0,
+        "key_put_oi": summary.get("key_put_oi", 0) or 0,
+        "key_dominance_pct": summary.get("key_dominance_pct", 0) or 0,
+        "sentiment_pct": summary.get("sentiment", 50),
+        "kcs": summary.get("kcs", 0) or 0,
+        "key2_abs": summary.get("key2_absolute", 0) or 0,
+        "flip": summary.get("flip"),
+        "is_premarket": 0,
+        "hmm_label": ml.get("hmm_label", ""),
+    }
+    primary_setup = _classify_gex_setup(snap_for_setup)
+
+    # Map internal setup names to report labels
+    setup_label_map = {
+        "PIN": "PIN / MAGNET",
+        "PUT_PILLAR": "PUT PILLAR",
+        "CALL_WALL": "CALL WALL",
+        "NEG_GAMMA": "NEGATIVE GAMMA ACCELERATION",
+        "POS_GAMMA": "POSITIVE GAMMA STABILISING",
+        "GEX_SLIDE": "GEX SLIDE",
+        "STAY_OUT": "NO CLEAR SETUP",
+    }
+    setup_types = [setup_label_map.get(primary_setup, primary_setup)]
+
+    # Pull out values used in the rest of the report
+    key_net = summary.get("key_net") or 0
+    key_call_gex = summary.get("key_call_gex") or 0
+    key_put_gex = summary.get("key_put_gex") or 0
+    key_abs = summary.get("key_absolute") or 0
+    key2_abs = summary.get("key2_absolute") or 0
+    net_gex = summary.get("net_gex") or 0
+    sentiment = summary.get("sentiment") or 50
+    key_dominance = summary.get("key_dominance_pct") or 0
+    key_net_oi = summary.get("key_net_oi") or 0
+    key_vol_net = summary.get("key_vol_net") or 0
+    key_strike_balance = summary.get("key_strike_balance") or 0
+
+    # Volume divergence
+    volume_divergence = None
+    if key_net_oi != 0 and key_vol_net != 0 and (key_net_oi > 0) != (key_vol_net > 0):
+        volume_divergence = "VOLUME DIVERGENCE: intraday flow opposite to structural OI at key strike"
+
+    # OI sandwich detection
+    oi_sandwich = None
+    if top_oi_rows and len(top_oi_rows) >= 2:
+        strikes_sorted = sorted(top_oi_rows, key=lambda r: r["strike"])
+        price = summary.get("last", 0)
+        below = [r for r in strikes_sorted if r["strike"] < price]
+        above = [r for r in strikes_sorted if r["strike"] > price]
+        if below and above:
+            put_floor = max(below, key=lambda r: r.get("put_oi", 0) + r.get("oi", 0))
+            call_ceil = min(above, key=lambda r: r.get("call_oi", 0) + r.get("oi", 0))
+            oi_sandwich = (
+                f"OI SANDWICH: price {price} between put-heavy {put_floor['strike']} "
+                f"and call-heavy {call_ceil['strike']}"
+            )
+
+    lines = []
+    lines.append(f"# Daily GEX Analysis — {summary['date']}")
+    lines.append("")
+    lines.append(f"**SPX Last:** {summary['last']}  ")
+    lines.append(f"**Key Strike:** {summary['key_strike']} | **Key2 Strike:** {summary.get('key2_strike', 'N/A')}  ")
+    lines.append(f"**Setup Classification:** {', '.join(setup_types)}")
+    lines.append("")
+
+    # Section A
+    lines.append("## A — Today's Values in Isolation")
+    lines.append("")
+    lines.append(f"- **SPX Last:** {summary['last']}")
+    lines.append(f"- **Snapshot Time:** {summary['date']}")
+    lines.append(f"- **Key Strike:** {summary['key_strike']} | **Key2 Strike:** {summary.get('key2_strike', 'N/A')}")
+    lines.append(f"- **Setup Classification:** {', '.join(setup_types)}")
+    lines.append(f"- **Distance to Key:** {summary.get('dist_to_key', 'N/A')} pts")
+    lines.append(f"- **Sentiment:** {summary['sentiment']}% of strikes positive gamma")
+    lines.append(f"- **Net GEX:** {fmt_billions(net_gex)} ({'stabilising' if net_gex > 0 else 'acceleration risk'})")
+    lines.append(f"- **Total Call GEX:** {fmt_billions(summary.get('total_call_gex', 0))}")
+    lines.append(f"- **Total Put GEX:** {fmt_billions(summary.get('total_put_gex', 0))}")
+    lines.append(f"- **GEX Ratio:** {summary.get('gex_ratio', 'N/A')}")
+    lines.append(f"- **KCS (Key Call Support):** {summary.get('kcs', 'N/A')}")
+    lines.append(f"- **Dominance:** {key_dominance}% of total absolute GEX sits at the key strike")
+    lines.append(f"- **Flip Level:** {summary.get('flip', 'N/A')}")
+    lines.append(f"- **Key Absolute GEX:** {fmt_billions(key_abs)}")
+    lines.append(f"- **Key Net GEX:** {fmt_billions(key_net)} | **Key Balance:** {key_strike_balance}%")
+    lines.append(f"- **Key Call / Put GEX:** {fmt_billions(key_call_gex)} / {fmt_billions(key_put_gex)}")
+    lines.append(f"- **Key OI:** Call {fmt_int(summary.get('key_call_oi'))} / Put {fmt_int(summary.get('key_put_oi'))} → Net OI {fmt_int(key_net_oi)}")
+    lines.append(f"- **Key Volume:** Call {fmt_int(summary.get('key_call_vol'))} / Put {fmt_int(summary.get('key_put_vol'))} → Net Vol {fmt_int(key_vol_net)}")
+    lines.append(f"- **Total Call OI:** {fmt_int(summary.get('total_call_oi'))}")
+    lines.append(f"- **Total Put OI:** {fmt_int(summary.get('total_put_oi'))}")
+    lines.append(f"- **Total Call Volume:** {fmt_int(summary.get('total_call_vol'))}")
+    lines.append(f"- **Total Put Volume:** {fmt_int(summary.get('total_put_vol'))}")
+    lines.append(f"- **Top OI Strike:** {summary.get('top_oi_strike', 'N/A')} (total {fmt_int(summary.get('top_oi_total'))})")
+    lines.append(f"- **Top Vol Strike:** {summary.get('top_vol_strike', 'N/A')} (total {fmt_int(summary.get('top_vol_total'))})")
+    lines.append(f"- **Weighted Mean Put Strike (GEX):** {summary.get('weighted_mean_put_strike_gex', 'N/A')}")
+    if volume_divergence:
+        lines.append(f"- **{volume_divergence}**")
+    lines.append("")
+
+    # Section B
+    lines.append("## B — Today vs History")
+    lines.append("")
+    lines.append(f"Historical rows available: {history.get('history_count', 0)}")
+    lines.append(f"- Sentiment: {rank_text('sentiment', history.get('sentiment_rank'))}")
+    lines.append(f"- Net GEX: {rank_text('net_gex', history.get('net_gex_rank'))}")
+    lines.append(f"- Key Absolute: {rank_text('key_absolute', history.get('key_absolute_rank'))}")
+    lines.append(f"- Key Dominance: {rank_text('dominance', history.get('dominance_rank'))}")
+    if history.get("prev_key_strike"):
+        lines.append(f"- Previous session ({history['prev_date']}) key strike: {history['prev_key_strike']}")
+    lines.append("")
+
+    # Section C
+    lines.append("## C — ML Enrichment")
+    lines.append("")
+    if ml.get("vol_regime"):
+        vr = ml["vol_regime"]
+        lines.append(f"- **Vol Regime:** {vr.get('label')} (confidence {vr.get('proba', 0):.2%})")
+    if ml.get("direction"):
+        dr = ml["direction"]
+        lines.append(f"- **Direction:** {dr.get('label')} (confidence {dr.get('proba', 0):.2%})")
+    if ml.get("rf_outcome"):
+        rf = ml["rf_outcome"]
+        lines.append(f"- **RF Outcome:** {rf.get('prediction')} (probability {rf.get('probability', 0):.2%})")
+    if ml.get("hmm_label"):
+        lines.append(f"- **HMM Regime:** {ml['hmm_label']}")
+    fb = ml.get("feedback") or {}
+    if fb:
+        lines.append("- **Feedback Loop Features:**")
+        for k, v in list(fb.items())[:6]:
+            lines.append(f"  - {k}: {v}")
+    lines.append("")
+
+    # Section D
+    lines.append("## D — Trade Logic & Invalidation")
+    lines.append("")
+    if primary_setup == "PUT_PILLAR":
+        lines.append(
+            f"**Put Pillar:** Short put spread at/just below {summary['key_strike']}. "
+            f"Invalidates if price breaks {summary['key_strike']} with momentum and holds below."
+        )
+    elif primary_setup == "CALL_WALL":
+        lines.append(
+            f"**Call Wall:** Short call spread at/just above {summary['key_strike']}. "
+            f"Invalidates if price breaks {summary['key_strike']} on strong volume and holds above."
+        )
+    elif primary_setup == "PIN":
+        lines.append(
+            f"**Pin/Magnet:** Short iron butterfly at {summary['key_strike']}. "
+            f"Requires price within ~5 pts of key; invalidates on a clean break of {summary.get('key2_strike', 'key2')}."
+        )
+    elif primary_setup == "NEG_GAMMA":
+        lines.append("**No short premium:** Negative gamma environment — avoid selling premium.")
+    elif primary_setup == "GEX_SLIDE":
+        lines.append("**No trade:** Gamma is distributed; wait for KCS > 12 and dominance > 10%.")
+    elif primary_setup == "POS_GAMMA":
+        lines.append("**Mean-reversion bias:** Positive gamma stabilises price around key strikes.")
+    else:
+        lines.append("**No trade:** No clear gamma-driven edge at this snapshot.")
+    lines.append("")
+
+    # Section E
+    lines.append("## E — Caution Notes")
+    lines.append("")
+    lines.append("- Check tomorrow's GEX profile before pinning / iron butterfly theses.")
+    lines.append("- Verify economic calendar for FOMC, CPI, or other binary events.")
+    lines.append("- On monthly expiration / triple witching / end-of-quarter days, GEX signals are less reliable.")
+    if ml.get("rf_outcome", {}).get("prediction") == "LOSS":
+        lines.append("- **RF outcome model predicts LOSS — extra caution on any short-premium trade.**")
+    lines.append("")
+
+    # Section F — Full OI / Volume Structure (mirrors GEX page strike table)
+    lines.append("## F — OI & Volume Structure (Top Strikes)")
+    lines.append("")
+    if top_oi_rows:
+        lines.append("| Strike | Char | Call OI | Put OI | Total OI | Call Vol | Put Vol | Abs GEX | Notes |")
+        lines.append("|--------|------|---------|--------|----------|----------|---------|---------|-------|")
+        price = summary.get("last", 0)
+        for r in top_oi_rows[:10]:
+            char = _get_oi_character(r, price)
+            note = ""
+            if r["strike"] == summary.get("key_strike"):
+                note = "KEY"
+            elif r["strike"] == summary.get("key2_strike"):
+                note = "KEY2"
+            lines.append(
+                f"| {r['strike']} | {char} | {r.get('call_oi', 0):,} | {r.get('put_oi', 0):,} | {r.get('oi', 0):,} "
+                f"| {r.get('call_vol', 0):,} | {r.get('put_vol', 0):,} | {fmt_billions(r.get('abs_gex', 0))} | {note} |"
+            )
+        if oi_sandwich:
+            lines.append("")
+            lines.append(f"- **{oi_sandwich}**")
+    else:
+        lines.append("- No strike-level data available.")
+    lines.append("")
+
+    # Section G — Percentile Context (same mini-bars as GEX page)
+    lines.append("## G — Percentile Context (vs History)")
+    lines.append("")
+    if percentile_context:
+        lines.append(f"- **Sample:** {percentile_context.get('sample_size', 0)} historical days at time {percentile_context.get('ntime_used', 'N/A')}")
+        lines.append(f"- **Net GEX:** {pct_text('net_gex')}")
+        lines.append(f"- **Call GEX:** {pct_text('total_call_gex')}")
+        lines.append(f"- **Put GEX:** {pct_text('total_put_gex')}")
+        lines.append(f"- **Call OI:** {pct_text('total_call_oi')}")
+        lines.append(f"- **Put OI:** {pct_text('total_put_oi')}")
+        lines.append(f"- **Call Volume:** {pct_text('total_call_vol')}")
+        lines.append(f"- **Put Volume:** {pct_text('total_put_vol')}")
+        lines.append(f"- **KCS:** {pct_text('kcs')}")
+        lines.append(f"- **Dominance:** {pct_text('dominance')}")
+    else:
+        lines.append("- Percentile context not available.")
+    lines.append("")
+
+    # Section H — Live Trade Signal (same as GEX page)
+    lines.append("## H — Live Trade Signal")
+    lines.append("")
+    if trade_signal:
+        lines.append(f"- **Setup Type:** {trade_signal.get('setup_type', 'N/A')}")
+        lines.append(f"- **Action:** {trade_signal.get('action', 'N/A')}")
+        lines.append(f"- **Structure:** {trade_signal.get('structure', 'N/A')}")
+        if trade_signal.get("short_strike"):
+            lines.append(f"- **Short Strike:** {trade_signal['short_strike']}")
+        if trade_signal.get("wing_strike"):
+            lines.append(f"- **Wing Strike:** {trade_signal['wing_strike']}")
+        if trade_signal.get("short_strike2"):
+            lines.append(f"- **Short Strike 2:** {trade_signal['short_strike2']}")
+        if trade_signal.get("wing_strike2"):
+            lines.append(f"- **Wing Strike 2:** {trade_signal['wing_strike2']}")
+        if trade_signal.get("rationale"):
+            lines.append(f"- **Rationale:** {trade_signal['rationale']}")
+        if trade_signal.get("invalidation"):
+            lines.append(f"- **Invalidation:** {trade_signal['invalidation']}")
+        if trade_signal.get("caution"):
+            lines.append(f"- **Caution:** {trade_signal['caution']}")
+        if trade_signal.get("prev_outcome"):
+            lines.append(f"- **Previous Outcome:** {trade_signal['prev_outcome']}")
+    else:
+        lines.append("- Trade signal not available for this snapshot.")
+    lines.append("")
+
+    # Section I — Lessons from Gex teaching files
+    lines.extend(_build_lessons_section(primary_setup, summary, trade_signal))
+
+    # Section J — OHLC
+    lines.append("## J — OHLC")
+    lines.append("")
+    if ohlc:
+        lines.append(f"- Open: {ohlc.get('open')} | High: {ohlc.get('high')} | Low: {ohlc.get('low')} | Close: {ohlc.get('close')}")
+    else:
+        lines.append("- OHLC not available from Yahoo Finance for this date.")
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+@app.route("/api/daily-analysis/report")
+def api_daily_analysis_report():
+    """Return the concise daily analysis report for a selected date.
+
+    Query params:
+        date: YYYY-MM-DD (required)
+
+    Behavior:
+        1. If an existing analysis-concise-YYYYMMDD-*.md file exists, return it.
+        2. Otherwise, if gex_strike_window has a snapshot for the date, generate
+           the report from the latest snapshot, save it, and return it.
+        3. If no snapshot exists, return a no-data message.
+    """
+    date_iso = request.args.get("date")
+    if not date_iso:
+        return jsonify({"status": "error", "message": "date parameter required"}), 400
+
+    try:
+        dt = datetime.strptime(date_iso, "%Y-%m-%d")
+        ndate = int(dt.strftime("%Y%m%d"))
+    except ValueError:
+        return jsonify({"status": "error", "message": "date must be YYYY-MM-DD"}), 400
+
+    # 1. Check for existing report
+    existing = _find_existing_analysis_report(ndate)
+    if existing:
+        return jsonify({
+            "status": "ok",
+            "source": "cached",
+            "path": str(existing),
+            "content": existing.read_text(encoding="utf-8"),
+        })
+
+    # 2. Find latest snapshot for this date in gex_strike_window
+    with _db() as con:
+        row = con.execute(
+            "SELECT ndate, ntime, price, data FROM gex_strike_window "
+            "WHERE ndate=? AND symbol='SPX' AND source='gex' "
+            "ORDER BY ntime DESC LIMIT 1",
+            (ndate,),
+        ).fetchone()
+
+    if not row:
+        return jsonify({
+            "status": "no_data",
+            "message": f"No live snapshot available for {date_iso}. "
+                       f"Run optionalpha_daily.py to capture data first."
+        }), 404
+
+    ndate, ntime, uprice, data_json = row
+    try:
+        strikes = json.loads(data_json) if data_json else []
+    except Exception as e:
+        return jsonify({"status": "error", "message": f"Failed to parse strike data: {e}"}), 500
+
+    if not strikes or uprice is None:
+        return jsonify({"status": "error", "message": "Snapshot has no strike data"}), 500
+
+    # 3. Build summary, context, ML enrichment, OHLC
+    summary = _compute_concise_summary_from_strikes(strikes, uprice, ndate, ntime)
+    if not summary:
+        return jsonify({"status": "error", "message": "Failed to compute GEX summary"}), 500
+
+    history = _get_historical_context(summary)
+    ohlc = _fetch_yahoo_ohlc_for_date(date_iso)
+
+    # Top OI rows for OI sandwich / structure analysis
+    def v(r, k):
+        return r.get(k, 0) or 0
+
+    top_oi_rows = sorted(strikes, key=lambda r: v(r, "coi") + v(r, "poi"), reverse=True)[:10]
+    top_oi_rows = [
+        {
+            "strike": v(r, "strike"),
+            "call_oi": v(r, "coi"),
+            "put_oi": v(r, "poi"),
+            "oi": v(r, "coi") + v(r, "poi"),
+            "call_vol": v(r, "cvol"),
+            "put_vol": v(r, "pvol"),
+            "abs_gex": v(r, "abs"),
+        }
+        for r in top_oi_rows
+    ]
+
+    ml = _get_ml_enrichment(strikes, uprice, ndate, ntime, summary)
+
+    # 4. Percentile context (same as GEX page percentile mini-bars)
+    percentile_stats = {
+        "net_gex": summary.get("net_gex"),
+        "total_call_gex": summary.get("total_call_gex"),
+        "total_put_gex": abs(summary.get("total_put_gex", 0)),
+        "total_call_oi": summary.get("total_call_oi"),
+        "total_put_oi": summary.get("total_put_oi"),
+        "total_call_vol": summary.get("total_call_vol"),
+        "total_put_vol": summary.get("total_put_vol"),
+        "kcs": summary.get("kcs"),
+        "dominance": summary.get("key_dominance_pct"),
+    }
+    percentile_context = _get_percentile_context_for_snapshot(ndate, ntime, percentile_stats)
+
+    # 5. Trade signal (same pipeline as GEX page)
+    trade_signal = _get_trade_signal_for_snapshot(ndate, ntime, summary, ml)
+
+    # 6. Build and save report
+    content = _build_daily_analysis_report(
+        summary, ohlc, history, ml, top_oi_rows, percentile_context, trade_signal
+    )
+    saved_path = _save_analysis_report(ndate, ntime, content)
+
+    return jsonify({
+        "status": "ok",
+        "source": "generated",
+        "path": str(saved_path),
+        "content": content,
+    })
+
+
+# =============================================================================
 
 
 def _ensure_spx_open_prices_table() -> None:
@@ -5245,17 +6291,8 @@ def _compute_flat_summary(data: dict) -> dict:
     key_stats = _compute_key_strike_stats(window_rows, uprice)
 
     # Flip level: cumulative net crosses zero within the 40-strike window
-    by_strike = sorted(window_rows, key=lambda r: r["strike"])
-    cumulative = 0.0
-    flip = None
-    prev_strike, prev_cum = None, 0.0
-    for r in by_strike:
-        cumulative += r.get("net", 0) or 0
-        if prev_strike is not None and prev_cum * cumulative < 0:
-            denom = abs(cumulative) + abs(prev_cum)
-            flip = round(prev_strike + (r["strike"] - prev_strike) * abs(prev_cum) / denom, 1) if denom else r["strike"]
-            break
-        prev_strike, prev_cum = r["strike"], cumulative
+    from controllers.gex_calculations import calculate_flip_level
+    flip = calculate_flip_level(window_rows)
 
     return {
         "uprice": uprice,
@@ -6543,6 +7580,11 @@ def gex_distribution():
     from time import time
     return render_template("gex_distribution.html", cache_bust=int(time()))
 
+@app.route("/daily-analysis")
+def daily_analysis():
+    from time import time
+    return render_template("daily_analysis.html", cache_bust=int(time()))
+
 @app.route("/old")
 def index_old():
     from time import time
@@ -7633,12 +8675,14 @@ def api_gex_fetch_live():
             return jsonify({"error": "Could not extract 40-strike window"}), 500
         
         # Store in gex_strike_window with source='gex'
+        from controllers.gex_calculations import calculate_flip_level
+        flip = calculate_flip_level(window_strikes)
         with _db() as con:
             con.execute(
                 "INSERT OR REPLACE INTO gex_strike_window "
-                "(ndate, ntime, symbol, source, price, data) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (ndate, ntime, 'SPX', 'gex', uprice, json.dumps(window_strikes))
+                "(ndate, ntime, symbol, source, price, data, flip) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (ndate, ntime, 'SPX', 'gex', uprice, json.dumps(window_strikes), flip)
             )
         
         # Calculate HMM label for RTH captures (ntime >= 935)
@@ -7714,8 +8758,70 @@ def api_gex_fetch_live():
 
 @app.route("/api/snapshots/summary")
 def api_snapshots_summary():
-    """Route now delegates to SnapshotController (Phase 5 migration)."""
-    return SnapshotController.get_snapshots_summary()
+    """Return compact summary rows for every time-slot on a date from gex_strike_window."""
+    from controllers.gex_calculations import (
+        calculate_sentiment, calculate_gex_ratio, calculate_net_gex,
+        calculate_kcs, calculate_dominance, calculate_key_strike_stats,
+        calculate_total_oi_and_vol, calculate_total_gex, calculate_flip_level,
+    )
+    date_iso = request.args.get("date")
+    if not date_iso:
+        return jsonify({"date": date_iso, "rows": []})
+    try:
+        ndate = int(date_iso.replace("-", ""))
+        with _db() as con:
+            db_rows = con.execute(
+                "SELECT ntime, price, data, hmm_label FROM gex_strike_window "
+                "WHERE ndate=? AND symbol='SPX' AND source='gex' ORDER BY ntime",
+                (ndate,),
+            ).fetchall()
+        rows = []
+        for ntime, price, data_json, hmm_label in db_rows:
+            strikes = json.loads(data_json) if data_json else []
+            if not strikes:
+                continue
+            sentiment  = calculate_sentiment(strikes)
+            gex_ratio  = calculate_gex_ratio(strikes)
+            net_gex    = calculate_net_gex(strikes)
+            kcs        = calculate_kcs(strikes, price)
+            dominance  = calculate_dominance(strikes, price)
+            key_stats  = calculate_key_strike_stats(strikes, price)
+            oi_vol     = calculate_total_oi_and_vol(strikes)
+            gex_totals = calculate_total_gex(strikes)
+            flip       = calculate_flip_level(strikes)
+            is_premarket = ntime < 935 or ntime > 1555
+            rows.append({
+                "ntime":        ntime,
+                "spx_last":     price,
+                "sentiment":    sentiment,
+                "gex_ratio":    gex_ratio,
+                "net_gex":      net_gex,
+                "kcs":          kcs,
+                "dominance":    dominance,
+                "total_call_gex": gex_totals["total_call_gex"],
+                "total_put_gex":  gex_totals["total_put_gex"],
+                "total_call_oi":  oi_vol["total_call_oi"],
+                "total_put_oi":   oi_vol["total_put_oi"],
+                "total_call_vol": oi_vol["total_call_vol"],
+                "total_put_vol":  oi_vol["total_put_vol"],
+                "key_strike":     key_stats["key_strike"],
+                "key_call_gex":   key_stats["key_call_gex"],
+                "key_put_gex":    key_stats["key_put_gex"],
+                "key_call_oi":    key_stats["key_call_oi"],
+                "key_put_oi":     key_stats["key_put_oi"],
+                "key_call_vol":   key_stats["key_call_vol"],
+                "key_put_vol":    key_stats["key_put_vol"],
+                "key2_strike":    key_stats["key2_strike"],
+                "key2_abs":       key_stats["key2_abs"],
+                "key2_call_vol":  key_stats["key2_call_vol"],
+                "key2_put_vol":   key_stats["key2_put_vol"],
+                "flip":           flip,
+                "hmm_label":      hmm_label,
+                "is_premarket":   is_premarket,
+            })
+        return jsonify({"date": date_iso, "rows": rows})
+    except Exception as e:
+        return jsonify({"error": str(e), "date": date_iso, "rows": []}), 500
 
 
 @app.route("/api/analysis")
@@ -8826,12 +9932,14 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
         window_strikes = extract_strike_window(rows, uprice)
         if not window_strikes:
             raise ValueError(f"could not extract 40-strike window for {ntime}")
+        from controllers.gex_calculations import calculate_flip_level
+        flip = calculate_flip_level(window_strikes)
         with _db() as con:
             con.execute(
                 "INSERT OR REPLACE INTO gex_strike_window "
-                "(ndate, ntime, symbol, source, price, data) "
-                "VALUES (?, ?, ?, ?, ?, ?)",
-                (ndate, ntime, symbol, 'gex', uprice, json.dumps(window_strikes))
+                "(ndate, ntime, symbol, source, price, data, flip) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (ndate, ntime, symbol, 'gex', uprice, json.dumps(window_strikes), flip)
             )
         
         # Calculate HMM label for RTH snapshots (ntime >= 935)

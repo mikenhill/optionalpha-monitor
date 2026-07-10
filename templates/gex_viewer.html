@@ -540,7 +540,7 @@ function renderSnapshotTable(rows, tbodyId, statusId, onSelect) {
       })() +
       snapTdB(r.total_put_gex) +
       snapTdK(r.total_call_vol) + snapTdK(r.total_put_vol) +
-      snapTdB(r.flip) +
+      snapTd(r.flip != null ? r.flip.toFixed(1) : '--') +
       snapTd('<b>' + (r.key_strike != null ? r.key_strike : '--') + '</b>', 'col-k1') +
       snapTdB(r.key_call_gex, 'col-k1') + snapTdB(r.key_put_gex, 'col-k1') +
       snapTdK(r.key_call_oi, 'col-k1') + snapTdK(r.key_put_oi, 'col-k1') +

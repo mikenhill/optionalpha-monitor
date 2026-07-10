@@ -1471,12 +1471,14 @@ class SnapshotController(BaseController):
                 )
 
             # Insert into gex_strike_window
+            from controllers.gex_calculations import calculate_flip_level
+            flip = calculate_flip_level(window_rows)
             with get_connection() as con:
                 con.execute(
                     """INSERT OR REPLACE INTO gex_strike_window
-                       (ndate, ntime, symbol, source, price, data)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
-                    (ndate, ntime, symbol, source, uprice, json.dumps(window_rows))
+                       (ndate, ntime, symbol, source, price, data, flip)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (ndate, ntime, symbol, source, uprice, json.dumps(window_rows), flip)
                 )
                 con.commit()
 

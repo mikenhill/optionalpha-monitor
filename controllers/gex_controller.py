@@ -15,7 +15,8 @@ from controllers.gex_calculations import (
     calculate_dominance,
     calculate_key_strike_stats,
     calculate_total_oi_and_vol,
-    calculate_total_gex
+    calculate_total_gex,
+    calculate_flip_level
 )
 from dao.database import get_connection
 
@@ -99,6 +100,7 @@ class GexController(BaseController):
                 key_stats = calculate_key_strike_stats(strikes, price)
                 total_oi_vol = calculate_total_oi_and_vol(strikes)
                 total_gex_vals = calculate_total_gex(strikes)
+                flip = calculate_flip_level(strikes)
                 
                 # Pre-market: times outside 09:35-15:55 range
                 is_premarket = ntime < 935 or ntime > 1555
@@ -133,7 +135,8 @@ class GexController(BaseController):
                     "total_put_gex": total_gex_vals["total_put_gex"],
                     "strike_count": len(strikes),
                     "is_premarket": is_premarket,
-                    "hmm_label": hmm_label
+                    "hmm_label": hmm_label,
+                    "flip": flip
                 })
             
             return BaseController.json_response({

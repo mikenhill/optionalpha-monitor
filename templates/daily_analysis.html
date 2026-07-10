@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Daily Analysis</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
+    .nav { background: #212529; padding: 10px 20px; margin: -20px -20px 20px -20px; display: flex; gap: 5px; }
+    .nav a { padding: 6px 14px; text-decoration: none; color: #adb5bd; border-radius: 4px; font-size: 14px; }
+    .nav a:hover { background: #343a40; color: #fff; }
+    .nav a.active { background: #0d6efd; color: #fff; }
+    .card { background: #fff; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
+    h1 { font-size: 20px; margin: 0 0 15px 0; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+    .toolbar label { font-size: 13px; font-weight: bold; }
+    .toolbar input { padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; }
+    .toolbar button { padding: 6px 14px; background: #0d6efd; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; }
+    .toolbar button:hover { background: #0b5ed7; }
+    .toolbar button:disabled { background: #6c757d; cursor: not-allowed; }
+    .loading { color: #6c757d; font-style: italic; }
+    .error { color: #dc3545; }
+    .info { color: #0d6efd; font-size: 12px; }
+    .report { line-height: 1.6; }
+    .report h1 { font-size: 22px; margin-bottom: 10px; }
+    .report h2 { font-size: 16px; margin-top: 20px; margin-bottom: 8px; border-bottom: 1px solid #dee2e6; padding-bottom: 4px; }
+    .report ul { padding-left: 20px; }
+    .report li { margin-bottom: 4px; }
+    .report strong { color: #212529; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/gex">GEX</a>
+    <a href="/gex-admin">GEX Admin</a>
+    <a href="/gex-distribution">GEX Distribution</a>
+    <a class="active" href="/daily-analysis">Daily Analysis</a>
+    <a href="/analysis">Analysis</a>
+    <a href="/spx">SPX Prices</a>
+    <a href="/csv">CSV</a>
+  </div>
+
+  <h1>Daily GEX Analysis</h1>
+
+  <div class="card">
+    <div class="toolbar">
+      <label for="date-input">Date:</label>
+      <input type="date" id="date-input" />
+      <button id="load-btn" onclick="loadReport()">Load Analysis</button>
+    </div>
+    <p id="status" class="loading">Select a date and click Load Analysis.</p>
+    <p id="source-info" class="info" style="display:none;"></p>
+  </div>
+
+  <div class="card">
+    <div id="report" class="report"></div>
+  </div>
+
+  <script>
+    // Set default date to today
+    document.getElementById('date-input').valueAsDate = new Date();
+
+    function markdownToHtml(md) {
+      // Very small inline markdown converter for the report
+      return md
+        .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+        .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+        .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+        .replace(/^\- (.*$)/gim, '<li>$1</li>')
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\n/g, '<br>');
+    }
+
+    async function loadReport() {
+      const dateInput = document.getElementById('date-input');
+      const date = dateInput.value;
+      if (!date) return;
+
+      const statusEl = document.getElementById('status');
+      const reportEl = document.getElementById('report');
+      const sourceEl = document.getElementById('source-info');
+      const loadBtn = document.getElementById('load-btn');
+
+      statusEl.textContent = 'Loading...';
+      statusEl.className = 'loading';
+      reportEl.innerHTML = '';
+      sourceEl.style.display = 'none';
+      loadBtn.disabled = true;
+
+      try {
+        const r = await fetch(`/api/daily-analysis/report?date=${date}`);
+        const data = await r.json();
+
+        if (data.status === 'no_data') {
+          statusEl.textContent = data.message;
+          statusEl.className = 'error';
+          return;
+        }
+
+        if (data.status === 'error') {
+          statusEl.textContent = 'Error: ' + data.message;
+          statusEl.className = 'error';
+          return;
+        }
+
+        statusEl.textContent = 'Report loaded.';
+        statusEl.className = '';
+
+        if (data.source) {
+          sourceEl.textContent = `Source: ${data.source}${data.path ? ' — ' + data.path : ''}`;
+          sourceEl.style.display = '';
+        }
+
+        if (data.content) {
+          // Convert markdown list items into proper lists
+          let html = data.content
+            .replace(/^### (.*$)/gim, '<h3>$1</h3>')
+            .replace(/^## (.*$)/gim, '<h2>$1</h2>')
+            .replace(/^# (.*$)/gim, '<h1>$1</h1>')
+            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+          // Wrap consecutive <li> lines in <ul>
+          html = html.replace(/(<li>.*?<\/li>\n?)+/g, match => `<ul>${match.replace(/\n/g, '')}</ul>`);
+          html = html.replace(/\n/g, '<br>');
+          reportEl.innerHTML = html;
+        }
+      } catch (e) {
+        statusEl.textContent = 'Error: ' + e.message;
+        statusEl.className = 'error';
+      } finally {
+        loadBtn.disabled = false;
+      }
+    }
+
+    // Load on Enter key in date input
+    document.getElementById('date-input').addEventListener('keypress', function(e) {
+      if (e.key === 'Enter') loadReport();
+    });
+  </script>
+</body>
+</html>
