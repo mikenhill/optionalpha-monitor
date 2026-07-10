@@ -81,8 +81,9 @@ def test_historical_sync():
     try:
         from gex_historical_intraday import fetch_histgex
         
-        # Test a date that previously failed (2026-06-28) and a recent date
+        # Test the date from user's API example (2026-02-18) and other dates
         test_cases = [
+            (20260218, 955, "2026-02-18 (user's example)"),
             (20260628, 935, "2026-06-28 (previously failed)"),
             (20260630, 935, "2026-06-30 (recent)"),
         ]
