@@ -22,7 +22,7 @@ from pathlib import Path
 import joblib
 import numpy as np
 import pandas as pd
-from flask import Flask, jsonify, render_template, request, redirect
+from flask import Flask, jsonify, render_template, request, redirect, make_response
 
 app = Flask(__name__)
 
@@ -7634,392 +7634,809 @@ def gex_admin():
     from time import time
     return render_template("gex_admin.html", cache_bust=int(time()))
 
-def _ensure_pin_profile_table() -> None:
-    """Create pin_profile table if it does not exist."""
+def _ensure_magnet_days_table() -> None:
+    """Create magnet_days table if it does not exist."""
     with _db() as con:
         con.execute("""
-            CREATE TABLE IF NOT EXISTS pin_profile (
-                ndate            INTEGER PRIMARY KEY,
-                score            REAL,
-                score_hist       REAL,
-                score_live       REAL,
-                rank_hist        INTEGER,
-                rank_live        INTEGER,
-                key_strike       INTEGER,
-                key_strike_pct   REAL,
-                net_gex          REAL,
-                gex_ratio        REAL,
-                dominance_ratio  REAL,
-                crosses          INTEGER,
-                cross_source     TEXT,
-                vol_mag_score    INTEGER,
-                vol_bal_score    INTEGER,
-                snap_count       INTEGER,
-                updated_at       TEXT
+            CREATE TABLE IF NOT EXISTS magnet_days (
+                ndate              INTEGER PRIMARY KEY,
+                modal_ks           INTEGER,
+                modal_ks_pct       REAL,
+                median_ratio       REAL,
+                ratio_dev          REAL,
+                ratio_rank         INTEGER,
+                median_dominance   REAL,
+                snap_count         INTEGER,
+                avg_net_gex        REAL,
+                updated_at         TEXT
             )
         """)
+        # Migrations for older schemas
+        for col_def in [
+            "ALTER TABLE magnet_days ADD COLUMN median_dominance REAL",
+            "ALTER TABLE magnet_days ADD COLUMN ks_sequence TEXT",
+            "ALTER TABLE magnet_days ADD COLUMN anchor_ks INTEGER",
+            "ALTER TABLE magnet_days ADD COLUMN anchor_ntime INTEGER",
+            "ALTER TABLE magnet_days ADD COLUMN anchor_dominance REAL",
+            "ALTER TABLE magnet_days ADD COLUMN anchor_balance REAL",
+            "ALTER TABLE magnet_days ADD COLUMN median_balance REAL",
+            "ALTER TABLE magnet_days ADD COLUMN avg_total_abs REAL",
+            "ALTER TABLE magnet_days ADD COLUMN magnet_score REAL",
+            "ALTER TABLE magnet_days ADD COLUMN qualified INTEGER DEFAULT 0",
+            "ALTER TABLE magnet_days ADD COLUMN snap_1200_ks INTEGER",
+            "ALTER TABLE magnet_days ADD COLUMN snap_1200_dominance REAL",
+            "ALTER TABLE magnet_days ADD COLUMN snap_1200_balance REAL",
+            "ALTER TABLE magnet_days ADD COLUMN snap_1200_call_gex REAL",
+            "ALTER TABLE magnet_days ADD COLUMN snap_1200_put_gex REAL",
+            "ALTER TABLE magnet_days ADD COLUMN qualified_1200 INTEGER DEFAULT 0",
+        ]:
+            try:
+                con.execute(col_def)
+            except Exception:
+                pass
 
 
-def _compute_pin_score_for_date(ndate: int, is_live: bool = False) -> dict | None:
-    """Compute pin/magnet profile score for a single date.
+def _compute_magnet_days() -> dict:
+    """Recompute magnet_days table for all historical dates.
 
-    Scoring (max 12 pts):
-      2 pts — net_gex magnitude (percentile vs all days)
-      2 pts — GEX ratio balance at key strike (call/put close to 1.0)
-      2 pts — key strike dominance (top vs 2nd abs GEX)
-      2 pts — key strike stability (same strike across snaps)
-      2 pts — SPX crosses (5min if available, GEX price proxy otherwise)
-      2 pts — volume at key strike (magnitude 1pt + balance 1pt)
+    Qualification rules (both must pass):
+      1. Find the first snapshot in 09:35-12:00 where the dominant strike's
+         own call/put balance >= 67% (i.e. neither side > 1.5x the other).
+         That snapshot's strike becomes the 'anchor_ks'.
+      2. That exact anchor_ks must remain the #1 dominant strike
+         (highest proximity-weighted abs GEX) at every subsequent snapshot
+         through 15:55.
 
-    Returns score dict or None if insufficient data.
+    Ranking (qualified days only, higher = better):
+      magnet_score = anchor_dominance * W_DOM
+                   + anchor_balance   * W_BAL
+                   + avg_total_abs_pctile * W_GEX
+      Default weights: 1/1/1 (equal). Frontend offers radio buttons.
     """
     import json as _j
-    from datetime import datetime as _dt
-
-    with _db() as con:
-        snaps = con.execute(
-            "SELECT ntime, price, data FROM gex_strike_window "
-            "WHERE ndate=? AND ntime >= 930 ORDER BY ntime",
-            (ndate,)
-        ).fetchall()
-
-    if len(snaps) < 2:
-        return None
-
-    # --- Derive per-snapshot key strikes ---
-    key_strikes = []
-    for ntime, price, data in snaps:
-        try:
-            strikes = _j.loads(data)
-            top = max(strikes, key=lambda s: abs(s.get("net", 0) or 0))
-            key_strikes.append(top["strike"])
-        except Exception:
-            key_strikes.append(None)
-
-    valid_ks = [k for k in key_strikes if k is not None]
-    if not valid_ks:
-        return None
-
-    # Modal key strike (most common across the day)
+    import math as _math
+    import statistics as _stat
     from collections import Counter
-    modal_ks = Counter(valid_ks).most_common(1)[0][0]
-    ks_pct = valid_ks.count(modal_ks) / len(valid_ks) * 100.0
-
-    # --- Use mid-day reference snapshot for GEX metrics ---
-    mid_idx = len(snaps) // 2
-    _, ref_price, ref_data = snaps[mid_idx]
-    ref_strikes = _j.loads(ref_data)
-
-    total_call = sum(s.get("cg", 0) or 0 for s in ref_strikes)
-    total_put  = sum(s.get("pg", 0) or 0 for s in ref_strikes)
-    net_gex    = sum(s.get("net", 0) or 0 for s in ref_strikes)
-
-    # GEX ratio (call / abs(put))
-    gex_ratio = (total_call / abs(total_put)) if total_put != 0 else None
-
-    # Key strike row in ref snapshot
-    sorted_by_abs = sorted(ref_strikes, key=lambda s: abs(s.get("net", 0) or 0), reverse=True)
-    top_s  = sorted_by_abs[0]
-    sec_s  = sorted_by_abs[1] if len(sorted_by_abs) > 1 else None
-    dominance_ratio = (
-        abs(top_s.get("net", 0)) / abs(sec_s.get("net", 1))
-        if sec_s and abs(sec_s.get("net", 1)) > 0 else 0
-    )
-
-    # Volume at modal key strike from ref snapshot
-    ks_row = next((s for s in ref_strikes if s["strike"] == modal_ks), None)
-    if ks_row is None:
-        ks_row = top_s
-    vol_total = (ks_row.get("cvol", 0) or 0) + (ks_row.get("pvol", 0) or 0)
-    cvol = ks_row.get("cvol", 0) or 0
-    pvol = ks_row.get("pvol", 0) or 0
-    vol_bal = (cvol / pvol) if pvol > 0 else None
-
-    # --- SPX crosses ---
-    with _db() as con:
-        spx_bars = con.execute(
-            "SELECT ntime, high, low FROM spx_ohlc_5min WHERE ndate=? AND ntime >= 930 ORDER BY ntime",
-            (ndate,)
-        ).fetchall()
-
-    cross_source = "spx_5min"
-    if spx_bars:
-        # Count crosses using 5min high/low vs modal_ks
-        crosses = 0
-        prev_side = None
-        for _, high, low in spx_bars:
-            if high >= modal_ks and low <= modal_ks:
-                # bar straddles strike — count as cross
-                if prev_side is not None:
-                    crosses += 1
-                prev_side = None
-            elif high < modal_ks:
-                side = "below"
-                if prev_side == "above":
-                    crosses += 1
-                prev_side = side
-            elif low > modal_ks:
-                side = "above"
-                if prev_side == "below":
-                    crosses += 1
-                prev_side = side
-    else:
-        # Proxy: count sign changes in (price - modal_ks) across GEX snapshots
-        cross_source = "spx_gex_proxy"
-        crosses = 0
-        prev_side = None
-        for ntime, price, _ in snaps:
-            if price is None:
-                continue
-            side = "above" if price >= modal_ks else "below"
-            if prev_side is not None and side != prev_side:
-                crosses += 1
-            prev_side = side
-
-    # --- Scoring ---
-    # 1. Net GEX percentile — need population; fetch all net_gex values for context
-    with _db() as con:
-        ng_vals = con.execute(
-            "SELECT SUM(CAST(json_extract(value, '$.net') AS REAL)) "
-            "FROM json_each((SELECT data FROM gex_strike_window WHERE ndate=? AND ntime>=930 LIMIT 1))",
-            (ndate,)
-        ).fetchone()
-        # Simpler: get net_gex dist from all mid-day snaps
-        all_ng = con.execute(
-            "SELECT net_gex FROM pin_profile WHERE net_gex IS NOT NULL"
-        ).fetchall()
-
-    all_ng_vals = [r[0] for r in all_ng] + [net_gex]
-    all_ng_sorted = sorted(all_ng_vals)
-    ng_pct = sum(1 for v in all_ng_sorted if v <= net_gex) / len(all_ng_sorted) * 100.0
-
-    net_gex_score = 2 if ng_pct >= 80 else (1 if ng_pct >= 60 else 0)
-
-    # 2. GEX ratio balance
-    ratio_dev = abs(gex_ratio - 1.0) if gex_ratio is not None else 999
-    ratio_score = 2 if ratio_dev < 0.15 else (1 if ratio_dev < 0.30 else 0)
-
-    # 3. Dominance
-    dom_score = 2 if dominance_ratio >= 3.0 else (1 if dominance_ratio >= 2.0 else 0)
-
-    # 4. Key strike stability
-    stab_score = 2 if ks_pct >= 80 else (1 if ks_pct >= 60 else 0)
-
-    # 5. Crosses
-    cross_score = 2 if crosses >= 3 else (1 if crosses >= 1 else 0)
-
-    # 6. Volume at key strike
-    #    magnitude: compare to median across all sessions (use vol_total vs a reasonable threshold)
-    #    For now use a relative heuristic: vol_total > 0 means some activity,
-    #    we'll use percentile approach once table is populated;
-    #    bootstrap: score 1 if cvol+pvol > 50, score full 1 from percentile pass
-    vol_mag_score = 1 if vol_total >= 50 else 0
-    vol_bal_score = 1 if (vol_bal is not None and 0.5 <= vol_bal <= 2.0) else 0
-
-    total_score = net_gex_score + ratio_score + dom_score + stab_score + cross_score + vol_mag_score + vol_bal_score
-
-    return {
-        "ndate": ndate,
-        "score": total_score,
-        "score_hist": None if is_live else total_score,
-        "score_live": total_score if is_live else None,
-        "key_strike": modal_ks,
-        "key_strike_pct": round(ks_pct, 1),
-        "net_gex": round(net_gex, 2),
-        "gex_ratio": round(gex_ratio, 4) if gex_ratio is not None else None,
-        "dominance_ratio": round(dominance_ratio, 2),
-        "crosses": crosses,
-        "cross_source": cross_source,
-        "vol_mag_score": vol_mag_score,
-        "vol_bal_score": vol_bal_score,
-        "snap_count": len(snaps),
-        "updated_at": _dt.now().isoformat(timespec="seconds"),
-    }
-
-
-def _upsert_pin_profile(ndate: int, is_live: bool = False) -> dict:
-    """Compute and upsert pin profile score for a single date."""
-    result = _compute_pin_score_for_date(ndate, is_live=is_live)
-    if result is None:
-        return {"status": "skipped", "ndate": ndate}
-
-    with _db() as con:
-        existing = con.execute(
-            "SELECT score_hist, score_live FROM pin_profile WHERE ndate=?", (ndate,)
-        ).fetchone()
-
-        if existing:
-            # Preserve the other score type
-            score_hist = result["score_hist"] if result["score_hist"] is not None else existing[0]
-            score_live = result["score_live"] if result["score_live"] is not None else existing[1]
-            combined   = score_hist if score_hist is not None else score_live
-            con.execute("""
-                UPDATE pin_profile SET
-                    score=?, score_hist=?, score_live=?,
-                    key_strike=?, key_strike_pct=?, net_gex=?, gex_ratio=?,
-                    dominance_ratio=?, crosses=?, cross_source=?,
-                    vol_mag_score=?, vol_bal_score=?, snap_count=?, updated_at=?
-                WHERE ndate=?
-            """, (combined, score_hist, score_live,
-                  result["key_strike"], result["key_strike_pct"], result["net_gex"],
-                  result["gex_ratio"], result["dominance_ratio"], result["crosses"],
-                  result["cross_source"], result["vol_mag_score"], result["vol_bal_score"],
-                  result["snap_count"], result["updated_at"], ndate))
-        else:
-            score_hist = result["score_hist"]
-            score_live = result["score_live"]
-            combined   = result["score"]
-            con.execute("""
-                INSERT INTO pin_profile (ndate, score, score_hist, score_live,
-                    key_strike, key_strike_pct, net_gex, gex_ratio,
-                    dominance_ratio, crosses, cross_source,
-                    vol_mag_score, vol_bal_score, snap_count, updated_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """, (ndate, combined, score_hist, score_live,
-                  result["key_strike"], result["key_strike_pct"], result["net_gex"],
-                  result["gex_ratio"], result["dominance_ratio"], result["crosses"],
-                  result["cross_source"], result["vol_mag_score"], result["vol_bal_score"],
-                  result["snap_count"], result["updated_at"]))
-
-    return {"status": "ok", "ndate": ndate, "score": result["score"]}
-
-
-def _backfill_pin_profile() -> dict:
-    """Compute pin profile scores for all historical dates not yet scored."""
     from datetime import datetime as _dt
+
+    PROX_BW    = 50.0
+    MIN_BAL    = 67.0   # min(|cg|,|pg|)/max * 100 >= this to qualify
+    ANCHOR_MAX_NTIME = 1200  # anchor must be found by this snapshot
+
+    def _v(row, key):
+        return row.get(key, 0) or 0
+
+    def snap_metrics(strikes, uprice):
+        """Return (top_strike_dict, dominance_pct, ks_balance_pct, total_abs) for one snapshot."""
+        if not strikes:
+            return None, 0, 0, 0
+        total_abs = sum(abs(_v(s, "abs")) for s in strikes)
+        top = max(strikes, key=lambda s: abs(_v(s, "abs")) * _math.exp(
+            -0.5 * ((abs(_v(s, "strike") - uprice) / PROX_BW) ** 2)))
+        top_abs = abs(_v(top, "abs"))
+        dom = (top_abs / total_abs * 100.0) if total_abs else 0.0
+        cg = abs(_v(top, "cg"))
+        pg = abs(_v(top, "pg"))
+        bal = (min(cg, pg) / max(cg, pg) * 100.0) if max(cg, pg) > 0 else 0.0
+        return top, dom, bal, total_abs
+
     today_ndate = int(_dt.now().strftime("%Y%m%d"))
 
     with _db() as con:
-        all_dates = [r[0] for r in con.execute(
-            "SELECT DISTINCT ndate FROM gex_strike_window WHERE ntime >= 930 ORDER BY ndate"
+        dates = [r[0] for r in con.execute(
+            "SELECT DISTINCT ndate FROM gex_strike_window "
+            "WHERE ntime >= 935 AND ntime <= 1555 "
+            "ORDER BY ndate"
         ).fetchall()]
-        done_dates = set(r[0] for r in con.execute(
-            "SELECT ndate FROM pin_profile WHERE score_hist IS NOT NULL"
-        ).fetchall())
 
-    # Historical = all dates except today
-    to_do = [d for d in all_dates if d != today_ndate and d not in done_dates]
-    inserted = 0
-    for ndate in to_do:
-        r = _upsert_pin_profile(ndate, is_live=False)
-        if r.get("status") == "ok":
-            inserted += 1
+    rows = []
+    for ndate in dates:
+        if ndate == today_ndate:
+            continue
 
-    # Re-rank after upsert
-    _rerank_pin_profile()
-    return {"status": "ok", "computed": inserted, "skipped": len(to_do) - inserted}
+        with _db() as con:
+            snaps = con.execute(
+                "SELECT ntime, price, data FROM gex_strike_window "
+                "WHERE ndate=? AND ntime >= 935 AND ntime <= 1555 ORDER BY ntime",
+                (ndate,)
+            ).fetchall()
 
+        if len(snaps) < 2:
+            continue
 
-def _rerank_pin_profile() -> None:
-    """Update rank_hist and rank_live columns based on current scores."""
+        # --- Parse all snapshots first ---
+        parsed = []  # [(ntime, uprice, strikes, top, dom, bal, total_abs)]
+        for ntime, price, data in snaps:
+            try:
+                strikes = _j.loads(data)
+            except Exception:
+                continue
+            if not strikes:
+                continue
+            uprice = price or 0.0
+            top, dom, bal, total_abs = snap_metrics(strikes, uprice)
+            if top is None:
+                continue
+            parsed.append((ntime, uprice, strikes, top, dom, bal, total_abs))
+
+        if len(parsed) < 2:
+            continue
+
+        # --- Find anchor: first qualifying snapshot in 935-1200 ---
+        anchor_ks = None
+        anchor_ntime = None
+        anchor_dominance = None
+        anchor_balance = None
+        for ntime, uprice, strikes, top, dom, bal, total_abs in parsed:
+            if ntime > ANCHOR_MAX_NTIME:
+                break
+            if bal >= MIN_BAL:
+                anchor_ks       = int(_v(top, "strike"))
+                anchor_ntime    = ntime
+                anchor_dominance = round(dom, 2)
+                anchor_balance   = round(bal, 2)
+                break
+
+        # --- Qualification: anchor_ks must be #1 dominant at every snapshot ---
+        qualified = 0
+        if anchor_ks is not None:
+            qualified = 1
+            # Check every snapshot from anchor onwards
+            anchor_found = False
+            for ntime, uprice, strikes, top, dom, bal, total_abs in parsed:
+                if ntime < anchor_ntime:
+                    continue
+                anchor_found = True
+                top_ks = int(_v(top, "strike"))
+                if top_ks != anchor_ks:
+                    qualified = 0
+                    break
+            if not anchor_found:
+                qualified = 0
+
+        # --- Capture 1200 snapshot metrics ---
+        snap_1200_ks = None
+        snap_1200_dom = None
+        snap_1200_bal = None
+        snap_1200_cg = None
+        snap_1200_pg = None
+        qualified_1200 = 0
+        for ntime, uprice, strikes, top, dom, bal, total_abs in parsed:
+            if ntime == 1200:
+                snap_1200_ks  = int(_v(top, "strike"))
+                snap_1200_dom = round(dom, 2)
+                snap_1200_bal = round(bal, 2)
+                snap_1200_cg  = round(_v(top, "cg"), 2)
+                snap_1200_pg  = round(_v(top, "pg"), 2)
+                if dom >= 20.0 and bal >= 80.0:
+                    qualified_1200 = 1
+                break
+
+        # --- Compute day-wide stats (all snapshots) ---
+        key_strikes_seen = []
+        ks_sequence = []
+        ratios = []
+        net_gexes = []
+        dominances = []
+        total_abs_list = []
+
+        for ntime, uprice, strikes, top, dom, bal, total_abs in parsed:
+            ks = int(_v(top, "strike"))
+            key_strikes_seen.append(ks)
+            ks_sequence.append([ntime, ks])
+            dominances.append(dom)
+            total_abs_list.append(total_abs)
+            total_call_gex = sum(_v(s, "cg") for s in strikes)
+            total_put_gex  = sum(_v(s, "pg") for s in strikes)
+            abs_cg = abs(total_call_gex)
+            abs_pg = abs(total_put_gex)
+            if abs_cg >= abs_pg:
+                ratio = (abs_cg / abs_pg) if abs_pg else 0.0
+            else:
+                ratio = -(abs_pg / abs_cg) if abs_cg else 0.0
+            ratios.append(ratio)
+            net_gexes.append(total_call_gex + total_put_gex)
+
+        if not key_strikes_seen:
+            continue
+
+        counter = Counter(key_strikes_seen)
+        modal_ks      = counter.most_common(1)[0][0]
+        modal_ks_pct  = round(key_strikes_seen.count(modal_ks) / len(key_strikes_seen) * 100.0, 1)
+        median_ratio  = round(_stat.median(ratios), 3)
+        ratio_dev     = round(abs(abs(median_ratio) - 1.0), 4)
+        avg_net_gex   = round(sum(net_gexes) / len(net_gexes), 2) if net_gexes else None
+        median_dom    = round(_stat.median(dominances), 2) if dominances else None
+        avg_total_abs = round(sum(total_abs_list) / len(total_abs_list), 2) if total_abs_list else None
+
+        rows.append({
+            "ndate":              ndate,
+            "modal_ks":           modal_ks,
+            "modal_ks_pct":       modal_ks_pct,
+            "median_ratio":       median_ratio,
+            "ratio_dev":          ratio_dev,
+            "ratio_rank":         0,  # set after
+            "median_dominance":   median_dom,
+            "snap_count":         len(parsed),
+            "avg_net_gex":        avg_net_gex,
+            "ks_sequence":        _j.dumps(ks_sequence),
+            "anchor_ks":          anchor_ks,
+            "anchor_ntime":       anchor_ntime,
+            "anchor_dominance":   anchor_dominance,
+            "anchor_balance":     anchor_balance,
+            "avg_total_abs":      avg_total_abs,
+            "magnet_score":       None,  # set after
+            "qualified":          qualified,
+            "snap_1200_ks":       snap_1200_ks,
+            "snap_1200_dominance": snap_1200_dom,
+            "snap_1200_balance":  snap_1200_bal,
+            "snap_1200_call_gex": snap_1200_cg,
+            "snap_1200_put_gex":  snap_1200_pg,
+            "qualified_1200":     qualified_1200,
+            "updated_at":         _dt.now().isoformat(timespec="seconds"),
+        })
+
+    # --- Score and rank qualified rows ---
+    # Normalise avg_total_abs to percentile (0-100) across all rows
+    abs_vals = [r["avg_total_abs"] for r in rows if r["avg_total_abs"] is not None]
+    abs_vals_sorted = sorted(abs_vals)
+    n_abs = len(abs_vals_sorted)
+
+    def abs_pctile(v):
+        if v is None or n_abs == 0:
+            return 0.0
+        idx = sum(1 for x in abs_vals_sorted if x <= v)
+        return round(idx / n_abs * 100.0, 2)
+
+    for row in rows:
+        if row["qualified"]:
+            dom  = row["anchor_dominance"] or 0
+            bal  = row["anchor_balance"]   or 0
+            gex  = abs_pctile(row["avg_total_abs"])
+            row["magnet_score"] = round(dom + bal + gex, 4)
+        else:
+            row["magnet_score"] = None
+
+    # ratio_rank: all rows ranked by ratio_dev ASC (keep for reference)
+    rows.sort(key=lambda r: (r["ratio_dev"], -r["snap_count"]))
+    for rank, row in enumerate(rows, 1):
+        row["ratio_rank"] = rank
+
+    # Insert new rows only (incremental)
     with _db() as con:
-        hist_rows = con.execute(
-            "SELECT ndate, score_hist FROM pin_profile WHERE score_hist IS NOT NULL ORDER BY score_hist DESC"
-        ).fetchall()
-        for rank, (ndate, _) in enumerate(hist_rows, 1):
-            con.execute("UPDATE pin_profile SET rank_hist=? WHERE ndate=?", (rank, ndate))
+        existing = set(r[0] for r in con.execute("SELECT ndate FROM magnet_days").fetchall())
 
-        live_rows = con.execute(
-            "SELECT ndate, score_live FROM pin_profile WHERE score_live IS NOT NULL ORDER BY score_live DESC"
-        ).fetchall()
-        for rank, (ndate, _) in enumerate(live_rows, 1):
-            con.execute("UPDATE pin_profile SET rank_live=? WHERE ndate=?", (rank, ndate))
-
-
-@app.route("/api/pin-profile/scores")
-def api_pin_profile_scores():
-    """Return all pin profile scores, sorted by historical rank (live rank for today)."""
-    with _db() as con:
-        rows = con.execute("""
-            SELECT ndate, score, score_hist, score_live, rank_hist, rank_live,
-                   key_strike, key_strike_pct, net_gex, gex_ratio,
-                   dominance_ratio, crosses, cross_source,
-                   vol_mag_score, vol_bal_score, snap_count, updated_at
-            FROM pin_profile
-            ORDER BY
-                CASE WHEN score_hist IS NOT NULL THEN score_hist ELSE score_live END DESC,
-                ndate DESC
-        """).fetchall()
-    cols = ["ndate","score","score_hist","score_live","rank_hist","rank_live",
-            "key_strike","key_strike_pct","net_gex","gex_ratio",
-            "dominance_ratio","crosses","cross_source",
-            "vol_mag_score","vol_bal_score","snap_count","updated_at"]
-    return jsonify({"rows": [dict(zip(cols, r)) for r in rows]})
-
-
-@app.route("/api/pin-profile/spx-chart")
-def api_pin_profile_spx_chart():
-    """Return 5-min SPX bars + key strike for a date (used by popup chart)."""
-    date_str = request.args.get("date", "")
-    try:
-        ndate = int(date_str.replace("-", ""))
-    except ValueError:
-        return jsonify({"error": "invalid date"}), 400
+    new_rows = [r for r in rows if r["ndate"] not in existing]
 
     with _db() as con:
-        spx = con.execute(
-            "SELECT ntime, open, high, low, close FROM spx_ohlc_5min "
-            "WHERE ndate=? AND ntime >= 930 ORDER BY ntime",
-            (ndate,)
-        ).fetchall()
-        pp = con.execute(
-            "SELECT key_strike, crosses, cross_source, score_hist, score_live, "
-            "       dominance_ratio, gex_ratio, key_strike_pct "
-            "FROM pin_profile WHERE ndate=?", (ndate,)
-        ).fetchone()
-        # Also get per-snapshot key strikes for the overlay line segments
-        snap_ks = con.execute(
-            "SELECT ntime, price, data FROM gex_strike_window "
-            "WHERE ndate=? AND ntime >= 930 ORDER BY ntime", (ndate,)
-        ).fetchall()
+        for row in new_rows:
+            con.execute("""
+                INSERT OR IGNORE INTO magnet_days
+                    (ndate, modal_ks, modal_ks_pct, median_ratio, ratio_dev,
+                     ratio_rank, median_dominance, snap_count, avg_net_gex,
+                     ks_sequence, anchor_ks, anchor_ntime, anchor_dominance,
+                     anchor_balance, avg_total_abs, magnet_score, qualified,
+                     snap_1200_ks, snap_1200_dominance, snap_1200_balance,
+                     snap_1200_call_gex, snap_1200_put_gex, qualified_1200,
+                     updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (
+                row["ndate"], row["modal_ks"], row["modal_ks_pct"],
+                row["median_ratio"], row["ratio_dev"], row["ratio_rank"],
+                row["median_dominance"], row["snap_count"], row["avg_net_gex"],
+                row["ks_sequence"], row["anchor_ks"], row["anchor_ntime"],
+                row["anchor_dominance"], row["anchor_balance"],
+                row["avg_total_abs"], row["magnet_score"], row["qualified"],
+                row["snap_1200_ks"], row["snap_1200_dominance"], row["snap_1200_balance"],
+                row["snap_1200_call_gex"], row["snap_1200_put_gex"], row["qualified_1200"],
+                row["updated_at"],
+            ))
 
-    import json as _j
-    snap_key_strikes = []
-    for ntime, price, data in snap_ks:
-        try:
-            strikes = _j.loads(data)
-            top = max(strikes, key=lambda s: abs(s.get("net", 0) or 0))
-            snap_key_strikes.append({"ntime": ntime, "price": price, "key_strike": top["strike"]})
-        except Exception:
-            pass
-
-    return jsonify({
-        "spx_bars": [{"ntime": r[0], "open": r[1], "high": r[2], "low": r[3], "close": r[4]} for r in spx],
-        "pin_profile": dict(zip(
-            ["key_strike","crosses","cross_source","score_hist","score_live",
-             "dominance_ratio","gex_ratio","key_strike_pct"], pp
-        )) if pp else None,
-        "snap_key_strikes": snap_key_strikes,
-    })
+    return {"status": "ok", "computed": len(new_rows), "skipped": len(rows) - len(new_rows)}
 
 
-@app.route("/api/pin-profile/update")
-def api_pin_profile_update():
-    """Trigger a pin profile score update for a specific date (or backfill all)."""
-    date_str = request.args.get("date", "")
-    mode = request.args.get("mode", "single")
-    from datetime import datetime as _dt
-    today_ndate = int(_dt.now().strftime("%Y%m%d"))
-
-    if mode == "backfill":
-        result = _backfill_pin_profile()
-        return jsonify(result)
-
-    try:
-        ndate = int(date_str.replace("-", "")) if date_str else today_ndate
-    except ValueError:
-        return jsonify({"error": "invalid date"}), 400
-
-    is_live = (ndate == today_ndate)
-    result = _upsert_pin_profile(ndate, is_live=is_live)
-    _rerank_pin_profile()
+@app.route("/api/magnet/compute")
+def api_magnet_compute():
+    """Incremental compute of magnet_days — adds missing dates only."""
+    result = _compute_magnet_days()
     return jsonify(result)
 
 
-@app.route("/pin-profile")
-def pin_profile_page():
+@app.route("/api/magnet/live")
+def api_magnet_live():
+    """Return live magnet metrics for today — never persisted.
+
+    Reads today's gex_strike_window rows (RTH only: 930-1600), computes the
+    same metrics as _compute_magnet_days, then scores vs all historical
+    magnet_days rows to derive a provisional combined rank.
+    """
+    import json as _j
+    import math as _math
+    import statistics as _stat
+    from datetime import datetime as _dt
+
+    PROX_BW = 50.0
+
+    def _v(row, key):
+        return row.get(key, 0) or 0
+
+    et_now = get_et_now()
+    today_ndate = int(et_now.strftime("%Y%m%d"))
+    current_ntime = int(et_now.strftime("%H%M"))
+    in_rth = 935 < current_ntime < 1555
+
+    # Fetch today's live RTH snapshots (exclusive bounds, source=gex only)
+    with _db() as con:
+        snaps = con.execute(
+            "SELECT ntime, price, data FROM gex_strike_window "
+            "WHERE ndate=? AND source='gex' AND ntime > 935 AND ntime < 1555 "
+            "ORDER BY ntime",
+            (today_ndate,)
+        ).fetchall()
+
+    if not snaps:
+        return jsonify({
+            "status": "no_data",
+            "message": "No live snapshots for today yet.",
+            "in_rth": in_rth,
+            "ndate": today_ndate,
+        })
+
+    # Compute metrics (same logic as _compute_magnet_days)
+    key_strikes_seen = []
+    ratios = []
+    dominances = []
+    net_gexes = []
+
+    for ntime, price, data in snaps:
+        try:
+            strikes = _j.loads(data)
+        except Exception:
+            continue
+        if not strikes:
+            continue
+        uprice = price or 0.0
+
+        try:
+            top = max(strikes, key=lambda s: abs(_v(s, "abs")) * _math.exp(
+                -0.5 * ((abs(_v(s, "strike") - uprice) / PROX_BW) ** 2)))
+            key_strikes_seen.append(int(_v(top, "strike")))
+        except Exception:
+            continue
+
+        total_call_gex = sum(_v(s, "cg") for s in strikes)
+        total_put_gex  = sum(_v(s, "pg") for s in strikes)
+        abs_cg = abs(total_call_gex)
+        abs_pg = abs(total_put_gex)
+        if abs_cg >= abs_pg:
+            ratio = (abs_cg / abs_pg) if abs_pg else 0.0
+        else:
+            ratio = -(abs_pg / abs_cg) if abs_cg else 0.0
+        ratios.append(ratio)
+        net_gexes.append(total_call_gex + total_put_gex)
+
+        try:
+            total_abs = sum(abs(_v(s, "abs")) for s in strikes)
+            top_abs   = abs(_v(top, "abs"))
+            if total_abs > 0:
+                dominances.append(top_abs / total_abs * 100.0)
+        except Exception:
+            pass
+
+    if not key_strikes_seen or not ratios:
+        return jsonify({
+            "status": "insufficient",
+            "message": "Snapshots found but could not compute metrics.",
+            "snap_count": len(snaps),
+            "in_rth": in_rth,
+            "ndate": today_ndate,
+        })
+
+    from collections import Counter
+    counter = Counter(key_strikes_seen)
+    modal_ks     = counter.most_common(1)[0][0]
+    modal_ks_pct = round(key_strikes_seen.count(modal_ks) / len(key_strikes_seen) * 100.0, 1)
+    median_ratio = round(_stat.median(ratios), 3)
+    ratio_dev    = round(abs(abs(median_ratio) - 1.0), 4)
+    med_dominance = round(_stat.median(dominances), 2) if dominances else None
+    snap_count   = len(key_strikes_seen)
+
+    # Provisional ranking vs historical magnet_days
+    with _db() as con:
+        hist = con.execute(
+            "SELECT ndate, ratio_dev, median_dominance, snap_count FROM magnet_days ORDER BY ndate"
+        ).fetchall()
+
+    total_hist = len(hist)
+    prov_rank = None
+    prov_rank_combined = None
+
+    if total_hist > 0:
+        # Ratio-only rank: count historical days with better (lower) ratio_dev
+        better_ratio = sum(1 for h in hist if h[1] < ratio_dev)
+        prov_rank = better_ratio + 1  # provisional ratio rank
+
+        # Combined rank using default weight=2 for dominance
+        def combined_score(dom, rdev, weight=2):
+            d = dom if dom is not None else 0
+            return d * weight - rdev * 100
+
+        today_score = combined_score(med_dominance, ratio_dev)
+        hist_scores = [combined_score(h[2], h[1]) for h in hist]
+        better_combined = sum(1 for s in hist_scores if s > today_score)
+        prov_rank_combined = better_combined + 1
+
+    return jsonify({
+        "status": "ok",
+        "in_rth": in_rth,
+        "ndate": today_ndate,
+        "current_ntime": current_ntime,
+        "snap_count": snap_count,
+        "modal_ks": modal_ks,
+        "modal_ks_pct": modal_ks_pct,
+        "median_ratio": median_ratio,
+        "ratio_dev": ratio_dev,
+        "median_dominance": med_dominance,
+        "prov_rank_ratio": prov_rank,
+        "prov_rank_combined": prov_rank_combined,
+        "total_hist": total_hist,
+        "key_strikes_seen": key_strikes_seen,
+    })
+
+
+@app.route("/api/magnet/clear")
+def api_magnet_clear():
+    """Clear all rows from magnet_days table."""
+    with _db() as con:
+        deleted = con.execute("DELETE FROM magnet_days").rowcount
+    return jsonify({"status": "ok", "deleted": deleted})
+
+
+@app.route("/api/magnet/load-spx-csv", methods=["POST"])
+def api_magnet_load_spx_csv():
+    """Parse and load SPX 5-min CSV data into spx_ohlc_5min table.
+
+    Expected CSV format (from user's data source):
+        Date, Time, Open, High, Low, Close, Up, Down, Volume
+        mm/dd/yyyy, HH:MM, ...
+    Time is UTC-1 (offset -60 min from ET), so 08:35 = ET 09:35.
+    Only RTH bars (ET 09:30-16:00) are stored.
+    """
+    import csv, io
+    from datetime import datetime as _dt, timedelta as _td
+
+    if "file" not in request.files:
+        return jsonify({"error": "No file uploaded"}), 400
+
+    f = request.files["file"]
+    try:
+        content = f.read().decode("utf-8-sig")  # strip BOM if present
+    except Exception as e:
+        return jsonify({"error": f"Could not read file: {e}"}), 400
+
+    rows = []
+    errors = []
+    reader = csv.DictReader(io.StringIO(content))
+    for i, row in enumerate(reader, 2):
+        try:
+            # Parse date mm/dd/yyyy
+            date_str = row.get("Date", "").strip()
+            time_str = row.get("Time", "").strip()
+            dt = _dt.strptime(f"{date_str} {time_str}", "%m/%d/%Y %H:%M")
+            # Add 60 minutes to convert from UTC-1 to ET
+            dt_et = dt + _td(minutes=60)
+            ndate = int(dt_et.strftime("%Y%m%d"))
+            ntime = int(dt_et.strftime("%H%M"))
+            # Only keep RTH bars
+            if ntime < 930 or ntime > 1600:
+                continue
+            open_  = float(row.get("Open",  "0").strip())
+            high   = float(row.get("High",  "0").strip())
+            low    = float(row.get("Low",   "0").strip())
+            close  = float(row.get("Close", "0").strip())
+            rows.append((ndate, ntime, open_, high, low, close))
+        except Exception as e:
+            errors.append(f"Row {i}: {e}")
+            if len(errors) > 10:
+                break
+
+    if not rows:
+        return jsonify({"error": "No valid RTH rows found", "parse_errors": errors}), 400
+
+    # Delete existing rows for dates in this file so CSV always wins over any existing data
+    affected_dates = list(set(r[0] for r in rows))
+    with _db() as con:
+        placeholders = ",".join("?" * len(affected_dates))
+        con.execute(f"DELETE FROM spx_ohlc_5min WHERE ndate IN ({placeholders})", affected_dates)
+        con.executemany(
+            "INSERT INTO spx_ohlc_5min (ndate, ntime, open, high, low, close) VALUES (?,?,?,?,?,?)",
+            rows
+        )
+
+    dates_loaded = len(affected_dates)
+    return jsonify({
+        "status": "ok",
+        "rows_loaded": len(rows),
+        "dates_loaded": dates_loaded,
+        "parse_errors": errors,
+    })
+
+
+@app.route("/api/magnet/clear-spx")
+def api_magnet_clear_spx():
+    """Clear all rows from spx_ohlc_5min table."""
+    with _db() as con:
+        deleted = con.execute("DELETE FROM spx_ohlc_5min").rowcount
+    return jsonify({"status": "ok", "deleted": deleted})
+
+
+@app.route("/api/magnet/spx-stats")
+def api_magnet_spx_stats():
+    """Return summary stats for spx_ohlc_5min table."""
+    with _db() as con:
+        row = con.execute(
+            "SELECT COUNT(*), COUNT(DISTINCT ndate), MIN(ndate), MAX(ndate) FROM spx_ohlc_5min"
+        ).fetchone()
+    return jsonify({
+        "total_bars": row[0],
+        "total_dates": row[1],
+        "min_date": row[2],
+        "max_date": row[3],
+    })
+
+
+@app.route("/api/magnet/spx-chart")
+def api_magnet_spx_chart():
+    """Return SPX price data for a date for the magnet chart popup.
+
+    Returns 5-min OHLC bars if available, otherwise GEX snapshot prices as fallback.
+    Query param: date=YYYY-MM-DD
+    """
+    date_iso = request.args.get("date", "")
+    if not date_iso:
+        return jsonify({"error": "date required"}), 400
+    try:
+        ndate = int(date_iso.replace("-", ""))
+    except ValueError:
+        return jsonify({"error": "invalid date"}), 400
+
+    # Try 5-min SPX OHLC bars first (RTH only)
+    with _db() as con:
+        bar_rows = con.execute(
+            "SELECT ntime, open, high, low, close FROM spx_ohlc_5min "
+            "WHERE ndate=? AND ntime >= 930 AND ntime <= 1600 ORDER BY ntime",
+            (ndate,)
+        ).fetchall()
+
+    spx_bars = [{"ntime": r[0], "open": r[1], "high": r[2], "low": r[3], "close": r[4]}
+                for r in bar_rows]
+
+    # Fallback: GEX snapshot uprice values
+    snap_prices = []
+    if not spx_bars:
+        with _db() as con:
+            snap_rows = con.execute(
+                "SELECT ntime, uprice FROM gex_strike_window "
+                "WHERE ndate=? AND ntime >= 935 AND ntime <= 1555 ORDER BY ntime",
+                (ndate,)
+            ).fetchall()
+        snap_prices = [{"ntime": r[0], "price": r[1]} for r in snap_rows if r[1]]
+
+    return jsonify({
+        "ndate": ndate,
+        "spx_bars": spx_bars,
+        "snap_prices": snap_prices,
+        "source": "5min" if spx_bars else "gex_snap",
+    })
+
+
+@app.route("/api/magnet/rows")
+def api_magnet_rows():
+    """Return qualified magnet_days rows ordered by magnet_score DESC."""
+    with _db() as con:
+        rows = con.execute("""
+            SELECT ndate, modal_ks, modal_ks_pct, median_ratio,
+                   ratio_dev, ratio_rank, median_dominance, snap_count, avg_net_gex, updated_at,
+                   ks_sequence, anchor_ks, anchor_ntime, anchor_dominance,
+                   anchor_balance, avg_total_abs, magnet_score, qualified
+            FROM magnet_days
+            WHERE qualified = 1
+            ORDER BY magnet_score DESC
+        """).fetchall()
+    cols = ["ndate", "modal_ks", "modal_ks_pct", "median_ratio",
+            "ratio_dev", "ratio_rank", "median_dominance", "snap_count", "avg_net_gex", "updated_at",
+            "ks_sequence", "anchor_ks", "anchor_ntime", "anchor_dominance",
+            "anchor_balance", "avg_total_abs", "magnet_score", "qualified"]
+    import json as _j
+    result = []
+    for r in rows:
+        d = dict(zip(cols, r))
+        if d.get("ks_sequence"):
+            try:
+                d["ks_sequence"] = _j.loads(d["ks_sequence"])
+            except Exception:
+                d["ks_sequence"] = []
+        else:
+            d["ks_sequence"] = []
+        result.append(d)
+    return jsonify({"rows": result})
+
+
+@app.route("/api/magnet/rows-1200")
+def api_magnet_rows_1200():
+    """Return rows where qualified_1200=1 (dom>=20% and balance>=80% at 12:00), ordered by dominance DESC."""
+    with _db() as con:
+        rows = con.execute("""
+            SELECT ndate, snap_1200_ks, snap_1200_dominance, snap_1200_balance,
+                   snap_1200_call_gex, snap_1200_put_gex, snap_count,
+                   avg_total_abs, ks_sequence
+            FROM magnet_days
+            WHERE snap_1200_ks IS NOT NULL
+            ORDER BY snap_1200_dominance DESC
+        """).fetchall()
+    cols = ["ndate", "snap_1200_ks", "snap_1200_dominance", "snap_1200_balance",
+            "snap_1200_call_gex", "snap_1200_put_gex", "snap_count",
+            "avg_total_abs", "ks_sequence"]
+    import json as _j
+    result = []
+    for r in rows:
+        d = dict(zip(cols, r))
+        if d.get("ks_sequence"):
+            try:
+                d["ks_sequence"] = _j.loads(d["ks_sequence"])
+            except Exception:
+                d["ks_sequence"] = []
+        else:
+            d["ks_sequence"] = []
+        result.append(d)
+    return jsonify({"rows": result})
+
+
+@app.route("/api/magnet/debug/<int:ndate>")
+def api_magnet_debug(ndate):
+    """Return a full snap-by-snap diagnostic for one date showing exactly why it passed/failed Table 1 and Table 2."""
+    import json as _j, math as _math
+
+    PROX_BW = 50.0
+    MIN_BAL_T1 = 67.0
+    MIN_DOM_T2 = 20.0
+    MIN_BAL_T2 = 80.0
+
+    def _v(d, k):
+        v = d.get(k, 0)
+        return v if v is not None else 0
+
+    with _db() as con:
+        raw = con.execute(
+            "SELECT ntime, price, data FROM gex_strike_window "
+            "WHERE ndate=? AND source='gex' AND ntime>=935 AND ntime<=1555 ORDER BY ntime",
+            (ndate,)
+        ).fetchall()
+        db_row = con.execute(
+            "SELECT qualified, qualified_1200, anchor_ks, anchor_ntime, anchor_dominance, "
+            "anchor_balance, snap_1200_ks, snap_1200_dominance, snap_1200_balance, magnet_score "
+            "FROM magnet_days WHERE ndate=?", (ndate,)
+        ).fetchone()
+
+    if not raw:
+        return jsonify({"error": f"No snapshots found for {ndate}"}), 404
+
+    # Parse each snap
+    snaps = []
+    for ntime, uprice, data in raw:
+        strikes = _j.loads(data) if data else []
+        if not strikes:
+            continue
+        uprice = uprice or 0.0
+        total_abs = sum(abs(_v(s, "abs")) for s in strikes)
+        top = max(strikes, key=lambda s: abs(_v(s, "abs")) * _math.exp(
+            -0.5 * ((abs(_v(s, "strike") - uprice) / PROX_BW) ** 2)))
+        top_abs = abs(_v(top, "abs"))
+        dom = round(top_abs / total_abs * 100, 2) if total_abs else 0
+        cg = abs(_v(top, "cg"))
+        pg = abs(_v(top, "pg"))
+        bal = round(min(cg, pg) / max(cg, pg) * 100, 2) if max(cg, pg) > 0 else 0
+        snaps.append({
+            "ntime": ntime,
+            "spx": round(uprice, 1),
+            "ks": int(_v(top, "strike")),
+            "dom": dom,
+            "bal": bal,
+            "cg_b": round(cg / 1e9, 3),
+            "pg_b": round(pg / 1e9, 3),
+        })
+
+    # --- Table 1 trace ---
+    t1_anchor = None
+    t1_anchor_time = None
+    t1_events = []
+    t1_pass = False
+    for s in snaps:
+        if t1_anchor is None:
+            if s["ntime"] <= 1200 and s["bal"] >= MIN_BAL_T1:
+                t1_anchor = s["ks"]
+                t1_anchor_time = s["ntime"]
+                t1_events.append({"ntime": s["ntime"], "status": "ANCHOR", "ks": s["ks"],
+                                   "dom": s["dom"], "bal": s["bal"], "note": f"First balanced snap (bal={s['bal']:.1f}% ≥ {MIN_BAL_T1}%)"})
+            elif s["ntime"] <= 1200:
+                t1_events.append({"ntime": s["ntime"], "status": "SKIP", "ks": s["ks"],
+                                   "dom": s["dom"], "bal": s["bal"], "note": f"bal={s['bal']:.1f}% < {MIN_BAL_T1}% — not balanced enough"})
+            else:
+                t1_events.append({"ntime": s["ntime"], "status": "NO_ANCHOR", "ks": s["ks"],
+                                   "dom": s["dom"], "bal": s["bal"], "note": "Past 12:00, no anchor found — FAIL"})
+                break
+        else:
+            if s["ks"] == t1_anchor:
+                t1_events.append({"ntime": s["ntime"], "status": "OK", "ks": s["ks"],
+                                   "dom": s["dom"], "bal": s["bal"], "note": f"Anchor {t1_anchor} still dominant"})
+            else:
+                t1_events.append({"ntime": s["ntime"], "status": "FAIL", "ks": s["ks"],
+                                   "dom": s["dom"], "bal": s["bal"],
+                                   "note": f"KS changed {t1_anchor}→{s['ks']} — DISQUALIFIED"})
+                break
+    else:
+        if t1_anchor is not None:
+            t1_pass = True
+
+    t1_verdict = "PASS" if t1_pass else "FAIL"
+    if t1_anchor is None:
+        t1_fail_reason = "No balanced snap (bal ≥ 67%) found before 12:00"
+    elif not t1_pass:
+        fail_ev = next((e for e in t1_events if e["status"] in ("FAIL", "NO_ANCHOR")), None)
+        t1_fail_reason = fail_ev["note"] if fail_ev else "Unknown"
+    else:
+        t1_fail_reason = None
+
+    # --- Table 2 trace ---
+    snap_1200 = next((s for s in snaps if s["ntime"] == 1200), None)
+    if snap_1200:
+        t2_dom_ok  = snap_1200["dom"] >= MIN_DOM_T2
+        t2_bal_ok  = snap_1200["bal"] >= MIN_BAL_T2
+        t2_pass    = t2_dom_ok and t2_bal_ok
+        t2_reasons = []
+        if not t2_dom_ok:
+            t2_reasons.append(f"Dom {snap_1200['dom']:.1f}% < {MIN_DOM_T2}%")
+        if not t2_bal_ok:
+            t2_reasons.append(f"Balance {snap_1200['bal']:.1f}% < {MIN_BAL_T2}%")
+        t2_verdict     = "PASS" if t2_pass else "FAIL"
+        t2_fail_reason = "; ".join(t2_reasons) if t2_reasons else None
+    else:
+        snap_1200      = None
+        t2_verdict     = "NO_DATA"
+        t2_fail_reason = "No 12:00 snapshot exists for this date"
+
+    return jsonify({
+        "ndate": ndate,
+        "snap_count": len(snaps),
+        "table1": {
+            "verdict": t1_verdict,
+            "anchor_ks": t1_anchor,
+            "anchor_time": t1_anchor_time,
+            "fail_reason": t1_fail_reason,
+            "trace": t1_events,
+        },
+        "table2": {
+            "verdict": t2_verdict,
+            "snap_1200": snap_1200,
+            "fail_reason": t2_fail_reason,
+        },
+        "db_stored": dict(zip(
+            ["qualified","qualified_1200","anchor_ks","anchor_ntime","anchor_dominance",
+             "anchor_balance","snap_1200_ks","snap_1200_dominance","snap_1200_balance","magnet_score"],
+            db_row
+        )) if db_row else None,
+    })
+
+
+@app.route("/magnet")
+def magnet_page():
     from time import time
-    return render_template("pin_profile.html", cache_bust=int(time()))
+    from flask import make_response as _make_response
+    resp = _make_response(render_template("magnet.html", cache_bust=int(time())))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
 
 
 @app.route("/gex-distribution")
@@ -9184,15 +9601,6 @@ def api_gex_fetch_live():
             except Exception as _ml_err:
                 ml_signal = {"error": str(_ml_err)}
 
-        # Update live pin profile score for today
-        pin_score = None
-        try:
-            pin_result = _upsert_pin_profile(ndate, is_live=True)
-            _rerank_pin_profile()
-            pin_score = pin_result.get("score")
-        except Exception as _pin_err:
-            pin_score = None
-
         return jsonify({
             "success": True,
             "message": f"Fetched live GEX data for {et_now.strftime('%Y-%m-%d %H:%M')}",
@@ -9202,7 +9610,6 @@ def api_gex_fetch_live():
             "strike_count": len(window_strikes),
             "hmm_label": hmm_label,
             "ml_signal": ml_signal,
-            "pin_score": pin_score,
         })
         
     except Exception as e:
@@ -10566,11 +10973,6 @@ def api_sync_historical():
         month = int(month)
     
     result = sync_historical_gex(symbol=symbol, mode=mode, target_date=target_date, target_time=target_time, max_days=max_days, year=year, month=month)
-    # Update pin profile scores for any newly fetched dates
-    try:
-        _backfill_pin_profile()
-    except Exception:
-        pass
     return jsonify(result)
 
 
@@ -11625,9 +12027,7 @@ if __name__ == "__main__":
     # _ensure_snapshot_table()  # REMOVED: snapshot table no longer used
     _ensure_live_analysis_table()
     _ensure_spx_ohlc_table()
-    _update_spx_ohlc_from_yfinance()
-    _ensure_pin_profile_table()
-    _backfill_pin_profile()
+    _ensure_magnet_days_table()
     _ensure_ml_labels_current()
     _ensure_ml_models_table()
     _ensure_ml_predictions_table()
