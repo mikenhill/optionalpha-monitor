@@ -869,31 +869,7 @@ What you see depends on when RF/HMM are retrained:
           status.textContent = '\u2713 Fetched \u2014 reloading...';
           status.style.color = '#198754';
           // Show ML signal badge
-          if (d.ml_signal && !d.ml_signal.error) {
-            const sig = d.ml_signal;
-            const isLow = sig.confidence === 'LOW';
-            const confColour = sig.confidence === 'HIGH' ? '#198754' : (sig.confidence === 'MEDIUM' ? '#fd7e14' : '#adb5bd');
-            const badgeEl = document.getElementById('ml-signal-badge');
-            const itemEl  = document.getElementById('ml-signal-item');
-            const detail  = document.getElementById('ml-signal-detail');
-            if (isLow) {
-              // LOW confidence — show dimmed badge, no trade
-              badgeEl.innerHTML = `<span style="color:#adb5bd;font-size:11px">[${sig.vol_regime}] [${sig.direction}] ●○○ Low confidence — no trade</span>`;
-              detail.style.display = 'none';
-            } else {
-              const viableStr = sig.viable_rate != null ? ` &nbsp;<span title="Historical trade viability rate" style="font-size:11px;background:#e9ecef;padding:1px 5px;border-radius:3px">${sig.viable_rate}% hist viable</span>` : '';
-              badgeEl.innerHTML = `<span style="color:${confColour};font-weight:bold">${sig.signal_text}</span>${viableStr}`;
-              detail.style.display = '';
-              detail.innerHTML = `<strong>ML Signal</strong> &nbsp;|&nbsp;`
-                + ` Vol: <strong>${sig.vol_regime}</strong> (${(sig.vol_regime_proba*100).toFixed(0)}%)`
-                + ` &nbsp;|&nbsp; Dir: <strong>${sig.direction}</strong> (${(sig.direction_proba*100).toFixed(0)}%)`
-                + ` &nbsp;|&nbsp; Trade: <strong style="color:${confColour}">${sig.trade}</strong>`
-                + (sig.viable_rate != null ? ` &nbsp;<span style="color:#6c757d">(${sig.viable_rate}% viable historically)</span>` : '')
-                + ` &nbsp;|&nbsp; Confidence: <strong style="color:${confColour}">${sig.confidence}</strong>`
-                + ` &nbsp;<a href="/ml" target="_blank" style="font-size:11px">[Full ML \u2192]</a>`;
-            }
-            itemEl.style.display = '';
-          }
+          if (d.ml_signal && !d.ml_signal.error) { renderMlSignal(d.ml_signal); }
           setTimeout(() => { snapData = {}; loadDate(); status.textContent = ''; }, 1500);
         }
       } catch (e) {
@@ -926,6 +902,40 @@ What you see depends on when RF/HMM are retrained:
       if (e.target.closest('th[data-tip]')) _tt.style.display = 'none';
     });
 
+    function renderMlSignal(sig) {
+      const badgeEl = document.getElementById('ml-signal-badge');
+      const itemEl  = document.getElementById('ml-signal-item');
+      const detail  = document.getElementById('ml-signal-detail');
+      const isLow = sig.confidence === 'LOW';
+      const confColour = sig.confidence === 'HIGH' ? '#198754' : (sig.confidence === 'MEDIUM' ? '#fd7e14' : '#adb5bd');
+      const ntimeStr = sig.ntime != null ? ` <span style="font-size:10px;color:#6c757d">(@ ${String(sig.ntime).padStart(4,'0').replace(/(\d{2})(\d{2})/, '$1:$2')} ET)</span>` : '';
+      if (isLow) {
+        badgeEl.innerHTML = `<span style="color:#adb5bd;font-size:11px">[${sig.vol_regime}] [${sig.direction}] ●○○ Low confidence — no trade</span>${ntimeStr}`;
+        detail.style.display = 'none';
+      } else {
+        const viableStr = sig.viable_rate != null ? ` &nbsp;<span title="Historical trade viability rate" style="font-size:11px;background:#e9ecef;padding:1px 5px;border-radius:3px">${sig.viable_rate}% hist viable</span>` : '';
+        badgeEl.innerHTML = `<span style="color:${confColour};font-weight:bold">${sig.signal_text}</span>${viableStr}${ntimeStr}`;
+        detail.style.display = '';
+        detail.innerHTML = `<strong>ML Signal</strong> &nbsp;|&nbsp;`
+          + ` Vol: <strong>${sig.vol_regime}</strong> (${(sig.vol_regime_proba*100).toFixed(0)}%)`
+          + ` &nbsp;|&nbsp; Dir: <strong>${sig.direction}</strong> (${(sig.direction_proba*100).toFixed(0)}%)`
+          + ` &nbsp;|&nbsp; Trade: <strong style="color:${confColour}">${sig.trade}</strong>`
+          + (sig.viable_rate != null ? ` &nbsp;<span style="color:#6c757d">(${sig.viable_rate}% viable historically)</span>` : '')
+          + ` &nbsp;|&nbsp; Confidence: <strong style="color:${confColour}">${sig.confidence}</strong>`
+          + (sig.ntime != null ? ` &nbsp;|&nbsp; <span style="color:#6c757d">Snapshot: ${String(sig.ntime).padStart(4,'0').replace(/(\d{2})(\d{2})/, '$1:$2')} ET</span>` : '')
+          + ` &nbsp;<a href="/ml" target="_blank" style="font-size:11px">[Full ML \u2192]</a>`;
+      }
+      itemEl.style.display = '';
+    }
+
+    async function loadLatestMlSignal(date) {
+      try {
+        const r = await fetch(`/api/ml/latest-signal?date=${date}`);
+        const d = await r.json();
+        if (d.signal) renderMlSignal(d.signal);
+      } catch(e) { /* silent — not critical */ }
+    }
+
     async function init() {
       const r = await fetch('/api/gex/dates');
       dates = await r.json();
@@ -947,6 +957,7 @@ What you see depends on when RF/HMM are retrained:
         // Default to today's date
         sel.value = today;
         loadDate();
+        loadLatestMlSignal(today);
       }
       updateFetchButtonState();
     }

@@ -4201,6 +4201,65 @@ def _compute_pca() -> dict:
     }
 
 
+@app.route("/api/ml/latest-signal")
+def api_ml_latest_signal():
+    """Return the most recent ML prediction row for a given date (default: today).
+
+    Used by the live page to restore the ML signal badge on page load / refresh.
+    Query param: ?date=YYYY-MM-DD
+    """
+    from datetime import datetime
+    date_str = request.args.get("date", datetime.now().strftime("%Y-%m-%d"))
+    try:
+        ndate = int(date_str.replace("-", ""))
+    except ValueError:
+        return jsonify({"error": "invalid date"}), 400
+
+    with _db() as con:
+        row = con.execute("""
+            SELECT ndate, ntime, vol_regime_pred, vol_regime_proba,
+                   direction_pred, direction_proba, trade_pred, trade_code, confidence
+            FROM ml_predictions
+            WHERE ndate=?
+            ORDER BY ntime DESC
+            LIMIT 1
+        """, (ndate,)).fetchone()
+
+    if not row:
+        return jsonify({"signal": None})
+
+    ndate, ntime, vol, vol_p, dirn, dir_p, trade, trade_code, conf = row
+
+    # Rebuild viable_rate same way as _predict_snapshot
+    viable_rate = None
+    _tc_col = {"IC": "trade_viable_ic", "SPS": "trade_viable_sps", "SCS": "trade_viable_scs",
+               "LCS": "trade_viable_lcs", "LPS": "trade_viable_lps"}.get(trade_code)
+    if _tc_col:
+        with _db() as con:
+            r = con.execute(
+                f"SELECT ROUND(AVG({_tc_col})*100,1) FROM ml_labels WHERE {_tc_col} IS NOT NULL"
+            ).fetchone()
+            viable_rate = r[0] if r else None
+
+    dots = {"HIGH": "\u25cf\u25cf\u25cf", "MEDIUM": "\u25cf\u25cf\u25cb", "LOW": "\u25cf\u25cb\u25cb"}.get(conf, "\u25cf\u25cb\u25cb")
+    signal_text = f"[{vol}] [{dirn}] \u2192 {trade} {dots}"
+
+    return jsonify({
+        "signal": {
+            "ntime": ntime,
+            "vol_regime": vol,
+            "vol_regime_proba": vol_p,
+            "direction": dirn,
+            "direction_proba": dir_p,
+            "trade": trade,
+            "trade_code": trade_code,
+            "confidence": conf,
+            "viable_rate": viable_rate,
+            "signal_text": signal_text,
+        }
+    })
+
+
 @app.route("/api/ml/predictions")
 def api_ml_predictions():
     """Return prediction history with outcomes. Query: limit=N (default 100)"""
@@ -7575,6 +7634,394 @@ def gex_admin():
     from time import time
     return render_template("gex_admin.html", cache_bust=int(time()))
 
+def _ensure_pin_profile_table() -> None:
+    """Create pin_profile table if it does not exist."""
+    with _db() as con:
+        con.execute("""
+            CREATE TABLE IF NOT EXISTS pin_profile (
+                ndate            INTEGER PRIMARY KEY,
+                score            REAL,
+                score_hist       REAL,
+                score_live       REAL,
+                rank_hist        INTEGER,
+                rank_live        INTEGER,
+                key_strike       INTEGER,
+                key_strike_pct   REAL,
+                net_gex          REAL,
+                gex_ratio        REAL,
+                dominance_ratio  REAL,
+                crosses          INTEGER,
+                cross_source     TEXT,
+                vol_mag_score    INTEGER,
+                vol_bal_score    INTEGER,
+                snap_count       INTEGER,
+                updated_at       TEXT
+            )
+        """)
+
+
+def _compute_pin_score_for_date(ndate: int, is_live: bool = False) -> dict | None:
+    """Compute pin/magnet profile score for a single date.
+
+    Scoring (max 12 pts):
+      2 pts — net_gex magnitude (percentile vs all days)
+      2 pts — GEX ratio balance at key strike (call/put close to 1.0)
+      2 pts — key strike dominance (top vs 2nd abs GEX)
+      2 pts — key strike stability (same strike across snaps)
+      2 pts — SPX crosses (5min if available, GEX price proxy otherwise)
+      2 pts — volume at key strike (magnitude 1pt + balance 1pt)
+
+    Returns score dict or None if insufficient data.
+    """
+    import json as _j
+    from datetime import datetime as _dt
+
+    with _db() as con:
+        snaps = con.execute(
+            "SELECT ntime, price, data FROM gex_strike_window "
+            "WHERE ndate=? AND ntime >= 930 ORDER BY ntime",
+            (ndate,)
+        ).fetchall()
+
+    if len(snaps) < 2:
+        return None
+
+    # --- Derive per-snapshot key strikes ---
+    key_strikes = []
+    for ntime, price, data in snaps:
+        try:
+            strikes = _j.loads(data)
+            top = max(strikes, key=lambda s: abs(s.get("net", 0) or 0))
+            key_strikes.append(top["strike"])
+        except Exception:
+            key_strikes.append(None)
+
+    valid_ks = [k for k in key_strikes if k is not None]
+    if not valid_ks:
+        return None
+
+    # Modal key strike (most common across the day)
+    from collections import Counter
+    modal_ks = Counter(valid_ks).most_common(1)[0][0]
+    ks_pct = valid_ks.count(modal_ks) / len(valid_ks) * 100.0
+
+    # --- Use mid-day reference snapshot for GEX metrics ---
+    mid_idx = len(snaps) // 2
+    _, ref_price, ref_data = snaps[mid_idx]
+    ref_strikes = _j.loads(ref_data)
+
+    total_call = sum(s.get("cg", 0) or 0 for s in ref_strikes)
+    total_put  = sum(s.get("pg", 0) or 0 for s in ref_strikes)
+    net_gex    = sum(s.get("net", 0) or 0 for s in ref_strikes)
+
+    # GEX ratio (call / abs(put))
+    gex_ratio = (total_call / abs(total_put)) if total_put != 0 else None
+
+    # Key strike row in ref snapshot
+    sorted_by_abs = sorted(ref_strikes, key=lambda s: abs(s.get("net", 0) or 0), reverse=True)
+    top_s  = sorted_by_abs[0]
+    sec_s  = sorted_by_abs[1] if len(sorted_by_abs) > 1 else None
+    dominance_ratio = (
+        abs(top_s.get("net", 0)) / abs(sec_s.get("net", 1))
+        if sec_s and abs(sec_s.get("net", 1)) > 0 else 0
+    )
+
+    # Volume at modal key strike from ref snapshot
+    ks_row = next((s for s in ref_strikes if s["strike"] == modal_ks), None)
+    if ks_row is None:
+        ks_row = top_s
+    vol_total = (ks_row.get("cvol", 0) or 0) + (ks_row.get("pvol", 0) or 0)
+    cvol = ks_row.get("cvol", 0) or 0
+    pvol = ks_row.get("pvol", 0) or 0
+    vol_bal = (cvol / pvol) if pvol > 0 else None
+
+    # --- SPX crosses ---
+    with _db() as con:
+        spx_bars = con.execute(
+            "SELECT ntime, high, low FROM spx_ohlc_5min WHERE ndate=? AND ntime >= 930 ORDER BY ntime",
+            (ndate,)
+        ).fetchall()
+
+    cross_source = "spx_5min"
+    if spx_bars:
+        # Count crosses using 5min high/low vs modal_ks
+        crosses = 0
+        prev_side = None
+        for _, high, low in spx_bars:
+            if high >= modal_ks and low <= modal_ks:
+                # bar straddles strike — count as cross
+                if prev_side is not None:
+                    crosses += 1
+                prev_side = None
+            elif high < modal_ks:
+                side = "below"
+                if prev_side == "above":
+                    crosses += 1
+                prev_side = side
+            elif low > modal_ks:
+                side = "above"
+                if prev_side == "below":
+                    crosses += 1
+                prev_side = side
+    else:
+        # Proxy: count sign changes in (price - modal_ks) across GEX snapshots
+        cross_source = "spx_gex_proxy"
+        crosses = 0
+        prev_side = None
+        for ntime, price, _ in snaps:
+            if price is None:
+                continue
+            side = "above" if price >= modal_ks else "below"
+            if prev_side is not None and side != prev_side:
+                crosses += 1
+            prev_side = side
+
+    # --- Scoring ---
+    # 1. Net GEX percentile — need population; fetch all net_gex values for context
+    with _db() as con:
+        ng_vals = con.execute(
+            "SELECT SUM(CAST(json_extract(value, '$.net') AS REAL)) "
+            "FROM json_each((SELECT data FROM gex_strike_window WHERE ndate=? AND ntime>=930 LIMIT 1))",
+            (ndate,)
+        ).fetchone()
+        # Simpler: get net_gex dist from all mid-day snaps
+        all_ng = con.execute(
+            "SELECT net_gex FROM pin_profile WHERE net_gex IS NOT NULL"
+        ).fetchall()
+
+    all_ng_vals = [r[0] for r in all_ng] + [net_gex]
+    all_ng_sorted = sorted(all_ng_vals)
+    ng_pct = sum(1 for v in all_ng_sorted if v <= net_gex) / len(all_ng_sorted) * 100.0
+
+    net_gex_score = 2 if ng_pct >= 80 else (1 if ng_pct >= 60 else 0)
+
+    # 2. GEX ratio balance
+    ratio_dev = abs(gex_ratio - 1.0) if gex_ratio is not None else 999
+    ratio_score = 2 if ratio_dev < 0.15 else (1 if ratio_dev < 0.30 else 0)
+
+    # 3. Dominance
+    dom_score = 2 if dominance_ratio >= 3.0 else (1 if dominance_ratio >= 2.0 else 0)
+
+    # 4. Key strike stability
+    stab_score = 2 if ks_pct >= 80 else (1 if ks_pct >= 60 else 0)
+
+    # 5. Crosses
+    cross_score = 2 if crosses >= 3 else (1 if crosses >= 1 else 0)
+
+    # 6. Volume at key strike
+    #    magnitude: compare to median across all sessions (use vol_total vs a reasonable threshold)
+    #    For now use a relative heuristic: vol_total > 0 means some activity,
+    #    we'll use percentile approach once table is populated;
+    #    bootstrap: score 1 if cvol+pvol > 50, score full 1 from percentile pass
+    vol_mag_score = 1 if vol_total >= 50 else 0
+    vol_bal_score = 1 if (vol_bal is not None and 0.5 <= vol_bal <= 2.0) else 0
+
+    total_score = net_gex_score + ratio_score + dom_score + stab_score + cross_score + vol_mag_score + vol_bal_score
+
+    return {
+        "ndate": ndate,
+        "score": total_score,
+        "score_hist": None if is_live else total_score,
+        "score_live": total_score if is_live else None,
+        "key_strike": modal_ks,
+        "key_strike_pct": round(ks_pct, 1),
+        "net_gex": round(net_gex, 2),
+        "gex_ratio": round(gex_ratio, 4) if gex_ratio is not None else None,
+        "dominance_ratio": round(dominance_ratio, 2),
+        "crosses": crosses,
+        "cross_source": cross_source,
+        "vol_mag_score": vol_mag_score,
+        "vol_bal_score": vol_bal_score,
+        "snap_count": len(snaps),
+        "updated_at": _dt.now().isoformat(timespec="seconds"),
+    }
+
+
+def _upsert_pin_profile(ndate: int, is_live: bool = False) -> dict:
+    """Compute and upsert pin profile score for a single date."""
+    result = _compute_pin_score_for_date(ndate, is_live=is_live)
+    if result is None:
+        return {"status": "skipped", "ndate": ndate}
+
+    with _db() as con:
+        existing = con.execute(
+            "SELECT score_hist, score_live FROM pin_profile WHERE ndate=?", (ndate,)
+        ).fetchone()
+
+        if existing:
+            # Preserve the other score type
+            score_hist = result["score_hist"] if result["score_hist"] is not None else existing[0]
+            score_live = result["score_live"] if result["score_live"] is not None else existing[1]
+            combined   = score_hist if score_hist is not None else score_live
+            con.execute("""
+                UPDATE pin_profile SET
+                    score=?, score_hist=?, score_live=?,
+                    key_strike=?, key_strike_pct=?, net_gex=?, gex_ratio=?,
+                    dominance_ratio=?, crosses=?, cross_source=?,
+                    vol_mag_score=?, vol_bal_score=?, snap_count=?, updated_at=?
+                WHERE ndate=?
+            """, (combined, score_hist, score_live,
+                  result["key_strike"], result["key_strike_pct"], result["net_gex"],
+                  result["gex_ratio"], result["dominance_ratio"], result["crosses"],
+                  result["cross_source"], result["vol_mag_score"], result["vol_bal_score"],
+                  result["snap_count"], result["updated_at"], ndate))
+        else:
+            score_hist = result["score_hist"]
+            score_live = result["score_live"]
+            combined   = result["score"]
+            con.execute("""
+                INSERT INTO pin_profile (ndate, score, score_hist, score_live,
+                    key_strike, key_strike_pct, net_gex, gex_ratio,
+                    dominance_ratio, crosses, cross_source,
+                    vol_mag_score, vol_bal_score, snap_count, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """, (ndate, combined, score_hist, score_live,
+                  result["key_strike"], result["key_strike_pct"], result["net_gex"],
+                  result["gex_ratio"], result["dominance_ratio"], result["crosses"],
+                  result["cross_source"], result["vol_mag_score"], result["vol_bal_score"],
+                  result["snap_count"], result["updated_at"]))
+
+    return {"status": "ok", "ndate": ndate, "score": result["score"]}
+
+
+def _backfill_pin_profile() -> dict:
+    """Compute pin profile scores for all historical dates not yet scored."""
+    from datetime import datetime as _dt
+    today_ndate = int(_dt.now().strftime("%Y%m%d"))
+
+    with _db() as con:
+        all_dates = [r[0] for r in con.execute(
+            "SELECT DISTINCT ndate FROM gex_strike_window WHERE ntime >= 930 ORDER BY ndate"
+        ).fetchall()]
+        done_dates = set(r[0] for r in con.execute(
+            "SELECT ndate FROM pin_profile WHERE score_hist IS NOT NULL"
+        ).fetchall())
+
+    # Historical = all dates except today
+    to_do = [d for d in all_dates if d != today_ndate and d not in done_dates]
+    inserted = 0
+    for ndate in to_do:
+        r = _upsert_pin_profile(ndate, is_live=False)
+        if r.get("status") == "ok":
+            inserted += 1
+
+    # Re-rank after upsert
+    _rerank_pin_profile()
+    return {"status": "ok", "computed": inserted, "skipped": len(to_do) - inserted}
+
+
+def _rerank_pin_profile() -> None:
+    """Update rank_hist and rank_live columns based on current scores."""
+    with _db() as con:
+        hist_rows = con.execute(
+            "SELECT ndate, score_hist FROM pin_profile WHERE score_hist IS NOT NULL ORDER BY score_hist DESC"
+        ).fetchall()
+        for rank, (ndate, _) in enumerate(hist_rows, 1):
+            con.execute("UPDATE pin_profile SET rank_hist=? WHERE ndate=?", (rank, ndate))
+
+        live_rows = con.execute(
+            "SELECT ndate, score_live FROM pin_profile WHERE score_live IS NOT NULL ORDER BY score_live DESC"
+        ).fetchall()
+        for rank, (ndate, _) in enumerate(live_rows, 1):
+            con.execute("UPDATE pin_profile SET rank_live=? WHERE ndate=?", (rank, ndate))
+
+
+@app.route("/api/pin-profile/scores")
+def api_pin_profile_scores():
+    """Return all pin profile scores, sorted by historical rank (live rank for today)."""
+    with _db() as con:
+        rows = con.execute("""
+            SELECT ndate, score, score_hist, score_live, rank_hist, rank_live,
+                   key_strike, key_strike_pct, net_gex, gex_ratio,
+                   dominance_ratio, crosses, cross_source,
+                   vol_mag_score, vol_bal_score, snap_count, updated_at
+            FROM pin_profile
+            ORDER BY
+                CASE WHEN score_hist IS NOT NULL THEN score_hist ELSE score_live END DESC,
+                ndate DESC
+        """).fetchall()
+    cols = ["ndate","score","score_hist","score_live","rank_hist","rank_live",
+            "key_strike","key_strike_pct","net_gex","gex_ratio",
+            "dominance_ratio","crosses","cross_source",
+            "vol_mag_score","vol_bal_score","snap_count","updated_at"]
+    return jsonify({"rows": [dict(zip(cols, r)) for r in rows]})
+
+
+@app.route("/api/pin-profile/spx-chart")
+def api_pin_profile_spx_chart():
+    """Return 5-min SPX bars + key strike for a date (used by popup chart)."""
+    date_str = request.args.get("date", "")
+    try:
+        ndate = int(date_str.replace("-", ""))
+    except ValueError:
+        return jsonify({"error": "invalid date"}), 400
+
+    with _db() as con:
+        spx = con.execute(
+            "SELECT ntime, open, high, low, close FROM spx_ohlc_5min "
+            "WHERE ndate=? AND ntime >= 930 ORDER BY ntime",
+            (ndate,)
+        ).fetchall()
+        pp = con.execute(
+            "SELECT key_strike, crosses, cross_source, score_hist, score_live, "
+            "       dominance_ratio, gex_ratio, key_strike_pct "
+            "FROM pin_profile WHERE ndate=?", (ndate,)
+        ).fetchone()
+        # Also get per-snapshot key strikes for the overlay line segments
+        snap_ks = con.execute(
+            "SELECT ntime, price, data FROM gex_strike_window "
+            "WHERE ndate=? AND ntime >= 930 ORDER BY ntime", (ndate,)
+        ).fetchall()
+
+    import json as _j
+    snap_key_strikes = []
+    for ntime, price, data in snap_ks:
+        try:
+            strikes = _j.loads(data)
+            top = max(strikes, key=lambda s: abs(s.get("net", 0) or 0))
+            snap_key_strikes.append({"ntime": ntime, "price": price, "key_strike": top["strike"]})
+        except Exception:
+            pass
+
+    return jsonify({
+        "spx_bars": [{"ntime": r[0], "open": r[1], "high": r[2], "low": r[3], "close": r[4]} for r in spx],
+        "pin_profile": dict(zip(
+            ["key_strike","crosses","cross_source","score_hist","score_live",
+             "dominance_ratio","gex_ratio","key_strike_pct"], pp
+        )) if pp else None,
+        "snap_key_strikes": snap_key_strikes,
+    })
+
+
+@app.route("/api/pin-profile/update")
+def api_pin_profile_update():
+    """Trigger a pin profile score update for a specific date (or backfill all)."""
+    date_str = request.args.get("date", "")
+    mode = request.args.get("mode", "single")
+    from datetime import datetime as _dt
+    today_ndate = int(_dt.now().strftime("%Y%m%d"))
+
+    if mode == "backfill":
+        result = _backfill_pin_profile()
+        return jsonify(result)
+
+    try:
+        ndate = int(date_str.replace("-", "")) if date_str else today_ndate
+    except ValueError:
+        return jsonify({"error": "invalid date"}), 400
+
+    is_live = (ndate == today_ndate)
+    result = _upsert_pin_profile(ndate, is_live=is_live)
+    _rerank_pin_profile()
+    return jsonify(result)
+
+
+@app.route("/pin-profile")
+def pin_profile_page():
+    from time import time
+    return render_template("pin_profile.html", cache_bust=int(time()))
+
+
 @app.route("/gex-distribution")
 def gex_distribution():
     from time import time
@@ -8737,6 +9184,15 @@ def api_gex_fetch_live():
             except Exception as _ml_err:
                 ml_signal = {"error": str(_ml_err)}
 
+        # Update live pin profile score for today
+        pin_score = None
+        try:
+            pin_result = _upsert_pin_profile(ndate, is_live=True)
+            _rerank_pin_profile()
+            pin_score = pin_result.get("score")
+        except Exception as _pin_err:
+            pin_score = None
+
         return jsonify({
             "success": True,
             "message": f"Fetched live GEX data for {et_now.strftime('%Y-%m-%d %H:%M')}",
@@ -8746,6 +9202,7 @@ def api_gex_fetch_live():
             "strike_count": len(window_strikes),
             "hmm_label": hmm_label,
             "ml_signal": ml_signal,
+            "pin_score": pin_score,
         })
         
     except Exception as e:
@@ -10109,6 +10566,11 @@ def api_sync_historical():
         month = int(month)
     
     result = sync_historical_gex(symbol=symbol, mode=mode, target_date=target_date, target_time=target_time, max_days=max_days, year=year, month=month)
+    # Update pin profile scores for any newly fetched dates
+    try:
+        _backfill_pin_profile()
+    except Exception:
+        pass
     return jsonify(result)
 
 
@@ -11164,6 +11626,8 @@ if __name__ == "__main__":
     _ensure_live_analysis_table()
     _ensure_spx_ohlc_table()
     _update_spx_ohlc_from_yfinance()
+    _ensure_pin_profile_table()
+    _backfill_pin_profile()
     _ensure_ml_labels_current()
     _ensure_ml_models_table()
     _ensure_ml_predictions_table()
