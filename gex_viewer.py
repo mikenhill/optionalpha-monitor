@@ -7634,6 +7634,170 @@ def gex_admin():
     from time import time
     return render_template("gex_admin.html", cache_bust=int(time()))
 
+@app.route("/bots")
+def bots():
+    from time import time
+    return render_template("bots.html", cache_bust=int(time()))
+
+@app.route("/api/bots")
+def api_bots():
+    """Fetch active bots list from OptionAlpha via bots.load RPC."""
+    import time as _time_mod
+    from optionalpha_client import call_optionalpha_api, SESSION_FILE
+
+    tid = int(_time_mod.time() * 1000)
+    payload = [
+        {
+            "t": "rpc",
+            "tid": f"{tid}-10008",
+            "api": "bots.load",
+            "args": [
+                {
+                    "where": {"accountId": "*"},
+                    "start": 0,
+                }
+            ],
+        }
+    ]
+    print(f"[BOTS API] Calling bots.load, tid={tid}")
+    try:
+        data = call_optionalpha_api(payload)
+        print(f"[BOTS API] Response length: {len(data) if isinstance(data, list) else 'N/A'}")
+        if isinstance(data, dict) and data.get("error"):
+            return jsonify({"error": data.get("error"), "details": data}), 503
+        # Extract bot list from response
+        bots = []
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and item.get("api") == "bots.load":
+                    bot_data = item.get("data")
+                    if isinstance(bot_data, list):
+                        bots = bot_data
+                    break
+        print(f"[BOTS API] Loaded {len(bots)} bots")
+        return jsonify({
+            "status": "ok",
+            "count": len(bots),
+            "bots": bots,
+            "raw": data,
+        })
+    except FileNotFoundError as e:
+        print(f"[BOTS API] Session file missing: {e}")
+        return jsonify({"error": "Session file not found. Run optionalpha_probe.py to refresh session.json."}), 503
+    except Exception as e:
+        print(f"[BOTS API] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/bot-scanners")
+def api_bot_scanners():
+    """Fetch scanners/triggers and notes for a single bot from OptionAlpha."""
+    import time as _time_mod
+    from optionalpha_client import call_optionalpha_api, SESSION_FILE
+
+    bot_id = request.args.get("id")
+    if not bot_id:
+        return jsonify({"error": "Missing bot id"}), 400
+
+    tid = int(_time_mod.time() * 1000)
+    payload = [
+        {
+            "t": "rpc",
+            "tid": f"{tid}-10002",
+            "api": "triggers.list",
+            "args": [{"iid": bot_id}],
+        },
+        {
+            "t": "rpc",
+            "tid": f"{tid}-10003",
+            "api": "bot.getNotes",
+            "args": [bot_id],
+        },
+    ]
+    print(f"[BOT SCANNERS API] Calling triggers.list and bot.getNotes for {bot_id}, tid={tid}")
+    try:
+        data = call_optionalpha_api(payload)
+        print(f"[BOT SCANNERS API] Response length: {len(data) if isinstance(data, list) else 'N/A'}")
+        if isinstance(data, dict) and data.get("error"):
+            return jsonify({"error": data.get("error"), "details": data}), 503
+
+        triggers = []
+        autos = []
+        notes = None
+        if isinstance(data, list):
+            for item in data:
+                if not isinstance(item, dict):
+                    continue
+                api_name = item.get("api")
+                item_data = item.get("data")
+                if api_name == "triggers.list" and isinstance(item_data, dict):
+                    triggers = item_data.get("triggers") or []
+                    autos = item_data.get("autos") or []
+                elif api_name == "bot.getNotes":
+                    notes = item_data
+        print(f"[BOT SCANNERS API] Loaded {len(triggers)} triggers for {bot_id}")
+        return jsonify({
+            "status": "ok",
+            "bot_id": bot_id,
+            "triggers": triggers,
+            "autos": autos,
+            "notes": notes,
+            "raw": data,
+        })
+    except FileNotFoundError as e:
+        print(f"[BOT SCANNERS API] Session file missing: {e}")
+        return jsonify({"error": "Session file not found. Run optionalpha_probe.py to refresh session.json."}), 503
+    except Exception as e:
+        print(f"[BOT SCANNERS API] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route("/api/routine-details")
+def api_routine_details():
+    """Fetch detailed routine/scanner configuration from OptionAlpha."""
+    import time as _time_mod
+    from optionalpha_client import call_optionalpha_api, SESSION_FILE
+
+    routine_id = request.args.get("id")
+    if not routine_id:
+        return jsonify({"error": "Missing routine id"}), 400
+
+    tid = int(_time_mod.time() * 1000)
+    payload = [
+        {
+            "t": "rpc",
+            "tid": f"{tid}-10005",
+            "api": "routines.details",
+            "args": [routine_id],
+        }
+    ]
+    print(f"[ROUTINE DETAILS API] Calling routines.details for {routine_id}, tid={tid}")
+    try:
+        data = call_optionalpha_api(payload)
+        print(f"[ROUTINE DETAILS API] Response length: {len(data) if isinstance(data, list) else 'N/A'}")
+        if isinstance(data, dict) and data.get("error"):
+            return jsonify({"error": data.get("error"), "details": data}), 503
+
+        routine = None
+        if isinstance(data, list):
+            for item in data:
+                if isinstance(item, dict) and item.get("api") == "routines.details":
+                    routine = item.get("data")
+                    break
+        print(f"[ROUTINE DETAILS API] Loaded routine {routine_id}")
+        return jsonify({
+            "status": "ok",
+            "routine_id": routine_id,
+            "routine": routine,
+            "raw": data,
+        })
+    except FileNotFoundError as e:
+        print(f"[ROUTINE DETAILS API] Session file missing: {e}")
+        return jsonify({"error": "Session file not found. Run optionalpha_probe.py to refresh session.json."}), 503
+    except Exception as e:
+        print(f"[ROUTINE DETAILS API] Error: {e}")
+        return jsonify({"error": str(e)}), 500
+
 def _ensure_magnet_days_table() -> None:
     """Create magnet_days table if it does not exist."""
     with _db() as con:
@@ -8179,9 +8343,46 @@ def api_magnet_spx_stats():
         ).fetchone()
     return jsonify({
         "total_bars": row[0],
+        "distinct_dates": row[1],
         "total_dates": row[1],
         "min_date": row[2],
         "max_date": row[3],
+    })
+
+
+@app.route("/api/magnet/spx-dates")
+def api_magnet_spx_dates():
+    """Return sorted list of ISO dates that have 5-min SPX data."""
+    with _db() as con:
+        rows = con.execute(
+            "SELECT DISTINCT ndate FROM spx_ohlc_5min ORDER BY ndate DESC"
+        ).fetchall()
+    dates = []
+    for (nd,) in rows:
+        s = str(nd)
+        dates.append(f"{s[:4]}-{s[4:6]}-{s[6:]}")
+    return jsonify({"dates": dates})
+
+
+@app.route("/api/spx-stale-warning")
+def api_spx_stale_warning():
+    """Return whether yesterday's SPX 5-min data is missing (stale check)."""
+    import datetime as _datetime
+    today = _datetime.date.today()
+    # Step back to find last trading day (skip weekends)
+    day = today - _datetime.timedelta(days=1)
+    while day.weekday() >= 5:  # 5=Sat, 6=Sun
+        day -= _datetime.timedelta(days=1)
+    expected = int(day.strftime("%Y%m%d"))
+    with _db() as con:
+        row = con.execute(
+            "SELECT COUNT(*) FROM spx_ohlc_5min WHERE ndate=?", (expected,)
+        ).fetchone()
+    missing = row[0] == 0
+    return jsonify({
+        "stale": missing,
+        "expected_date": str(expected),
+        "expected_iso": day.isoformat(),
     })
 
 
@@ -8426,6 +8627,47 @@ def api_magnet_debug(ndate):
             db_row
         )) if db_row else None,
     })
+
+
+@app.route("/trade-analysis")
+def trade_analysis_page():
+    from time import time
+    from flask import make_response as _make_response
+    resp = _make_response(render_template("trade_analysis.html", cache_bust=int(time())))
+    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Expires"] = "0"
+    return resp
+
+
+@app.route("/api/trade-analysis/parse", methods=["POST"])
+def api_trade_analysis_parse():
+    """Accept a CSV upload of trade data and return parsed rows as JSON."""
+    import csv, io
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "No file uploaded"}), 400
+    content = f.read().decode("utf-8-sig")
+    reader = csv.DictReader(io.StringIO(content))
+    FIELDS = ["botName","type","description","symbol","status","quantity","daysInTrade",
+              "openPrice","closePrice","premium","pnl","ror","returnPct","risk","ev","alpha",
+              "highReturnPct","lowReturnPct","highReturnPctDate","lowReturnPctDate",
+              "expiration","openDate","closeDate","tags","underlyingOpen","underlyingClose"]
+    trades = []
+    for i, row in enumerate(reader):
+        t = {}
+        for f_name in FIELDS:
+            t[f_name] = row.get(f_name, "").strip()
+        # Coerce numerics
+        for num_f in ["openPrice","closePrice","premium","pnl","ror","returnPct","risk",
+                      "underlyingOpen","underlyingClose","quantity","daysInTrade"]:
+            try:
+                t[num_f] = float(t[num_f]) if t[num_f] not in ("", None) else None
+            except ValueError:
+                t[num_f] = None
+        t["_id"] = i
+        trades.append(t)
+    return jsonify({"trades": trades, "count": len(trades)})
 
 
 @app.route("/magnet")
@@ -10743,6 +10985,7 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
 
     This function intentionally does NOT touch the snapshot table or any old logic.
     """
+    print(f"[SYNC] Starting sync_historical_gex: mode={mode}, symbol={symbol}, max_days={max_days}, target_date={target_date}, target_time={target_time}, year={year}, month={month}")
     import time as _time_mod
     import random
     from datetime import date, timedelta
@@ -10782,11 +11025,15 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
                 "SELECT ntime FROM gex_strike_window WHERE ndate=? AND symbol=?",
                 (ndate, symbol),
             ).fetchall()
-        return {r[0] for r in rows}
+        times = {r[0] for r in rows}
+        print(f"[SYNC] Existing times for {ndate}: {len(times)} found")
+        return times
 
     def _fetch_and_store(ndate: int, ntime: int) -> bool:
         """Fetch one snapshot from OptionAlpha and store in gex_strike_window."""
+        print(f"[SYNC] Fetching {ndate}@{ntime:04d} for {symbol}...")
         data = fetch_histgex(symbol=symbol, ndate=ndate, ntime=ntime)
+        print(f"[SYNC] fetch_histgex returned data keys={list(data.keys()) if isinstance(data, dict) else 'N/A'} for {ndate}@{ntime:04d}")
         if not data:
             raise ValueError(f"market.histgex returned no data for {ntime}")
         rows = data.get("data") or []
@@ -10805,6 +11052,7 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
                 "VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (ndate, ntime, symbol, 'gex', uprice, json.dumps(window_strikes), flip)
             )
+        print(f"[SYNC] Stored {ndate}@{ntime:04d} price={uprice}, flip={flip}")
         
         # Calculate HMM label for RTH snapshots (ntime >= 935)
         hmm_state = None
@@ -10844,9 +11092,14 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
                         "WHERE ndate=? AND ntime=? AND symbol=? AND source='gex'",
                         (hmm_state, hmm_label, ndate, ntime, symbol),
                     )
+            print(f"[SYNC] HMM for {ndate}@{ntime:04d}: state={hmm_state}, label={hmm_label}")
+        else:
+            print(f"[SYNC] Skipping HMM for {ndate}@{ntime:04d} (pre-market)")
         
         # Recalculate percentiles for this time slot
+        print(f"[SYNC] Recalculating percentiles for time slot {ntime:04d}")
         _recalc_gex_percentiles(ntime)
+        print(f"[SYNC] Completed {ndate}@{ntime:04d}")
         return True
 
     fetched = []
@@ -10869,6 +11122,7 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
         ndate = target_ndate
         ntime = target_ntime
         existing = _existing_gex_times(ndate, symbol)
+        print(f"[SYNC] datetime mode: {iso}@{ntime:04d}, exists={ntime in existing}")
         if ntime in existing:
             skipped.append(f"{iso}@{ntime}")
         else:
@@ -10876,6 +11130,9 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
                 _fetch_and_store(ndate, ntime)
                 fetched.append(f"{iso}@{ntime}")
             except Exception as e:
+                import traceback
+                print(f"[SYNC ERROR] datetime mode failed {iso}@{ntime:04d}: {e}")
+                traceback.print_exc()
                 failed.append({"date": f"{iso}@{ntime}", "error": str(e)[:80]})
 
     elif mode == "date" and target_ndate:
@@ -10883,6 +11140,7 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
         ndate = target_ndate
         existing = _existing_gex_times(ndate, symbol)
         missing = [t for t in INTRADAY_TIMES if t not in existing]
+        print(f"[SYNC] date mode: {iso}, missing={len(missing)} slots: {missing}")
         if not missing:
             skipped.append(iso)
         else:
@@ -10893,9 +11151,13 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
                     day_fetched += 1
                     _time_mod.sleep(0.5)
                 except Exception as e:
+                    import traceback
+                    print(f"[SYNC ERROR] date mode failed {iso}@{ntime:04d}: {e}")
+                    traceback.print_exc()
                     failed.append({"date": f"{iso}@{ntime}", "error": str(e)[:80]})
             if day_fetched > 0:
                 fetched.append(f"{iso}({day_fetched}/{len(missing)} slots)")
+            print(f"[SYNC] date mode result for {iso}: fetched {day_fetched}/{len(missing)}")
 
     elif mode == "timeslot" and target_ntime:
         # Fetch specific time slot for all dates
@@ -10914,10 +11176,12 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
             yesterday = date.today() - timedelta(days=1)
             dates_to_process = [yesterday - timedelta(days=i) for i in range(max_days)]
         
+        print(f"[SYNC] timeslot mode: target_ntime={target_ntime:04d}, processing {len(dates_to_process)} dates")
         for d in dates_to_process:
             iso = d.isoformat()
             ndate = int(d.strftime("%Y%m%d"))
             existing = _existing_gex_times(ndate, symbol)
+            print(f"[SYNC] timeslot mode: checking {iso}@{target_ntime:04d}, exists={target_ntime in existing}")
             if target_ntime in existing:
                 skipped.append(f"{iso}@{target_ntime}")
                 continue
@@ -10926,12 +11190,17 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
                 fetched.append(f"{iso}@{target_ntime}")
                 # Random sleep 2-4 seconds to avoid detection
                 sleep_time = random.uniform(2, 4)
+                print(f"[SYNC] timeslot mode: sleeping {sleep_time:.2f}s")
                 _time_mod.sleep(sleep_time)
             except Exception as e:
+                import traceback
+                print(f"[SYNC ERROR] timeslot mode failed {iso}@{target_ntime:04d}: {e}")
+                traceback.print_exc()
                 failed.append({"date": f"{iso}@{target_ntime}", "error": str(e)[:80]})
 
     else:
         # "all" mode
+        print(f"[SYNC] all mode: processing last {max_days} days ending yesterday")
         yesterday = date.today() - timedelta(days=1)
         for i in range(max_days):
             d = yesterday - timedelta(days=i)
@@ -10939,6 +11208,7 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
             ndate = int(d.strftime("%Y%m%d"))
             existing = _existing_gex_times(ndate, symbol)
             missing = [t for t in INTRADAY_TIMES if t not in existing]
+            print(f"[SYNC] all mode: {iso} missing={len(missing)} slots: {missing}")
             if not missing:
                 skipped.append(iso)
                 continue
@@ -10949,10 +11219,15 @@ def sync_historical_gex(symbol: str = "SPX", mode: str = "all", target_date: str
                     day_fetched += 1
                     _time_mod.sleep(0.5)
                 except Exception as e:
+                    import traceback
+                    print(f"[SYNC ERROR] all mode failed {iso}@{ntime:04d}: {e}")
+                    traceback.print_exc()
                     failed.append({"date": f"{iso}@{ntime}", "error": str(e)[:80]})
             if day_fetched > 0:
                 fetched.append(f"{iso}({day_fetched}/{len(missing)} slots)")
+            print(f"[SYNC] all mode result for {iso}: fetched {day_fetched}/{len(missing)}")
 
+    print(f"[SYNC] Complete: fetched={len(fetched)}, skipped={len(skipped)}, failed={len(failed)}")
     return {"fetched": fetched, "skipped": skipped, "failed": failed}
 
 
@@ -10967,12 +11242,15 @@ def api_sync_historical():
     year = request.args.get("year")
     month = request.args.get("month")
     
+    print(f"[SYNC API] Request: symbol={symbol}, mode={mode}, max_days={max_days}, date={target_date}, time={target_time}, year={year}, month={month}")
+    
     if year:
         year = int(year)
     if month:
         month = int(month)
     
     result = sync_historical_gex(symbol=symbol, mode=mode, target_date=target_date, target_time=target_time, max_days=max_days, year=year, month=month)
+    print(f"[SYNC API] Result: fetched={len(result.get('fetched', []))}, skipped={len(result.get('skipped', []))}, failed={len(result.get('failed', []))}")
     return jsonify(result)
 
 
@@ -12062,6 +12340,7 @@ if __name__ == "__main__":
         webbrowser.open(f"http://localhost:{PORT}")
     threading.Thread(target=open_browser, daemon=True).start()
     print(f"GEX Viewer running at http://localhost:{PORT}")
+    print("Bot routes:", [str(r) for r in app.url_map.iter_rules() if 'bot' in str(r)])
     print("Press Ctrl+C to stop.")
     app.run(port=PORT, debug=False)
     # _populate_percentile_history()  # populate time-slot percentiles for rankings - DISABLED TEMPORARILY
@@ -12078,5 +12357,6 @@ if __name__ == "__main__":
         webbrowser.open(f"http://localhost:{PORT}")
     threading.Thread(target=open_browser, daemon=True).start()
     print(f"GEX Viewer running at http://localhost:{PORT}")
+    print("Bot routes:", [str(r) for r in app.url_map.iter_rules() if 'bot' in str(r)])
     print("Press Ctrl+C to stop.")
     app.run(port=PORT, debug=False)

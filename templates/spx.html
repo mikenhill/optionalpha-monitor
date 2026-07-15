@@ -7,20 +7,32 @@
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <style>
     body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }
-    .nav { background: #212529; padding: 10px 20px; margin: -20px -20px 20px -20px; display: flex; gap: 5px; }
+    .nav { background: #212529; padding: 10px 20px; margin: -20px -20px 20px -20px; display: flex; gap: 5px; flex-wrap: wrap; }
     .nav a { padding: 6px 14px; text-decoration: none; color: #adb5bd; border-radius: 4px; font-size: 14px; }
     .nav a:hover { background: #343a40; color: #fff; }
     .nav a.active { background: #0d6efd; color: #fff; }
     .card { background: #fff; border: 1px solid #dee2e6; padding: 15px; margin-bottom: 15px; border-radius: 8px; }
-    h1 { font-size: 20px; margin: 0 0 15px 0; }
+    h1 { font-size: 20px; margin: 0 0 4px 0; }
+    .subtitle { color: #6c757d; font-size: 13px; margin-bottom: 16px; }
     .loading { color: #6c757d; font-style: italic; }
     .error { color: #dc3545; }
-    #spx-chart { width: 100%; height: 480px; }
-    .stat-row { display: flex; gap: 30px; flex-wrap: wrap; font-size: 14px; margin-bottom: 10px; }
+    #spx-chart { width: 100%; height: 460px; }
+    #intraday-chart { width: 100%; height: 420px; }
+    .stat-row { display: flex; gap: 24px; flex-wrap: wrap; font-size: 14px; margin-bottom: 12px; }
     .stat-item { display: flex; flex-direction: column; }
     .stat-label { font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px; }
     .stat-value { font-size: 18px; font-weight: bold; }
     .pos { color: #198754; } .neg { color: #dc3545; }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+    .btn { padding: 6px 14px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 500; }
+    .btn-primary { background: #0d6efd; color: #fff; }
+    .btn-primary:hover { background: #0b5ed7; }
+    .btn-danger { background: #dc3545; color: #fff; }
+    .btn-danger:hover { background: #bb2d3b; }
+    .status-msg { font-size: 12px; color: #6c757d; }
+    .status-ok { color: #198754; }
+    .status-err { color: #dc3545; }
+    select { font-size: 13px; padding: 5px 8px; border: 1px solid #ced4da; border-radius: 4px; }
   </style>
 </head>
 <body>
@@ -32,79 +44,213 @@
     <a href="/analysis">Analysis</a>
     <a class="active" href="/spx">SPX Prices</a>
     <a href="/csv">CSV</a>
+    <a href="/ml">ML</a>
+    <a href="/magnet">Magnet</a>
+    <a href="/trade-analysis">Trade Analysis</a>
+    <a href="/bots">Bots</a>
+    <span id="spx-warn" style="display:none;margin-left:auto;background:#dc3545;color:#fff;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600">⚠ SPX data stale — upload below</span>
+  </div>
+  <script>(async()=>{try{const d=await(await fetch('/api/spx-stale-warning')).json();if(d.stale){document.getElementById('spx-warn').style.display='';}}catch(e){}})();</script>
+
+  <h1>SPX Prices</h1>
+  <p class="subtitle">EOD price history from GEX snapshots. Select a date to view 5-min intraday bars.</p>
+
+  <!-- SPX Data Management -->
+  <div class="card">
+    <div class="toolbar">
+      <strong style="font-size:14px">5-Min Data</strong>
+      <span id="spx-db-stats" class="status-msg">Checking…</span>
+      <label class="btn btn-primary" style="cursor:pointer;margin-left:auto">
+        ↑ Load SPX CSV
+        <input type="file" id="spx-file-input" accept=".csv" style="display:none" onchange="loadSpxCsv(this.files[0])">
+      </label>
+      <button class="btn btn-danger" onclick="clearSpxData()">✕ Clear SPX Data</button>
+      <span id="spx-action-status" class="status-msg"></span>
+    </div>
+    <div style="font-size:11px;color:#6c757d">
+      Format: <code>Date,Time,Open,High,Low,Close,…</code> &nbsp;|&nbsp; Date: <code>mm/dd/yyyy</code> &nbsp;|&nbsp; Time: UTC-1 (08:35 = ET 09:35)
+    </div>
   </div>
 
-  <h1>SPX Price History</h1>
-
+  <!-- EOD Chart -->
   <div class="card">
     <div class="stat-row">
-      <div class="stat-item"><span class="stat-label">Data Points</span><span class="stat-value" id="stat-count">--</span></div>
+      <div class="stat-item"><span class="stat-label">Dates</span><span class="stat-value" id="stat-count">--</span></div>
       <div class="stat-item"><span class="stat-label">From</span><span class="stat-value" id="stat-from">--</span></div>
       <div class="stat-item"><span class="stat-label">To</span><span class="stat-value" id="stat-to">--</span></div>
-      <div class="stat-item"><span class="stat-label">Latest</span><span class="stat-value" id="stat-last">--</span></div>
-      <div class="stat-item"><span class="stat-label">Change (YTD)</span><span class="stat-value" id="stat-chg">--</span></div>
+      <div class="stat-item"><span class="stat-label">Latest Close</span><span class="stat-value" id="stat-last">--</span></div>
+      <div class="stat-item"><span class="stat-label">Change (period)</span><span class="stat-value" id="stat-chg">--</span></div>
     </div>
-    <p id="spx-status" class="loading">Loading...</p>
+    <p id="eod-status" class="loading">Loading…</p>
     <div id="spx-chart"></div>
   </div>
 
+  <!-- Intraday 5-min -->
+  <div class="card">
+    <div class="toolbar" style="margin-bottom:12px">
+      <strong style="font-size:14px">Intraday 5-Min</strong>
+      <select id="date-select" onchange="loadIntraday(this.value)" style="min-width:140px">
+        <option value="">— Select a date —</option>
+      </select>
+      <span id="intraday-status" class="status-msg"></span>
+    </div>
+    <div id="intraday-chart"></div>
+  </div>
+
   <script>
-    async function loadSPX() {
+    // ---- EOD chart ----
+    async function loadEod() {
       try {
         const r = await fetch('/api/spx-prices?mode=eod');
         if (!r.ok) throw new Error('HTTP ' + r.status);
         const d = await r.json();
         const prices = d.prices || [];
-
-        document.getElementById('spx-status').textContent = '';
+        document.getElementById('eod-status').textContent = '';
         document.getElementById('stat-count').textContent = prices.length;
-
         if (!prices.length) {
-          document.getElementById('spx-status').textContent = 'No price data available.';
+          document.getElementById('eod-status').textContent = 'No EOD price data available.';
           return;
         }
-
-        const first = prices[0];
-        const last = prices[prices.length - 1];
+        const first = prices[0], last = prices[prices.length - 1];
         const chg = last.uprice - first.uprice;
         const chgPct = (chg / first.uprice * 100).toFixed(1);
-
         document.getElementById('stat-from').textContent = first.date;
         document.getElementById('stat-to').textContent = last.date;
         document.getElementById('stat-last').textContent = last.uprice.toFixed(2);
         const chgEl = document.getElementById('stat-chg');
-        chgEl.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + ' (' + (chg >= 0 ? '+' : '') + chgPct + '%)';
+        chgEl.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(2) + ' (' + chgPct + '%)';
         chgEl.className = 'stat-value ' + (chg >= 0 ? 'pos' : 'neg');
-
-        const dates = prices.map(p => p.date);
-        const vals = prices.map(p => p.uprice);
-
         const trace = {
-          x: dates,
-          y: vals,
-          type: 'scatter',
-          mode: 'lines+markers',
-          marker: { size: 4, color: '#0d6efd' },
-          line: { color: '#0d6efd', width: 1.5 },
+          x: prices.map(p => p.date), y: prices.map(p => p.uprice),
+          type: 'scatter', mode: 'lines+markers',
+          marker: { size: 4, color: '#0d6efd' }, line: { color: '#0d6efd', width: 1.5 },
           hovertemplate: '<b>%{x}</b><br>SPX: %{y:.2f}<extra></extra>',
         };
-
-        const layout = {
-          xaxis: { title: 'Date', type: 'category', tickangle: -45, nticks: 20 },
-          yaxis: { title: 'SPX Price' },
-          margin: { t: 20, l: 65, r: 20, b: 80 },
-          plot_bgcolor: '#fff',
-          paper_bgcolor: '#fff',
-        };
-
-        Plotly.newPlot('spx-chart', [trace], layout, { responsive: true });
-      } catch (e) {
-        document.getElementById('spx-status').innerHTML = '<span class="error">Error: ' + e.message + '</span>';
-        console.error(e);
+        Plotly.newPlot('spx-chart', [trace], {
+          xaxis: { type: 'category', tickangle: -45, nticks: 20 },
+          yaxis: { title: 'SPX' },
+          margin: { t: 10, l: 60, r: 10, b: 80 },
+          plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+        }, { responsive: true, displayModeBar: false });
+      } catch(e) {
+        document.getElementById('eod-status').innerHTML = '<span class="error">Error: ' + e.message + '</span>';
       }
     }
 
-    loadSPX();
+    // ---- Intraday 5-min ----
+    async function loadIntraday(dateIso) {
+      const el = document.getElementById('intraday-chart');
+      const status = document.getElementById('intraday-status');
+      if (!dateIso) { Plotly.purge(el); el.innerHTML = ''; status.textContent = ''; return; }
+      status.textContent = 'Loading…';
+      try {
+        const r = await fetch(`/api/magnet/spx-chart?date=${dateIso}`);
+        const d = await r.json();
+        const bars = d.spx_bars || [];
+        if (!bars.length) {
+          status.textContent = 'No 5-min data for this date. Upload an SPX CSV above.';
+          status.className = 'status-msg status-err';
+          Plotly.purge(el); el.innerHTML = '';
+          return;
+        }
+        status.textContent = bars.length + ' bars';
+        status.className = 'status-msg status-ok';
+        const ntimeToHHMM = nt => {
+          const h = Math.floor(nt / 100), m = nt % 100;
+          return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+        };
+        const xs = bars.map(b => ntimeToHHMM(b.ntime));
+        const trace = {
+          type: 'candlestick', x: xs,
+          open: bars.map(b => b.open), high: bars.map(b => b.high),
+          low:  bars.map(b => b.low),  close: bars.map(b => b.close),
+          increasing: { line: { color: '#26a69a' } },
+          decreasing: { line: { color: '#ef5350' } },
+          showlegend: false,
+        };
+        Plotly.newPlot(el, [trace], {
+          xaxis: { type: 'category', tickangle: -45, rangeslider: { visible: false } },
+          yaxis: { title: 'SPX' },
+          margin: { t: 10, l: 60, r: 10, b: 60 },
+          plot_bgcolor: '#fafafa', paper_bgcolor: '#fff',
+          hovermode: 'x unified',
+        }, { responsive: true, displayModeBar: false });
+      } catch(e) {
+        status.textContent = 'Error: ' + e.message;
+        status.className = 'status-msg status-err';
+      }
+    }
+
+    // ---- SPX DB stats & date dropdown ----
+    async function checkSpxStats() {
+      try {
+        const r = await fetch('/api/magnet/spx-stats');
+        const d = await r.json();
+        const el = document.getElementById('spx-db-stats');
+        if (d.total_bars > 0) {
+          const fmt = nd => nd ? String(nd).replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') : '?';
+          el.textContent = `${d.total_bars.toLocaleString()} bars · ${d.distinct_dates} dates · ${fmt(d.min_date)} → ${fmt(d.max_date)}`;
+          el.className = 'status-msg status-ok';
+          // Populate date dropdown
+          const sel = document.getElementById('date-select');
+          // Fetch distinct dates
+          const r2 = await fetch('/api/magnet/spx-dates');
+          if (r2.ok) {
+            const d2 = await r2.json();
+            const dates = d2.dates || [];
+            sel.innerHTML = '<option value="">— Select a date —</option>' +
+              dates.map(dt => `<option value="${dt}">${dt}</option>`).join('');
+          }
+        } else {
+          el.textContent = 'No 5-min data loaded. Upload a CSV file.';
+          el.className = 'status-msg';
+        }
+      } catch(e) { /* silent */ }
+    }
+
+    // ---- Load SPX CSV ----
+    async function loadSpxCsv(file) {
+      if (!file) return;
+      const status = document.getElementById('spx-action-status');
+      status.textContent = 'Uploading…'; status.className = 'status-msg';
+      const fd = new FormData();
+      fd.append('file', file);
+      try {
+        const r = await fetch('/api/magnet/load-spx-csv', { method: 'POST', body: fd });
+        const d = await r.json();
+        if (d.error) {
+          status.textContent = 'Error: ' + d.error; status.className = 'status-msg status-err';
+        } else {
+          status.textContent = `✓ ${d.dates_loaded} date(s), ${d.rows_loaded} bars loaded`;
+          status.className = 'status-msg status-ok';
+          checkSpxStats();
+        }
+      } catch(e) {
+        status.textContent = 'Upload failed: ' + e.message; status.className = 'status-msg status-err';
+      }
+      document.getElementById('spx-file-input').value = '';
+    }
+
+    // ---- Clear SPX Data ----
+    async function clearSpxData() {
+      if (!confirm('Clear ALL SPX 5-min data?')) return;
+      const status = document.getElementById('spx-action-status');
+      try {
+        const r = await fetch('/api/magnet/clear-spx');
+        const d = await r.json();
+        status.textContent = `✓ Cleared ${d.deleted.toLocaleString()} bars`;
+        status.className = 'status-msg status-ok';
+        document.getElementById('spx-db-stats').textContent = 'No 5-min data loaded.';
+        document.getElementById('spx-db-stats').className = 'status-msg';
+        document.getElementById('date-select').innerHTML = '<option value="">— Select a date —</option>';
+        Plotly.purge('intraday-chart');
+      } catch(e) {
+        status.textContent = 'Error: ' + e.message; status.className = 'status-msg status-err';
+      }
+    }
+
+    loadEod();
+    checkSpxStats();
   </script>
 </body>
 </html>

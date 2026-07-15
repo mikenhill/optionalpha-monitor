@@ -40,7 +40,11 @@
     <a href="/csv">CSV</a>
     <a href="/ml">ML</a>
     <a href="/magnet">Magnet</a>
+    <a href="/trade-analysis">Trade Analysis</a>
+    <a href="/bots">Bots</a>
+    <span id="spx-warn" style="display:none;margin-left:auto;background:#dc3545;color:#fff;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600">⚠ SPX data stale — <a href="/spx" style="color:#fff">update</a></span>
   </div>
+  <script>(async()=>{try{const d=await(await fetch('/api/spx-stale-warning')).json();if(d.stale){document.getElementById('spx-warn').style.display='';}}catch(e){}})();</script>
 
   <h1>Daily GEX Analysis</h1>
 

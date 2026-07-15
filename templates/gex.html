@@ -129,7 +129,11 @@
     <a href="/csv">CSV</a>
     <a href="/ml">ML</a>
     <a href="/magnet">Magnet</a>
+    <a href="/trade-analysis">Trade Analysis</a>
+    <a href="/bots">Bots</a>
+    <span id="spx-warn" style="display:none;margin-left:auto;background:#dc3545;color:#fff;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600">⚠ SPX data stale — <a href="/spx" style="color:#fff">update</a></span>
   </div>
+  <script>(async()=>{try{const d=await(await fetch('/api/spx-stale-warning')).json();if(d.stale){document.getElementById('spx-warn').style.display='';}}catch(e){}})();</script>
 
   <h1>GEX (New Architecture)</h1>
 
@@ -139,7 +143,6 @@
       <select id="date-sel" onchange="loadDate()"></select>
       <button onclick="prevDay()">&#8592; Prev</button>
       <button onclick="nextDay()">Next &#8594;</button>
-      <button class="action-btn" onclick="syncHistorical()">&#8635; Load Missing Historical</button>
       <button class="action-btn" id="capture-session-btn" onclick="captureSession()">&#128274; Capture Session</button>
       <button class="action-btn primary" id="fetch-live-btn" onclick="fetchLiveGex()" disabled>&#8635; Fetch Live Data</button>
       <span id="session-status" style="font-size:12px;color:#6c757d;align-self:center"></span>
@@ -650,111 +653,6 @@ What you see depends on when RF/HMM are retrained:
       }).catch(() => { document.getElementById('pct-grid').innerHTML = ''; });
     }
 
-    async function syncHistorical() {
-      document.getElementById('sync-modal').style.display = 'flex';
-    }
-
-    function closeSyncModal() {
-      document.getElementById('sync-modal').style.display = 'none';
-    }
-
-    function onSyncModeChange() {
-      const mode = document.querySelector('input[name="sync-mode"]:checked').value;
-      const dateOnlyInput = document.getElementById('sync-date-only');
-      const datetimeDateInput = document.getElementById('sync-datetime-date');
-      const datetimeTimeInput = document.getElementById('sync-datetime-time');
-      const timeslotTimeInput = document.getElementById('sync-timeslot-time');
-      const timeslotYearInput = document.getElementById('sync-timeslot-year');
-      const timeslotMonthInput = document.getElementById('sync-timeslot-month');
-      
-      if (mode === 'all') {
-        dateOnlyInput.disabled = true;
-        datetimeDateInput.disabled = true;
-        datetimeTimeInput.disabled = true;
-        timeslotTimeInput.disabled = true;
-        timeslotYearInput.disabled = true;
-        timeslotMonthInput.disabled = true;
-      } else if (mode === 'date') {
-        dateOnlyInput.disabled = false;
-        datetimeDateInput.disabled = true;
-        datetimeTimeInput.disabled = true;
-        timeslotTimeInput.disabled = true;
-        timeslotYearInput.disabled = true;
-        timeslotMonthInput.disabled = true;
-      } else if (mode === 'datetime') {
-        dateOnlyInput.disabled = true;
-        datetimeDateInput.disabled = false;
-        datetimeTimeInput.disabled = false;
-        timeslotTimeInput.disabled = true;
-        timeslotYearInput.disabled = true;
-        timeslotMonthInput.disabled = true;
-      } else if (mode === 'timeslot') {
-        dateOnlyInput.disabled = true;
-        datetimeDateInput.disabled = true;
-        datetimeTimeInput.disabled = true;
-        timeslotTimeInput.disabled = false;
-        timeslotYearInput.disabled = false;
-        timeslotMonthInput.disabled = false;
-      }
-    }
-
-    async function submitSync() {
-      console.log('[submitSync] Starting sync...');
-      const mode = document.querySelector('input[name="sync-mode"]:checked').value;
-      const dateOnlyInput = document.getElementById('sync-date-only').value;
-      const datetimeDateInput = document.getElementById('sync-datetime-date').value;
-      const datetimeTimeInput = document.getElementById('sync-datetime-time').value;
-      const timeslotTimeInput = document.getElementById('sync-timeslot-time').value;
-      const timeslotYearInput = document.getElementById('sync-timeslot-year').value;
-      const timeslotMonthInput = document.getElementById('sync-timeslot-month').value;
-      
-      console.log('[submitSync] mode:', mode, 'dateOnlyInput:', dateOnlyInput, 'datetimeDateInput:', datetimeDateInput, 'datetimeTimeInput:', datetimeTimeInput, 'timeslotTimeInput:', timeslotTimeInput, 'timeslotYearInput:', timeslotYearInput, 'timeslotMonthInput:', timeslotMonthInput);
-      
-      closeSyncModal();
-      
-      const btn = document.querySelector('.action-btn[onclick="syncHistorical()"]');
-      const status = document.getElementById('sync-status');
-      btn.disabled = true;
-      status.textContent = 'Syncing... (may take a minute)';
-      status.style.color = '#6c757d';
-      
-      try {
-        let url = '/api/sync-historical?mode=' + mode;
-        if (mode === 'date' && dateOnlyInput) {
-          url += '&date=' + dateOnlyInput;
-        } else if (mode === 'datetime' && datetimeDateInput && datetimeTimeInput) {
-          url += '&date=' + datetimeDateInput + '&time=' + datetimeTimeInput;
-        } else if (mode === 'timeslot' && timeslotTimeInput) {
-          url += '&time=' + timeslotTimeInput;
-          if (timeslotYearInput && timeslotMonthInput) {
-            url += '&year=' + timeslotYearInput + '&month=' + timeslotMonthInput;
-          } else {
-            url += '&max_days=30';
-          }
-        } else {
-          url += '&max_days=30';
-        }
-        
-        console.log('[submitSync] Fetching URL:', url);
-        const r = await fetch(url);
-        console.log('[submitSync] Response status:', r.status);
-        if (!r.ok) throw new Error('HTTP ' + r.status);
-        const d = await r.json();
-        console.log('[submitSync] Response data:', d);
-        const added = d.fetched ?? d.added ?? d.synced ?? '?';
-        const skipped = d.skipped ?? '';
-        status.textContent = '\u2713 Done — ' + added + ' added' + (skipped ? ', ' + skipped + ' skipped' : '') + '. Reloading dates...';
-        status.style.color = '#198754';
-        // Reload date list to pick up new dates
-        await reloadDates();
-        setTimeout(() => { status.textContent = ''; }, 4000);
-      } catch (e) {
-        status.textContent = '\u2717 ' + e.message;
-        status.style.color = '#dc3545';
-      }
-      btn.disabled = false;
-    }
-
     async function reloadDates() {
       const r = await fetch('/api/gex/dates');
       dates = await r.json();
@@ -968,93 +866,6 @@ What you see depends on when RF/HMM are retrained:
     refreshSessionStatus();
   </script>
 
-  <div id="sync-modal" class="modal-overlay">
-    <div class="modal">
-      <h3>Load Historical Data</h3>
-      <div class="modal-option">
-        <label>
-          <input type="radio" name="sync-mode" value="all" checked onchange="onSyncModeChange()">
-          All historical data (last 30 days)
-        </label>
-      </div>
-      <div class="modal-option">
-        <label>
-          <input type="radio" name="sync-mode" value="date" onchange="onSyncModeChange()">
-          All snapshots for a specific date:
-          <input type="date" id="sync-date-only" disabled>
-        </label>
-      </div>
-      <div class="modal-option">
-        <label>
-          <input type="radio" name="sync-mode" value="datetime" onchange="onSyncModeChange()">
-          Single snapshot (date + time):
-          <input type="date" id="sync-datetime-date" disabled>
-          <select id="sync-datetime-time" disabled>
-            <option value="">Select time</option>
-            <option value="09:35">09:35</option>
-            <option value="10:00">10:00</option>
-            <option value="10:30">10:30</option>
-            <option value="11:00">11:00</option>
-            <option value="11:30">11:30</option>
-            <option value="12:00">12:00</option>
-            <option value="12:30">12:30</option>
-            <option value="13:00">13:00</option>
-            <option value="13:30">13:30</option>
-            <option value="14:00">14:00</option>
-            <option value="14:30">14:30</option>
-            <option value="15:00">15:00</option>
-            <option value="15:30">15:30</option>
-            <option value="15:55">15:55</option>
-          </select>
-        </label>
-      </div>
-      <div class="modal-option">
-        <label>
-          <input type="radio" name="sync-mode" value="timeslot" onchange="onSyncModeChange()">
-          Load missing time slot for all dates:
-          <select id="sync-timeslot-time" disabled>
-            <option value="">Select time</option>
-            <option value="09:35">09:35</option>
-            <option value="10:00">10:00</option>
-            <option value="10:30">10:30</option>
-            <option value="11:00">11:00</option>
-            <option value="11:30">11:30</option>
-            <option value="12:00">12:00</option>
-            <option value="12:30">12:30</option>
-            <option value="13:00">13:00</option>
-            <option value="13:30">13:30</option>
-            <option value="14:00">14:00</option>
-            <option value="14:30">14:30</option>
-            <option value="15:00">15:00</option>
-            <option value="15:30">15:30</option>
-            <option value="15:55">15:55</option>
-          </select>
-          <br>
-          <small>Optional: Specify year/month (Mon-Fri only)</small><br>
-          Year: <input type="number" id="sync-timeslot-year" min="2024" max="2030" value="2026" disabled style="width: 70px;">
-          Month: <select id="sync-timeslot-month" disabled>
-            <option value="">All</option>
-            <option value="1">Jan</option>
-            <option value="2">Feb</option>
-            <option value="3">Mar</option>
-            <option value="4">Apr</option>
-            <option value="5">May</option>
-            <option value="6">Jun</option>
-            <option value="7">Jul</option>
-            <option value="8">Aug</option>
-            <option value="9">Sep</option>
-            <option value="10">Oct</option>
-            <option value="11">Nov</option>
-            <option value="12">Dec</option>
-          </select>
-        </label>
-      </div>
-      <div class="modal-buttons">
-        <button onclick="closeSyncModal()">Cancel</button>
-        <button class="primary" onclick="submitSync()">Load Data</button>
-      </div>
-    </div>
-  </div>
 </body>
 </html>
 

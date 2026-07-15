@@ -121,19 +121,23 @@
     <a href="/spx">SPX Prices</a>
     <a href="/csv">CSV</a>
     <a class="active" href="/ml">ML</a>
+    <a href="/magnet">Magnet</a>
+    <a href="/trade-analysis">Trade Analysis</a>
+    <a href="/bots">Bots</a>
+    <span id="spx-warn" style="display:none;margin-left:auto;background:#dc3545;color:#fff;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600">⚠ SPX data stale — <a href="/spx" style="color:#fff">update</a></span>
   </div>
+  <script>(async()=>{try{const d=await(await fetch('/api/spx-stale-warning')).json();if(d.stale){document.getElementById('spx-warn').style.display='';}}catch(e){}})();</script>
 
   <h1>Machine Learning Analysis</h1>
 
   <div class="card" style="margin-bottom:15px">
     <h2 style="margin:0 0 10px">Daily ML Workflow
       <span style="float:right;display:flex;gap:6px">
-        <button onclick="syncHistorical()" id="btn-sync" style="padding:4px 12px;font-size:12px;background:#6c757d;color:#fff;border:none;border-radius:4px;cursor:pointer">↻ Load Missing Historical</button>
         <button onclick="runDailyWorkflow()" id="btn-workflow" style="padding:4px 12px;font-size:12px;background:#0d6efd;color:#fff;border:none;border-radius:4px;cursor:pointer">▶ Run Full Workflow</button>
         <label style="margin-left:10px;font-size:12px"><input type="checkbox" id="force-retrain"> Force ML Retrain (daily instead of threshold-based)</label>
       </span>
     </h2>
-    <p style="font-size:12px;color:#6c757d;margin:0">Purges test records, verifies data, updates SPX OHLC, rebuilds ML labels, trains HMM/ML, generates signals, backfills outcomes. Use 'Load Missing Historical' separately to sync historical GEX data.</p>
+    <p style="font-size:12px;color:#6c757d;margin:0">Purges test records, verifies data, updates SPX OHLC, rebuilds ML labels, trains HMM/ML, generates signals, backfills outcomes. Use GEX Admin → Load Missing Historical to sync historical GEX data first.</p>
     <div id="workflow-status" class="status" style="display:none;font-size:12px;margin-top:8px"></div>
   </div>
 
@@ -1073,40 +1077,6 @@
       }
     }
 
-    async function syncHistorical() {
-      const btn = document.getElementById('btn-sync');
-      const status = document.getElementById('workflow-status');
-
-      btn.disabled = true;
-      status.style.display = 'block';
-      status.className = 'status info';
-      status.style.color = '#6c757d';
-      status.textContent = 'Syncing historical GEX data (max 30 days)...';
-
-      try {
-        const response = await fetch('/api/sync-historical?mode=all&max_days=30');
-        const result = await response.json();
-
-        if (response.ok) {
-          const added = result.fetched ?? result.added ?? result.synced ?? '?';
-          const skipped = result.skipped ?? '';
-          status.className = 'status success';
-          status.style.color = '#198754';
-          status.textContent = '✓ Sync complete — ' + added + ' added' + (skipped ? ', ' + skipped + ' skipped' : '');
-        } else {
-          status.className = 'status error';
-          status.style.color = '#dc3545';
-          status.textContent = 'Sync failed: ' + (result.error || 'Unknown error');
-        }
-      } catch (e) {
-        status.className = 'status error';
-        status.style.color = '#dc3545';
-        status.textContent = 'Error: ' + e.message;
-      }
-
-      btn.disabled = false;
-    }
-
     async function runDailyWorkflow() {
       const btn = document.getElementById('btn-workflow');
       const status = document.getElementById('workflow-status');
@@ -1360,40 +1330,6 @@
       } catch(e) {
         loading.textContent = '✗ Error: ' + e.message;
       }
-    }
-
-    async function syncHistorical() {
-      const btn = document.getElementById('btn-sync');
-      const status = document.getElementById('workflow-status');
-
-      btn.disabled = true;
-      status.style.display = 'block';
-      status.className = 'status info';
-      status.style.color = '#6c757d';
-      status.textContent = 'Syncing historical GEX data (max 30 days)...';
-
-      try {
-        const response = await fetch('/api/sync-historical?mode=all&max_days=30');
-        const result = await response.json();
-
-        if (response.ok) {
-          const added = result.fetched ?? result.added ?? result.synced ?? '?';
-          const skipped = result.skipped ?? '';
-          status.className = 'status success';
-          status.style.color = '#198754';
-          status.textContent = '✓ Sync complete — ' + added + ' added' + (skipped ? ', ' + skipped + ' skipped' : '');
-        } else {
-          status.className = 'status error';
-          status.style.color = '#dc3545';
-          status.textContent = 'Sync failed: ' + (result.error || 'Unknown error');
-        }
-      } catch (e) {
-        status.className = 'status error';
-        status.style.color = '#dc3545';
-        status.textContent = 'Error: ' + e.message;
-      }
-
-      btn.disabled = false;
     }
 
     async function runDailyWorkflow() {
