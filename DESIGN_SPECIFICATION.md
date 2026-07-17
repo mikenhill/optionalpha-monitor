@@ -541,6 +541,27 @@ CREATE TABLE wall_performance_history (
 
 ---
 
+### Bot Scanner APIs
+
+#### `GET /api/bots`
+**Purpose:** Load OptionAlpha bots for the Bots page.  
+**Upstream RPC:** `bots.load`  
+**Returns:** Bot metadata and performance fields used by the table.
+
+#### `GET /api/bot-scanners?id=BOT_ID`
+**Purpose:** Load the scanners associated with one bot only.  
+**Upstream RPCs:** `triggers.list`, `bot.getNotes`  
+**Returns:** `triggers`, `autos`, `notes`, and the raw RPC response.
+
+#### `GET /api/routine-details?id=ROUTINE_ID`
+**Purpose:** Load one scanner's current routine definition.  
+**Upstream RPC:** `routines.details`  
+**Returns:** Routine metadata, the routine tree, and the raw RPC response.
+
+**API-load constraint:** Scanner routines are loaded on demand. There is intentionally no bulk scanner export endpoint, preventing a large burst of OptionAlpha RPC requests.
+
+---
+
 ### ML APIs
 
 #### `GET /ml`
@@ -696,6 +717,23 @@ CREATE TABLE wall_performance_history (
 
 ### `/analysis` - Analysis Page
 **Purpose:** Analysis tools
+
+### `/bots` - Bots Page
+**Purpose:** Inspect active OptionAlpha bots, their scanners, and individual routine configurations.
+
+**Features:**
+- Loads bot metrics through `GET /api/bots`; the **Active only** filter defaults to enabled.
+- **Load Scanners** is per-bot and calls `GET /api/bot-scanners?id=BOT_ID` only for the selected bot.
+- Scanner links open a modal that calls `GET /api/routine-details?id=ROUTINE_ID` for that scanner only.
+- Modal sections preserve the routine structure:
+  - **Entry Criteria:** criteria from every decision node, rendered as numbered decisions.
+  - **Position Criteria:** action-node `input.filter` criteria only, such as reward/risk or maximum profit.
+  - **Position Details:** action trade inputs, including symbol, legs, quantity, price, expiration, exits, and tags.
+  - **Raw Routine:** full current `routines.details` JSON for diagnostics.
+- **Export CSV** creates a browser-local, XPath-style long-format export from the routine already displayed in the modal; it makes no additional OptionAlpha request.
+  - Columns: bot/scanner metadata, `category`, `path`, `name`, `value`, routine version, and update timestamp.
+  - Decision criterion paths follow `Scanner/Decision[decision text]`; action fields follow `Scanner/Action[action text]/field`.
+  - One output row represents one criterion or one position-detail field, allowing comparisons after combining scanner CSVs in a spreadsheet.
 
 ### `/csv` - CSV Export Page
 **Purpose:** Export data to CSV
@@ -874,6 +912,7 @@ optionalpha-monitor/
 
 **2026-07-15:**
 - Audited and updated database schema documentation to match current `gex.db`.
+- Added the `/bots` scanner-inspection workflow: on-demand bot/scanner/routine RPC endpoints, structured decision/action modal, and browser-local XPath-style per-scanner CSV export.
 - Documented all active tables and marked `snapshot`, `snapshots`, `gex_snapshots` as obsolete.
 - Added missing tables including `vix_5min`, `spx_open_prices`, `magnet_days`, `trade_signal_features`, `signal_reliability_by_regime`, and `wall_performance_history`.
 
