@@ -1,0 +1,652 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Active Bots</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; color: #212529; }
+    .nav { display: flex; gap: 12px; padding: 10px 0; border-bottom: 1px solid #dee2e6; margin-bottom: 20px; flex-wrap: wrap; }
+    .nav a { text-decoration: none; color: #495057; padding: 6px 12px; border-radius: 4px; font-size: 14px; }
+    .nav a:hover { background: #e9ecef; }
+    .nav a.active { background: #0d6efd; color: #fff; }
+    h1 { margin: 0 0 20px; font-size: 24px; }
+    .container { max-width: 900px; margin: 0 auto; }
+    .section { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 20px; margin-bottom: 20px; }
+    .section h2 { margin: 0 0 10px; font-size: 18px; }
+    .section p { margin: 0 0 15px; color: #6c757d; font-size: 14px; }
+    button { padding: 8px 16px; border: 1px solid #ced4da; border-radius: 4px; background: #fff; cursor: pointer; font-size: 14px; }
+    button:hover { background: #e9ecef; }
+    button.primary { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+    button.primary:hover { background: #0b5ed7; }
+    button:disabled { opacity: 0.6; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 14px; }
+    th, td { border: 1px solid #dee2e6; padding: 10px; text-align: left; }
+    th { background: #f8f9fa; font-weight: 600; }
+    .status { font-size: 13px; margin-left: 10px; }
+    .status-ok { color: #198754; }
+    .status-err { color: #dc3545; }
+    .status-info { color: #6c757d; }
+    .empty { color: #6c757d; font-style: italic; }
+    pre { background: #f8f9fa; padding: 12px; border-radius: 4px; overflow-x: auto; font-size: 12px; border: 1px solid #dee2e6; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .badge-on { background: #d1e7dd; color: #0f5132; }
+    .badge-off { background: #f8d7da; color: #842029; }
+    td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    td.pos, .pos { color: #198754; }
+    td.neg, .neg { color: #dc3545; }
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 10000; }
+    .modal { background: #fff; border-radius: 8px; padding: 20px; max-width: 900px; width: 90%; max-height: 85vh; overflow-y: auto; box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .modal h3 { margin: 0 0 15px; font-size: 18px; }
+    .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+    .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #6c757d; padding: 0; }
+    .modal-close:hover { color: #212529; }
+    .modal-summary { display: flex; gap: 20px; margin-bottom: 15px; flex-wrap: wrap; }
+    .modal-summary div { background: #f8f9fa; padding: 10px 15px; border-radius: 4px; }
+    .modal-summary .label { font-size: 12px; color: #6c757d; }
+    .modal-summary .value { font-size: 16px; font-weight: 600; }
+    .modal table { margin-top: 0; font-size: 13px; }
+    .modal th, .modal td { padding: 8px 10px; }
+    .scanner-list { display: flex; flex-direction: column; gap: 4px; }
+    .scanner-link { color: #0d6efd; cursor: pointer; text-decoration: underline; font-size: 13px; }
+    .scanner-link:hover { color: #0b5ed7; }
+    .scanner-tree { font-size: 13px; }
+    .scanner-tree ul { margin: 4px 0; padding-left: 20px; }
+    .scanner-tree li { margin: 4px 0; }
+    .scanner-tree .node-type { font-weight: 600; color: #495057; }
+    .scanner-tree .node-criteria { color: #212529; }
+    .scanner-tree .node-action { color: #198754; font-weight: 600; }
+    .scanner-tree .node-placeholder { color: #6c757d; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="nav">
+      <a href="/gex">GEX</a>
+      <a href="/gex-admin">GEX Admin</a>
+      <a href="/gex-distribution">GEX Distribution</a>
+      <a href="/daily-analysis">Daily Analysis</a>
+      <a href="/analysis">Analysis</a>
+      <a href="/spx">SPX Prices</a>
+      <a href="/csv">CSV</a>
+      <a href="/ml">ML</a>
+      <a href="/magnet">Magnet</a>
+      <a href="/trade-analysis">Trade Analysis</a>
+      <a class="active" href="/bots">Bots</a>
+    </div>
+
+    <h1>Active Bots</h1>
+
+    <div class="section">
+      <h2>OptionAlpha Bot Summary</h2>
+      <p>Fetches your active bots from OptionAlpha via <code>bots.load</code> and displays key performance metrics.</p>
+      <button id="load-bots-btn" class="primary" onclick="loadBots()">⟳ Load Bots</button>
+      <label style="margin-left:15px;font-size:14px;cursor:pointer"><input type="checkbox" id="active-only" checked onchange="renderBots()"> Active only</label>
+      <span id="bots-status" class="status"></span>
+      <div id="bots-table-wrap"></div>
+      <h3 style="margin-top:25px;font-size:14px;color:#495057">Raw Response</h3>
+      <pre id="bots-raw">Press "Load Bots" to fetch data.</pre>
+    </div>
+  </div>
+
+  <script>
+    function get(obj, path, def) {
+      return path.split('.').reduce((acc, k) => (acc && acc[k] !== undefined) ? acc[k] : def, obj);
+    }
+
+    function fmtNumber(n) {
+      if (n === undefined || n === null) return '';
+      const num = Number(n);
+      if (isNaN(num)) return n;
+      return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    }
+
+    function statusBadge(status, message) {
+      let cls = 'badge-off';
+      let label = status || 'off';
+      if (status === 'on') { cls = 'badge-on'; }
+      if (message) { label += ' — ' + message; }
+      return `<span class="badge ${cls}">${escapeHtml(label)}</span>`;
+    }
+
+    let _bots = [];
+    let _lastBot = null;
+    const _triggerMap = {};
+    let _currentRoutine = null;
+
+    function renderBots() {
+      const tableWrap = document.getElementById('bots-table-wrap');
+      const status = document.getElementById('bots-status');
+      const activeOnly = document.getElementById('active-only').checked;
+      const bots = activeOnly ? _bots.filter(b => get(b, 'status', '') === 'on') : _bots;
+
+      if (_bots.length === 0) {
+        tableWrap.innerHTML = '<p class="empty">No bots returned.</p>';
+        return;
+      }
+
+      if (bots.length === 0) {
+        tableWrap.innerHTML = '<p class="empty">No active bots found.</p>';
+      } else {
+        const rows = bots.map(bot => {
+          const pnl = Number(get(bot, 'pnl', 0));
+          const pnlClass = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
+          const botId = escapeHtml(get(bot, 'id', ''));
+          return '<tr>' +
+            `<td>${escapeHtml(get(bot, 'name', '—'))}</td>` +
+            `<td>${statusBadge(get(bot, 'status', ''), get(bot, 'message', ''))}</td>` +
+            `<td>${escapeHtml(get(bot, 'account.name', '—'))}</td>` +
+            `<td>${escapeHtml(get(bot, 'group.name', '—'))}</td>` +
+            `<td class="num ${pnlClass}">${fmtNumber(pnl)}</td>` +
+            `<td class="num">${fmtNumber(get(bot, 'roi', 0))}</td>` +
+            `<td class="num">${fmtNumber((get(bot, 'winRate', 0)) * 100)}%</td>` +
+            `<td class="num">${fmtNumber(get(bot, 'closedCount', 0))}</td>` +
+            `<td class="num">${fmtNumber(get(bot, 'value', 0))}</td>` +
+            `<td id="scanners-${botId}"><button onclick="loadBotScanners('${botId}')">Load Scanners</button></td>` +
+            '</tr>';
+        }).join('');
+        tableWrap.innerHTML =
+          '<table><thead><tr>' +
+          '<th>Bot</th><th>Status</th><th>Account</th><th>Group</th>' +
+          '<th>P&L</th><th>ROI</th><th>Win Rate</th><th>Trades</th><th>Value</th><th>Scanners</th>' +
+          '</tr></thead><tbody>' + rows + '</tbody></table>';
+      }
+
+      status.className = 'status status-ok';
+      status.textContent = `✓ Showing ${bots.length} active / ${_bots.length} total bot(s)`;
+    }
+
+    async function loadBots() {
+      console.log('[bots] Load Bots clicked');
+      const btn = document.getElementById('load-bots-btn');
+      const status = document.getElementById('bots-status');
+      const raw = document.getElementById('bots-raw');
+
+      btn.disabled = true;
+      status.className = 'status status-info';
+      status.textContent = 'Fetching from OptionAlpha...';
+      raw.textContent = '';
+
+      const startTs = performance.now();
+      try {
+        console.log('[bots] Fetching /api/bots');
+        const r = await fetch('/api/bots');
+        console.log('[bots] Response status:', r.status, 'duration:', (performance.now() - startTs).toFixed(0) + 'ms');
+        const d = await r.json();
+        console.log('[bots] Response data:', d);
+        raw.textContent = JSON.stringify(d, null, 2);
+
+        if (!r.ok || d.error) {
+          throw new Error(d.error || 'HTTP ' + r.status);
+        }
+
+        _bots = d.bots || [];
+        renderBots();
+      } catch (e) {
+        console.error('[bots] Error:', e);
+        status.className = 'status status-err';
+        status.textContent = '✗ ' + e.message;
+        raw.textContent = 'Error: ' + e.message;
+        _bots = [];
+        document.getElementById('bots-table-wrap').innerHTML = '';
+      }
+      btn.disabled = false;
+    }
+
+    async function loadBotScanners(botId) {
+      if (!botId) return;
+      console.log('[bots] Load scanners for bot:', botId);
+      const cell = document.getElementById('scanners-' + botId);
+      if (!cell) return;
+      cell.innerHTML = '<span class="empty">Loading...</span>';
+
+      try {
+        const r = await fetch('/api/bot-scanners?id=' + encodeURIComponent(botId));
+        const contentType = r.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          const text = await r.text();
+          console.error('[bots] Scanners non-JSON response:', text.slice(0, 200));
+          throw new Error('Server returned ' + r.status + ' (' + contentType + '). Try refreshing after a server restart.');
+        }
+        const d = await r.json();
+        console.log('[bots] Scanners response:', d);
+        if (!r.ok || d.error) throw new Error(d.error || 'HTTP ' + r.status);
+
+        const triggers = d.triggers || [];
+        if (triggers.length === 0) {
+          cell.innerHTML = '<span class="empty">None</span>';
+          return;
+        }
+        const bot = _bots.find(b => get(b, 'id', '') === botId) || { id: botId };
+        _lastBot = bot;
+        Object.keys(_triggerMap).forEach(k => delete _triggerMap[k]);
+        triggers.forEach(t => { _triggerMap[get(t, 'rid', '')] = t; });
+        const links = triggers.map(t => {
+          const rid = escapeHtml(get(t, 'rid', ''));
+          const name = escapeHtml(get(t, 'name', '—'));
+          return `<span class="scanner-link" onclick="showScannerDetails('${rid}', '${name.replace(/'/g, "\\'")}')">${name}</span>`;
+        }).join('<br>');
+        cell.innerHTML = '<div class="scanner-list">' + links + '</div>';
+      } catch (e) {
+        console.error('[bots] Scanners error:', e);
+        cell.innerHTML = '<span class="empty">✗ ' + escapeHtml(e.message) + '</span>';
+      }
+    }
+
+    function openScannerDetailsModal(name) {
+      document.getElementById('scanner-details-title').textContent = name ? `Scanner — ${name}` : 'Scanner Details';
+      document.getElementById('scanner-details-content').innerHTML = '<p class="empty">Loading...</p>';
+      document.getElementById('scanner-details-modal').style.display = 'flex';
+    }
+
+    function closeScannerDetails(event) {
+      if (event && event.target !== event.currentTarget) return;
+      document.getElementById('scanner-details-modal').style.display = 'none';
+    }
+
+    async function showScannerDetails(routineId, name) {
+      if (!routineId) return;
+      console.log('[bots] Show scanner details:', routineId);
+      openScannerDetailsModal(name);
+      _currentRoutine = null;
+
+      try {
+        const r = await fetch('/api/routine-details?id=' + encodeURIComponent(routineId));
+        const contentType = r.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          const text = await r.text();
+          console.error('[bots] Routine non-JSON response:', text.slice(0, 200));
+          throw new Error('Server returned ' + r.status + ' (' + contentType + '). Try refreshing after a server restart.');
+        }
+        const d = await r.json();
+        console.log('[bots] Routine response:', d);
+        if (!r.ok || d.error) throw new Error(d.error || 'HTTP ' + r.status);
+
+        _currentRoutine = d.routine;
+        renderScannerDetails(d.routine);
+      } catch (e) {
+        console.error('[bots] Routine error:', e);
+        document.getElementById('scanner-details-content').innerHTML = '<p class="empty">✗ ' + escapeHtml(e.message) + '</p>';
+      }
+    }
+
+    function exportCurrentScannerCsv() {
+      if (!_currentRoutine) {
+        alert('No routine loaded yet.');
+        return;
+      }
+      const trigger = _triggerMap[_currentRoutine.id] || {};
+      const rows = buildScannerRows(_lastBot, trigger, _currentRoutine);
+      if (rows.length === 0) {
+        alert('No exportable rows for this routine.');
+        return;
+      }
+      const columns = Object.keys(rows[0]);
+      const csv = [columns.join(',')].concat(rows.map(row =>
+        columns.map(col => {
+          const v = row[col];
+          if (v === null || v === undefined) return '""';
+          const s = String(v).replace(/"/g, '""');
+          return /[",\n]/.test(s) ? `"${s}"` : (s ? `"${s}"` : '""');
+        }).join(',')
+      )).join('\n');
+      const blob = new Blob([csv], { type: 'text/csv' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = (get(_currentRoutine, 'name', 'scanner') || 'scanner').replace(/[^a-z0-9_\-]/gi, '_');
+      a.download = `${safeName}_v${get(_currentRoutine, 'version', '')}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    }
+
+    function buildScannerRows(bot, trigger, routine) {
+      const root = get(routine, 'root');
+      const actions = [];
+      const decisionNodes = [];
+      collectNodes(root, actions, decisionNodes);
+      const scannerName = get(trigger, 'name', get(routine, 'name', ''));
+      const rows = [];
+      const addRow = (category, path, name, value) => {
+        rows.push({
+          bot_name: get(bot, 'name', ''),
+          bot_status: get(bot, 'status', ''),
+          bot_account: get(bot, 'account.name', get(bot, 'account', '')),
+          bot_group: get(bot, 'group.name', get(bot, 'group', '')),
+          scanner_name: scannerName,
+          scanner_index: get(trigger, 'index', ''),
+          category: category,
+          path: path,
+          name: name,
+          value: value === null || value === undefined ? '' : String(value),
+          routine_version: get(routine, 'version', ''),
+          routine_updated: get(routine, 'updated', '')
+        });
+      };
+
+      // Entry Criteria: one row per criterion from each decision node
+      decisionNodes.forEach(node => {
+        const decisionName = get(node, 'name', 'Decision');
+        const decisionPath = `${scannerName}/Decision[${decisionName}]`;
+        const criteria = get(node, 'criteria.criteria') || [];
+        if (criteria.length === 0) {
+          addRow('Entry Criteria', decisionPath, decisionName, '');
+        } else {
+          criteria.forEach(c => {
+            addRow('Entry Criteria', decisionPath, criterionText(c), '');
+          });
+        }
+      });
+
+      // Position Criteria: action input filters, plus action-level entry/position criteria if present
+      actions.forEach(action => {
+        const actionName = get(action, 'name', get(action, 'type', 'Action'));
+        const actionPath = `${scannerName}/Action[${actionName}]`;
+        const filter = get(action, 'input.filter');
+        if (filter && typeof filter === 'object') {
+          Object.entries(filter).forEach(([k, v]) => {
+            const t = filterCriterionText(k, v);
+            if (t) addRow('Position Criteria', `${actionPath}/Filter`, t, '');
+          });
+        }
+        // Some action inputs have their own entry/position criteria keys
+        const inp = action.input || {};
+        Object.entries(inp).forEach(([k, v]) => {
+          if (!v) return;
+          const keyLower = k.toLowerCase();
+          if (keyLower.includes('entry') && !keyLower.includes('exit')) {
+            addRow('Entry Criteria', `${actionPath}/${k}`, (typeof v === 'object' ? JSON.stringify(v) : v), '');
+          } else if (keyLower.includes('position') && keyLower.includes('criteria')) {
+            addRow('Position Criteria', `${actionPath}/${k}`, (typeof v === 'object' ? JSON.stringify(v) : v), '');
+          }
+        });
+      });
+
+      // Position Details: action input fields
+      actions.forEach(action => {
+        const actionName = get(action, 'name', get(action, 'type', 'Action'));
+        const actionPath = `${scannerName}/Action[${actionName}]`;
+        const inp = action.input || {};
+        const tvStr = inp.textValues;
+        const textValues = {};
+        if (typeof tvStr === 'string') {
+          try {
+            JSON.parse(tvStr).forEach(item => {
+              if (item && (item.label || item.id)) textValues[item.label || item.id] = item.value;
+            });
+          } catch (e) {}
+        }
+        const detailFields = [
+          ['Symbol', 'symbol'],
+          ['Position Size', 'amount.text'],
+          ['Price', 'price.text'],
+          ['Expiration', 'series.text'],
+          ['Long Put', 'longPut.text'],
+          ['Short Put', 'shortPut.text'],
+          ['Exit Options', 'exits.text'],
+          ['Tags', 'tags']
+        ];
+        detailFields.forEach(([label, fallback]) => {
+          const val = label in textValues ? textValues[label] : get(inp, fallback);
+          if (val !== null && val !== undefined && String(val) !== '') {
+            addRow('Position Details', `${actionPath}/${label}`, label, val);
+          }
+        });
+      });
+
+      return rows;
+    }
+
+    function filterCriterionText(key, value) {
+      if (key === 'rewardrisk' || key === 'rewardRisk' || key === 'rr') {
+        const op = value && value.cop === 'gt' ? 'greater than' : value && value.cop === 'lt' ? 'less than' : '';
+        const val = value && value.value !== undefined ? value.value : value;
+        return `Reward/risk is ${op} ${val}%`.trim();
+      }
+      if (key === 'maxprofit') return `Max profit ${value}`;
+      if (key === 'minprofit') return `Min profit ${value}`;
+      if (key === 'dte') return `DTE ${value}`;
+      if (typeof value === 'object' && value.text) return value.text;
+      return `${key}: ${value}`;
+    }
+
+    function renderScannerDetails(routine) {
+      const contentEl = document.getElementById('scanner-details-content');
+      if (!routine) {
+        contentEl.innerHTML = '<p class="empty">No routine details available.</p>';
+        return;
+      }
+
+      const meta = [
+        ['Name', escapeHtml(get(routine, 'name', '—'))],
+        ['Group', escapeHtml(get(routine, 'group', '—'))],
+        ['Version', escapeHtml(String(get(routine, 'version', '')))],
+        ['Updated', escapeHtml(get(routine, 'updated', '—'))]
+      ].map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('');
+
+      const root = get(routine, 'root');
+
+      // Collect decision nodes and action nodes separately
+      const actions = [];
+      const decisionNodes = [];
+      collectNodes(root, actions, decisionNodes);
+
+      // Entry Criteria: all criteria from decision nodes
+      const entryCriteriaHtml = renderDecisions(decisionNodes);
+
+      // Position Criteria: only action input filters
+      const positionCriterionList = [];
+      actions.forEach(action => {
+        const filter = get(action, 'input.filter');
+        if (filter && typeof filter === 'object') {
+          Object.entries(filter).forEach(([k, v]) => {
+            const t = filterCriterionText(k, v);
+            if (t) positionCriterionList.push({ text: t, _source: 'filter' });
+          });
+        }
+      });
+      const positionCriteria = renderCriteriaList({ type: 'all', criteria: positionCriterionList });
+
+      let positionDetailsHtml = '';
+      if (actions.length > 0) {
+        positionDetailsHtml = '<h4 style="margin:20px 0 10px;font-size:14px;color:#495057">Position Details</h4>' +
+          actions.map(a => renderActionDetails(a)).join('');
+      }
+
+      contentEl.innerHTML =
+        '<table><thead><tr><th>Property</th><th>Value</th></tr></thead><tbody>' + meta + '</tbody></table>' +
+        (entryCriteriaHtml || '') +
+        (positionCriteria ? '<h4 style="margin:20px 0 10px;font-size:14px;color:#495057">Position Criteria</h4>' + positionCriteria : '') +
+        positionDetailsHtml +
+        '<h4 style="margin:20px 0 10px;font-size:14px;color:#495057">Raw Routine</h4>' +
+        '<pre style="max-height:200px;overflow:auto">' + escapeHtml(JSON.stringify(routine, null, 2)) + '</pre>';
+    }
+
+    function renderDecisions(decisionNodes) {
+      if (!decisionNodes || decisionNodes.length === 0) return '';
+      let idx = 1;
+      const items = decisionNodes.map(node => {
+        const name = escapeHtml(get(node, 'name', `Decision ${idx}`));
+        const criteria = get(node, 'criteria');
+        const list = renderCriteriaList(criteria);
+        if (!list) return '';
+        const html = `<div style="margin-bottom:10px"><div style="font-weight:600;font-size:13px;color:#495057">#${idx} ${name}</div>${list}</div>`;
+        idx++;
+        return html;
+      }).join('');
+      if (!items) return '';
+      return '<h4 style="margin:20px 0 10px;font-size:14px;color:#495057">Entry Criteria</h4>' + items;
+    }
+
+    function collectNodes(node, actions, criteriaNodes) {
+      if (!node) return;
+      const type = get(node, 'type', '');
+      if (get(node, 'criteria') && typeof get(node, 'criteria') === 'object') {
+        criteriaNodes.push(node);
+      }
+      if (type && type.startsWith('open-')) {
+        actions.push(node);
+        return; // action nodes don't have outcome children
+      }
+      (get(node, 'outcomes') || []).forEach(o => collectNodes(o, actions, criteriaNodes));
+    }
+
+    function filterCriterionText(key, value) {
+      if (key === 'rewardrisk' || key === 'rewardRisk' || key === 'rr') {
+        const op = value && value.cop === 'gt' ? 'greater than' : value && value.cop === 'lt' ? 'less than' : '';
+        const val = value && value.value !== undefined ? value.value : value;
+        return `Reward/risk is ${op} ${val}%`.trim();
+      }
+      if (key === 'maxprofit') return `Max profit ${value}`;
+      if (key === 'minprofit') return `Min profit ${value}`;
+      if (key === 'dte') return `DTE ${value}`;
+      if (typeof value === 'object' && value.text) return value.text;
+      return `${key}: ${value}`;
+    }
+
+    function renderCriteriaList(criteria) {
+      if (!criteria || typeof criteria !== 'object') return '';
+      const items = (criteria.criteria || []).map(c => {
+        const text = criterionText(c);
+        const notFlag = get(c, 'not') ? 'NOT ' : '';
+        return `<li><span class="node-criteria">${notFlag}${escapeHtml(text)}</span></li>`;
+      }).join('');
+      if (!items) return '';
+      const joiner = criteria.type ? escapeHtml(criteria.type.toUpperCase()) + ':' : '';
+      return `<div class="scanner-tree"><div>${joiner}</div><ul>${items}</ul></div>`;
+    }
+
+    function criterionText(c) {
+      if (!c || typeof c !== 'object') return String(c);
+      if (c.text) return c.text;
+      // Derive readable text from known criterion types
+      if (c.type === 'rewardrisk' || c.ratio !== undefined) {
+        const cop = c.cop === 'gt' ? 'greater than' : c.cop === 'lt' ? 'less than' : c.cop;
+        return `Reward/risk is ${cop || ''} ${c.ratio !== undefined ? c.ratio : ''}%`.trim();
+      }
+      if (c.type === 'stockorb') {
+        return `${c.symbol || ''} ${c.prop || ''} is ${c.cop === 'gt' ? 'above' : c.cop === 'lt' ? 'below' : c.cop || ''} ${c.period || ''} minute opening range ${c.side || ''}`.trim();
+      }
+      if (c.type === 'daysofweek') {
+        return `Today is ${get(c, 'days.text') || c.days || ''}`.trim();
+      }
+      if (c.type === 'closetime') {
+        return `Market closes at ${c.time || ''} today`.trim();
+      }
+      if (c.type === 'marketevent') {
+        return `${c.not ? 'NOT ' : ''}${c.event || ''} scheduled ${c.days !== undefined ? c.days : ''}`.trim();
+      }
+      if (c.type === 'botopening') {
+        return `Bot ${c.cop || ''} open a new position`.trim();
+      }
+      // Fallback: pretty print key-value pairs excluding metadata
+      const pairs = Object.entries(c)
+        .filter(([k, v]) => !['type', 'textValues', 'not'].includes(k) && v !== undefined && v !== null && typeof v !== 'object')
+        .map(([k, v]) => `${k}=${v}`);
+      return pairs.length ? pairs.join(', ') : JSON.stringify(c);
+    }
+
+    function extractActionNodes(node, out) {
+      if (!node) return;
+      const type = get(node, 'type', '');
+      if (type && type.startsWith('open-')) {
+        out.push(node);
+      }
+      (get(node, 'outcomes') || []).forEach(o => extractActionNodes(o, out));
+    }
+
+    function renderActionDetails(node) {
+      const input = get(node, 'input') || {};
+      const rows = [];
+      if (input.symbol) rows.push(['Symbol', escapeHtml(input.symbol)]);
+      if (get(input, 'amount.text')) rows.push(['Position Size', escapeHtml(get(input, 'amount.text'))]);
+      if (get(input, 'price.text')) rows.push(['Price', escapeHtml(get(input, 'price.text'))]);
+      if (get(input, 'series.text')) rows.push(['Expiration', escapeHtml(get(input, 'series.text'))]);
+      if (get(input, 'longPut.text')) rows.push(['Long Put', escapeHtml(get(input, 'longPut.text'))]);
+      if (get(input, 'shortPut.text')) rows.push(['Short Put', escapeHtml(get(input, 'shortPut.text'))]);
+      if (get(input, 'exits.text')) rows.push(['Exit Options', escapeHtml(get(input, 'exits.text'))]);
+      if (input.tags) rows.push(['Tags', escapeHtml(input.tags)]);
+
+      // Fallback to textValues JSON string if present
+      const textValues = get(input, 'textValues');
+      if (textValues && typeof textValues === 'string') {
+        try {
+          const parsed = JSON.parse(textValues);
+          parsed.forEach(tv => {
+            if (tv.label && tv.value !== undefined) {
+              rows.push([escapeHtml(tv.label), escapeHtml(String(tv.value))]);
+            }
+          });
+        } catch (e) {
+          // ignore malformed textValues
+        }
+      }
+
+      const type = get(node, 'type', 'Action');
+      const name = escapeHtml(get(node, 'name', type));
+      const header = `<tr><th colspan="2" style="background:#f8f9fa">${name}</th></tr>`;
+      const body = rows.length ? rows.map(([k, v]) => `<tr><th>${k}</th><td>${v}</td></tr>`).join('') :
+        `<tr><td colspan="2" class="empty">No input details available.</td></tr>`;
+      return '<table><thead>' + header + '</thead><tbody>' + body + '</tbody></table>';
+    }
+
+    function renderNode(node) {
+      if (!node) return '';
+      const type = get(node, 'type', 'node');
+      const name = escapeHtml(get(node, 'name', get(node, 'nid', 'Node')));
+      const label = escapeHtml(get(node, 'label', ''));
+      const labelText = label ? ` <span style="color:#6c757d">(${label})</span>` : '';
+
+      let body = '';
+      const criteria = get(node, 'criteria');
+      if (criteria && typeof criteria === 'object') {
+        const items = (criteria.criteria || []).map(c => {
+          const text = get(c, 'text', JSON.stringify(c));
+          const notFlag = get(c, 'not') ? 'NOT ' : '';
+          return `<li><span class="node-criteria">${notFlag}${escapeHtml(text)}</span></li>`;
+        }).join('');
+        const joiner = criteria.type ? escapeHtml(criteria.type.toUpperCase()) + ':' : '';
+        body += items ? `<div>${joiner}</div><ul>${items}</ul>` : '';
+      }
+
+      const outcomes = get(node, 'outcomes') || [];
+      if (outcomes.length > 0) {
+        body += '<ul>' + outcomes.map(o => {
+          const child = renderNode(get(o, 'nid') ? o : get(o, 'node'));
+          const outcomeLabel = escapeHtml(get(o, 'label', get(o, 'id', '')));
+          return `<li><span class="node-type">${outcomeLabel}</span>${child}</li>`;
+        }).join('') + '</ul>';
+      }
+
+      let nodeClass = 'node-type';
+      if (type === 'open-shortputspread' || type.startsWith('open-')) nodeClass = 'node-action';
+      if (type === 'placeholder') nodeClass = 'node-placeholder';
+
+      return `<div><span class="${nodeClass}">${name}</span>${labelText}${body}</div>`;
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+
+  <div id="scanner-details-modal" class="modal-overlay" onclick="closeScannerDetails(event)">
+    <div class="modal" onclick="event.stopPropagation()">
+      <div class="modal-header">
+        <h3 id="scanner-details-title">Scanner Details</h3>
+        <div style="display:flex;align-items:center;gap:8px">
+          <button onclick="exportCurrentScannerCsv()" style="padding:4px 10px;font-size:13px">⬇ Export CSV</button>
+          <button class="modal-close" onclick="closeScannerDetails()">&times;</button>
+        </div>
+      </div>
+      <div id="scanner-details-content">
+        <p class="empty">Loading...</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>

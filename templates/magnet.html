@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Magnet | GEX Monitor</title>
+  <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, -apple-system, sans-serif; background: #f8f9fa; color: #212529; padding: 20px; font-size: 14px; }
+    .nav { background: #212529; padding: 10px 20px; margin: -20px -20px 20px -20px; display: flex; gap: 5px; flex-wrap: wrap; }
+    .nav a { padding: 6px 14px; text-decoration: none; color: #adb5bd; border-radius: 4px; font-size: 14px; }
+    .nav a:hover { background: #343a40; color: #fff; }
+    .nav a.active { background: #0d6efd; color: #fff; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    .subtitle { color: #6c757d; font-size: 13px; margin-bottom: 16px; }
+    .card { background: #fff; border: 1px solid #dee2e6; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+    .toolbar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; flex-wrap: wrap; }
+    .btn { padding: 7px 18px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 500; }
+    .btn-primary { background: #0d6efd; color: #fff; }
+    .btn-primary:hover { background: #0b5ed7; }
+    .btn-primary:disabled { background: #6ea8fe; cursor: not-allowed; }
+    .status-msg { font-size: 13px; color: #6c757d; }
+    .status-ok  { color: #198754; font-weight: 500; }
+    .status-err { color: #dc3545; font-weight: 500; }
+    .info-box { background: #e8f4f8; border: 1px solid #bee5eb; border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #0c5460; margin-bottom: 16px; }
+    .info-box strong { display: block; margin-bottom: 4px; }
+
+    /* Ratio deviation bar */
+    .dev-bar-wrap { display: flex; align-items: center; gap: 8px; }
+    .dev-bar { height: 8px; border-radius: 4px; min-width: 2px; }
+
+    /* Table */
+    .tbl-wrap { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th { background: #343a40; color: #fff; padding: 9px 12px; text-align: left; white-space: nowrap; position: sticky; top: 0; z-index: 1; cursor: pointer; user-select: none; }
+    th:hover { background: #495057; }
+    th.sorted-asc::after  { content: " ▲"; font-size: 10px; }
+    th.sorted-desc::after { content: " ▼"; font-size: 10px; }
+    td { padding: 8px 12px; border-bottom: 1px solid #f0f0f0; white-space: nowrap; vertical-align: middle; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #f0f7ff; }
+
+    /* Rank badge */
+    .rank-badge { display: inline-block; background: #e9ecef; border-radius: 10px; padding: 2px 8px; font-size: 12px; font-weight: 600; color: #495057; }
+    .rank-badge.gold   { background: #ffd700; color: #5a4000; }
+    .rank-badge.silver { background: #c0c0c0; color: #333; }
+    .rank-badge.bronze { background: #cd7f32; color: #fff; }
+
+    /* Ratio colour */
+    .ratio-perfect { color: #198754; font-weight: bold; }
+    .ratio-good    { color: #20c997; font-weight: 500; }
+    .ratio-ok      { color: #fd7e14; }
+    .ratio-poor    { color: #dc3545; }
+
+    /* KS stability pill */
+    .ks-pill { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+    .ks-high { background: #d1e7dd; color: #0f5132; }
+    .ks-med  { background: #fff3cd; color: #664d03; }
+    .ks-low  { background: #f8d7da; color: #842029; }
+
+    /* Modal */
+    .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 1000; align-items: center; justify-content: center; }
+    .modal-overlay.open { display: flex; }
+    .modal { background: #fff; border-radius: 10px; width: 90vw; max-width: 1000px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.25); }
+    .modal-header { padding: 12px 20px; background: #212529; color: #fff; display: flex; align-items: center; justify-content: space-between; }
+    .modal-header h3 { font-size: 15px; }
+    .modal-close { background: none; border: none; color: #adb5bd; font-size: 22px; cursor: pointer; line-height: 1; }
+    .modal-close:hover { color: #fff; }
+    .modal-body { flex: 1; overflow-y: auto; padding: 16px 20px; }
+    .modal-meta { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 12px; font-size: 13px; }
+    .modal-meta span { color: #6c757d; }
+    .modal-meta strong { color: #212529; }
+    #chart-container { width: 100%; height: 420px; }
+    .btn-show { padding: 3px 10px; font-size: 12px; border: 1px solid #0d6efd; border-radius: 4px; background: #fff; color: #0d6efd; cursor: pointer; }
+    .btn-show:hover { background: #0d6efd; color: #fff; }
+    /* Pagination */
+    .pagination { display: flex; gap: 6px; align-items: center; margin-top: 12px; }
+    .page-btn { padding: 4px 12px; border: 1px solid #dee2e6; border-radius: 4px; background: #fff; cursor: pointer; font-size: 13px; }
+    .page-btn:hover { background: #e9ecef; }
+    .page-btn.active { background: #0d6efd; color: #fff; border-color: #0d6efd; }
+    .page-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .page-info { font-size: 13px; color: #6c757d; }
+
+    /* Filter row */
+    .filter-row { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; flex-wrap: wrap; }
+    .filter-row label { font-size: 13px; color: #495057; }
+    .filter-row select, .filter-row input { padding: 5px 10px; border: 1px solid #ced4da; border-radius: 4px; font-size: 13px; }
+    .row-count { font-size: 13px; color: #6c757d; margin-left: auto; }
+  </style>
+</head>
+<body>
+  <div class="nav">
+    <a href="/gex">GEX</a>
+    <a href="/gex-admin">GEX Admin</a>
+    <a href="/gex-distribution">GEX Distribution</a>
+    <a href="/daily-analysis">Daily Analysis</a>
+    <a href="/analysis">Analysis</a>
+    <a href="/spx">SPX Prices</a>
+    <a href="/csv">CSV</a>
+    <a href="/ml">ML</a>
+    <a class="active" href="/magnet">Magnet</a>
+    <a href="/trade-analysis">Trade Analysis</a>
+    <a href="/bots">Bots</a>
+    <span id="spx-warn" style="display:none;margin-left:auto;background:#dc3545;color:#fff;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:600">⚠ SPX data stale — <a href="/spx" style="color:#fff">update</a></span>
+  </div>
+  <script>(async()=>{try{const d=await(await fetch('/api/spx-stale-warning')).json();if(d.stale){document.getElementById('spx-warn').style.display='';}}catch(e){}})();</script>
+
+  <h1>Magnet Days</h1>
+  <p class="subtitle">Each day ranked by how balanced its call/put GEX ratio was — days closest to ±1.0 (equal call vs put) rank highest.</p>
+
+  <div class="info-box">
+    <strong>How it works</strong>
+    <strong>Key Strike:</strong> Most common (modal) key strike across all RTH snapshots (09:35–15:55).
+    &nbsp;|&nbsp; <strong>Median Ratio:</strong> Median of per-snapshot GEX ratios using the same formula as the GEX page (positive when calls dominate, negative when puts dominate).
+    &nbsp;|&nbsp; <strong>Ratio Rank:</strong> Rank 1 = closest to ±1.0 (most balanced). Ties broken by snapshot count (more data wins).
+    &nbsp;|&nbsp; Only historical dates are included. Press <em>Compute Averages</em> to populate or refresh.
+  </div>
+
+  <!-- Live Today Card -->
+  <div class="card" id="live-card">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+      <strong style="font-size:14px">Today — Live Analysis</strong>
+      <span id="live-badge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:10px;background:#6c757d;color:#fff">LOADING</span>
+      <span style="font-size:12px;color:#6c757d;margin-left:auto">Refreshes every 60s &nbsp;<button class="btn" onclick="loadLive()" style="padding:2px 8px;font-size:11px">↻ Now</button></span>
+    </div>
+    <div id="live-body" style="font-size:13px;color:#6c757d">Loading…</div>
+  </div>
+
+  <div class="card">
+    <div class="toolbar">
+      <button class="btn btn-primary" id="compute-btn" onclick="computeAverages()">&#9654; Compute Averages</button>
+      <button class="btn btn-secondary" id="clear-btn" onclick="clearAverages()" style="background:#dc3545">&#x2715; Clear Averages</button>
+      <span class="status-msg" id="compute-status"></span>
+    </div>
+
+    <div class="filter-row">
+      <label>Sort by:
+        <select id="sort-col" onchange="applySort(this.value)">
+          <option value="magnet_score">Magnet Score (Dom + Balance + GEX)</option>
+          <option value="anchor_dominance">Anchor Dominance</option>
+          <option value="anchor_balance">Anchor Balance %</option>
+          <option value="avg_total_abs">Total Abs GEX</option>
+          <option value="ndate_desc">Date (newest)</option>
+          <option value="ndate_asc">Date (oldest)</option>
+        </select>
+      </label>
+      <label style="margin-left:16px">Score weights (Dom / Bal / GEX):
+        <label style="font-weight:normal;margin-left:8px"><input type="radio" name="score-weight" value="1,1,1" checked onchange="applySort(document.getElementById('sort-col').value)"> Equal</label>
+        <label style="font-weight:normal;margin-left:6px"><input type="radio" name="score-weight" value="2,1,1" onchange="applySort(document.getElementById('sort-col').value)"> Dom&times;2</label>
+        <label style="font-weight:normal;margin-left:6px"><input type="radio" name="score-weight" value="1,2,1" onchange="applySort(document.getElementById('sort-col').value)"> Bal&times;2</label>
+        <label style="font-weight:normal;margin-left:6px"><input type="radio" name="score-weight" value="1,1,2" onchange="applySort(document.getElementById('sort-col').value)"> GEX&times;2</label>
+      </label>
+      <span class="row-count" id="row-count"></span>
+    </div>
+
+    <div class="tbl-wrap">
+      <table id="magnet-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Date</th>
+            <th>Anchor KS</th>
+            <th>Anchor Time</th>
+            <th>Dom %</th>
+            <th>Balance %</th>
+            <th>Magnet Score</th>
+            <th>Snaps</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="magnet-tbody">
+          <tr><td colspan="9" style="text-align:center;padding:24px;color:#6c757d">
+            Press <strong>Compute Averages</strong> to populate this table, or loading existing data…
+          </td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="pagination" id="pagination"></div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:8px;flex-wrap:wrap">
+      <strong style="font-size:14px">12:00 Screen</strong>
+      <span id="t2-row-count" style="font-size:12px;color:#6c757d"></span>
+      <label style="font-size:12px;display:flex;align-items:center;gap:6px">
+        Dom ≥ <strong id="t2-dom-val">10</strong>%
+        <input type="range" id="t2-dom" min="0" max="50" step="1" value="10"
+               style="width:120px" oninput="t2SliderChange()">
+      </label>
+      <label style="font-size:12px;display:flex;align-items:center;gap:6px">
+        Balance ≥ <strong id="t2-bal-val">67</strong>%
+        <input type="range" id="t2-bal" min="50" max="100" step="1" value="67"
+               style="width:120px" oninput="t2SliderChange()">
+      </label>
+      <label style="margin-left:auto;font-size:12px">Sort:
+        <select id="t2-sort" onchange="applySort1200(this.value)" style="font-size:12px">
+          <option value="dominance">Dominance %</option>
+          <option value="balance">Balance %</option>
+          <option value="ndate_desc">Date (newest)</option>
+          <option value="ndate_asc">Date (oldest)</option>
+        </select>
+      </label>
+    </div>
+    <div class="tbl-wrap">
+      <table id="t2-table">
+        <thead>
+          <tr>
+            <th>Rank</th>
+            <th>Date</th>
+            <th>Strike @ 12:00</th>
+            <th>Dom %</th>
+            <th>Balance %</th>
+            <th>Call GEX</th>
+            <th>Put GEX</th>
+            <th>Snaps</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="t2-tbody">
+          <tr><td colspan="9" style="text-align:center;padding:20px;color:#6c757d">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    let allRows = [];
+    let sortedRows = [];
+    const PAGE_SIZE = 50;
+    let currentPage = 1;
+
+    function fmtDate(ndate) {
+      const s = String(ndate);
+      return s.slice(0,4) + '-' + s.slice(4,6) + '-' + s.slice(6,8);
+    }
+
+    function rankBadge(rank) {
+      if (!rank && rank !== 0) return '<span class="rank-badge">—</span>';
+      const cls = rank === 1 ? 'gold' : rank === 2 ? 'silver' : rank === 3 ? 'bronze' : '';
+      return `<span class="rank-badge ${cls}">#${rank}</span>`;
+    }
+
+    function ratioClass(dev) {
+      if (dev <= 0.05) return 'ratio-perfect';
+      if (dev <= 0.15) return 'ratio-good';
+      if (dev <= 0.35) return 'ratio-ok';
+      return 'ratio-poor';
+    }
+
+    function ksPillClass(pct) {
+      if (pct >= 80) return 'ks-high';
+      if (pct >= 60) return 'ks-med';
+      return 'ks-low';
+    }
+
+    function devBar(dev) {
+      // dev 0 = perfect balance, 3+ = totally imbalanced
+      // Bar width: 0 = narrow (good), wide = bad
+      const maxDev = 2.0;
+      const pct = Math.min(dev / maxDev * 100, 100);
+      const colour = dev <= 0.05 ? '#198754' : dev <= 0.15 ? '#20c997' : dev <= 0.35 ? '#fd7e14' : '#dc3545';
+      return `<div class="dev-bar-wrap">
+        <span style="min-width:36px;font-size:12px">${dev.toFixed(3)}</span>
+        <div class="dev-bar" style="width:${Math.max(pct, 3)}px;background:${colour}"></div>
+      </div>`;
+    }
+
+    function fmtNetGex(v) {
+      if (v == null) return '—';
+      const m = v / 1e6;
+      return (m >= 0 ? '+' : '') + m.toFixed(1) + 'M';
+    }
+
+    async function loadRows() {
+      try {
+        const r = await fetch('/api/magnet/rows');
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const d = await r.json();
+        allRows = d.rows || [];
+        console.log('loadRows: got', allRows.length, 'rows');
+        applySort(document.getElementById('sort-col').value);
+      } catch(e) {
+        console.error('loadRows error:', e);
+        document.getElementById('compute-status').textContent = 'Error loading: ' + e.message;
+        document.getElementById('compute-status').className = 'status-msg status-err';
+      }
+    }
+
+    function getWeights() {
+      const checked = document.querySelector('input[name="score-weight"]:checked');
+      const v = checked ? checked.value : '1,1,1';
+      const parts = v.split(',').map(Number);
+      return { wDom: parts[0]||1, wBal: parts[1]||1, wGex: parts[2]||1 };
+    }
+
+    // Compute abs_gex percentile from allRows for re-scoring with weights
+    function absGexPctile(row) {
+      const sorted = [...allRows].map(r => r.avg_total_abs||0).sort((a,b) => a-b);
+      const n = sorted.length;
+      if (!n) return 0;
+      const v = row.avg_total_abs || 0;
+      const idx = sorted.filter(x => x <= v).length;
+      return idx / n * 100;
+    }
+
+    function weightedScore(row) {
+      const { wDom, wBal, wGex } = getWeights();
+      const dom = row.anchor_dominance || 0;
+      const bal = row.anchor_balance   || 0;
+      const gex = absGexPctile(row);
+      return dom * wDom + bal * wBal + gex * wGex;
+    }
+
+    function applySort(col) {
+      document.getElementById('sort-col').value = col;
+      let rows = [...allRows];
+      if (col === 'magnet_score')       rows.sort((a,b) => weightedScore(b) - weightedScore(a));
+      else if (col === 'anchor_dominance') rows.sort((a,b) => (b.anchor_dominance||0) - (a.anchor_dominance||0));
+      else if (col === 'anchor_balance')   rows.sort((a,b) => (b.anchor_balance||0) - (a.anchor_balance||0));
+      else if (col === 'avg_total_abs')    rows.sort((a,b) => (b.avg_total_abs||0) - (a.avg_total_abs||0));
+      else if (col === 'ndate_desc')       rows.sort((a,b) => b.ndate - a.ndate);
+      else if (col === 'ndate_asc')        rows.sort((a,b) => a.ndate - b.ndate);
+      sortedRows = rows;
+      currentPage = 1;
+      renderTable();
+    }
+
+    function renderTable() {
+      let rows = [...sortedRows];
+
+      document.getElementById('row-count').textContent = rows.length + ' days';
+
+      const total = rows.length;
+      const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+      if (currentPage > totalPages) currentPage = totalPages;
+      const start = (currentPage - 1) * PAGE_SIZE;
+      const pageRows = rows.slice(start, start + PAGE_SIZE);
+
+      const tbody = document.getElementById('magnet-tbody');
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:24px;color:#6c757d">No qualified days — press Compute Averages (then Clear first if recomputing).</td></tr>';
+        document.getElementById('pagination').innerHTML = '';
+        return;
+      }
+
+      const fmtT = t => { const s = String(t).padStart(4,'0'); return s.slice(0,2)+':'+s.slice(2); };
+      const fmtB = (v) => {
+        if (v == null) return '—';
+        const col = v >= 80 ? '#198754' : v >= 67 ? '#20c997' : '#fd7e14';
+        return `<span style="font-weight:600;color:${col}">${v.toFixed(1)}%</span>`;
+      };
+      const fmtDom = (v) => {
+        if (v == null) return '—';
+        const col = v >= 30 ? '#198754' : v >= 20 ? '#fd7e14' : '#dc3545';
+        return `<span style="font-weight:600;color:${col}">${v.toFixed(1)}%</span>`;
+      };
+      const fmtScore = (row) => {
+        const s = weightedScore(row);
+        return `<strong>${s.toFixed(1)}</strong>`;
+      };
+      const fmtAbs = (v) => {
+        if (v == null) return '—';
+        const b = v / 1e9;
+        return b.toFixed(1) + 'B';
+      };
+
+      tbody.innerHTML = pageRows.map((row, i) => {
+        const displayRank = (currentPage - 1) * PAGE_SIZE + i + 1;
+        return `<tr>
+          <td>${rankBadge(displayRank)}</td>
+          <td>${fmtDate(row.ndate)}</td>
+          <td><strong>${row.anchor_ks ?? '—'}</strong></td>
+          <td style="color:#6c757d;font-size:12px">${row.anchor_ntime ? fmtT(row.anchor_ntime) : '—'}</td>
+          <td>${fmtDom(row.anchor_dominance)}</td>
+          <td>${fmtB(row.anchor_balance)}</td>
+          <td title="Dom:${(row.anchor_dominance||0).toFixed(1)} + Bal:${(row.anchor_balance||0).toFixed(1)} + GEX%:${absGexPctile(row).toFixed(1)}">${fmtScore(row)}</td>
+          <td style="color:#6c757d">${row.snap_count ?? '—'}</td>
+          <td><button class="btn-show" onclick="openChartByDate(${row.ndate})">Show Data</button></td>
+        </tr>`;
+      }).join('');
+
+      // Pagination
+      const pg = document.getElementById('pagination');
+      if (totalPages <= 1) { pg.innerHTML = ''; return; }
+      let html = `<span class="page-info">Page ${currentPage} of ${totalPages}</span>`;
+      html += `<button class="page-btn" onclick="goPage(1)" ${currentPage===1?'disabled':''}>«</button>`;
+      html += `<button class="page-btn" onclick="goPage(${currentPage-1})" ${currentPage===1?'disabled':''}>‹</button>`;
+      // window of pages
+      const win = 3;
+      for (let p = Math.max(1, currentPage-win); p <= Math.min(totalPages, currentPage+win); p++) {
+        html += `<button class="page-btn ${p===currentPage?'active':''}" onclick="goPage(${p})">${p}</button>`;
+      }
+      html += `<button class="page-btn" onclick="goPage(${currentPage+1})" ${currentPage===totalPages?'disabled':''}>›</button>`;
+      html += `<button class="page-btn" onclick="goPage(${totalPages})" ${currentPage===totalPages?'disabled':''}>»</button>`;
+      pg.innerHTML = html;
+    }
+
+    function goPage(p) {
+      currentPage = p;
+      renderTable();
+    }
+
+    async function computeAverages() {
+      const btn = document.getElementById('compute-btn');
+      const status = document.getElementById('compute-status');
+      btn.disabled = true;
+      btn.textContent = '⏳ Computing…';
+      status.textContent = 'Running — this may take 10–30 seconds for large datasets…';
+      status.className = 'status-msg';
+
+      try {
+        const r = await fetch('/api/magnet/compute');
+        const d = await r.json();
+        if (d.status === 'ok') {
+          status.textContent = `✓ Done — ${d.computed} new days added, ${d.skipped ?? 0} already present.`;
+          status.className = 'status-msg status-ok';
+          await loadRows();
+          await loadRows1200();
+        } else {
+          status.textContent = 'Error: ' + JSON.stringify(d);
+          status.className = 'status-msg status-err';
+        }
+      } catch(e) {
+        status.textContent = 'Error: ' + e.message;
+        status.className = 'status-msg status-err';
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '▶ Compute Averages';
+      }
+    }
+
+    function openChartByDate(ndate) {
+      const row = allRows.find(r => r.ndate === ndate);
+      if (!row) return;
+      openChart(ndate, row.modal_ks, row.ks_sequence || []);
+    }
+
+    async function openChart(ndate, modalKs, ksSeq) {
+      const dateStr = String(ndate).replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3');
+      document.getElementById('modal-title').textContent = `SPX — ${dateStr}  |  Modal KS: ${modalKs ?? '—'}`;
+      document.getElementById('modal-meta').innerHTML = 'Loading…';
+      document.getElementById('chart-modal').classList.add('open');
+      const fmt = t => { const s = String(t).padStart(4,'0'); return s.slice(0,2)+':'+s.slice(2); };
+
+      // Build stepped key-strike trace from ks_sequence [[ntime, ks], ...]
+      // Uses 'hv' line shape (step-after) so each value holds until the next snapshot
+      function buildKsTrace(xLabels, seq) {
+        if (!seq || !seq.length) return null;
+        // Map each x label to the key strike active at that time
+        // seq is sorted by ntime; for each bar find the last seq entry <= bar ntime
+        const seqNtimes = seq.map(e => e[0]);
+        const xs = [], ys = [];
+        xLabels.forEach(label => {
+          const t = parseInt(label.replace(':', ''));
+          let ks = null;
+          for (let i = 0; i < seq.length; i++) {
+            if (seqNtimes[i] <= t) ks = seq[i][1]; else break;
+          }
+          if (ks !== null) { xs.push(label); ys.push(ks); }
+        });
+        return xs.length ? {
+          type: 'scatter', mode: 'lines',
+          x: xs, y: ys,
+          name: 'Key Strike',
+          line: { color: '#0d6efd', width: 2, dash: 'dot', shape: 'hv' },
+          hovertemplate: 'KS: %{y}<extra></extra>',
+        } : null;
+      }
+
+      try {
+        const r = await fetch(`/api/magnet/spx-chart?date=${dateStr}`);
+        const d = await r.json();
+        const bars = d.spx_bars || [];
+        const snaps = d.snap_prices || [];
+
+        const hasKs = ksSeq && ksSeq.length > 0;
+        document.getElementById('modal-meta').innerHTML =
+          `<span>Date: <strong>${dateStr}</strong></span>` +
+          `<span>Modal KS: <strong>${modalKs ?? '—'}</strong></span>` +
+          (hasKs ? `<span>KS snapshots: <strong>${ksSeq.length}</strong></span>` : '') +
+          (bars.length ? `<span>5-min bars: <strong>${bars.length}</strong></span>` : '<span style="color:#fd7e14">No 5-min data — using GEX snapshot prices</span>');
+
+        if (bars.length) {
+          const candle = {
+            type: 'candlestick',
+            x: bars.map(b => fmt(b.ntime)),
+            open:  bars.map(b => b.open),
+            high:  bars.map(b => b.high),
+            low:   bars.map(b => b.low),
+            close: bars.map(b => b.close),
+            name: 'SPX',
+            increasing: { line: { color: '#198754' } },
+            decreasing: { line: { color: '#dc3545' } },
+          };
+          const xLabels = bars.map(b => fmt(b.ntime));
+          const ksTrace = buildKsTrace(xLabels, ksSeq);
+          const traces = ksTrace ? [candle, ksTrace] : [candle];
+          Plotly.newPlot('chart-container', traces, {
+            xaxis: { title: 'Time (ET)', type: 'category', rangeslider: { visible: false }, tickangle: -45, tickfont: { size: 10 } },
+            yaxis: { title: 'SPX', tickformat: '.0f' },
+            margin: { l: 60, r: 20, t: 20, b: 60 },
+            plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+            showlegend: !!ksTrace, legend: { x: 0, y: 1 },
+            hovermode: 'x unified',
+          }, { responsive: true, displayModeBar: false });
+        } else if (snaps.length) {
+          // Fallback: GEX snapshot price line
+          const trace = {
+            type: 'scatter', mode: 'lines+markers',
+            x: snaps.map(s => fmt(s.ntime)),
+            y: snaps.map(s => s.price),
+            name: 'SPX (GEX snap)', line: { color: '#343a40', width: 2 },
+            marker: { size: 5 },
+          };
+          const xLabels = snaps.map(s => fmt(s.ntime));
+          const ksTrace = buildKsTrace(xLabels, ksSeq);
+          const traces = ksTrace ? [trace, ksTrace] : [trace];
+          Plotly.newPlot('chart-container', traces, {
+            xaxis: { title: 'Time (ET)', type: 'category', rangeslider: { visible: false } },
+            yaxis: { title: 'SPX', tickformat: '.0f' },
+            margin: { l: 60, r: 20, t: 20, b: 60 },
+            plot_bgcolor: '#fff', paper_bgcolor: '#fff',
+            showlegend: !!ksTrace, legend: { x: 0, y: 1 },
+          }, { responsive: true, displayModeBar: false });
+        } else {
+          document.getElementById('chart-container').innerHTML = '<p style="color:#6c757d;padding:20px">No price data available for this date.</p>';
+        }
+      } catch(e) {
+        document.getElementById('modal-meta').innerHTML = '<span style="color:#dc3545">Error: ' + e.message + '</span>';
+      }
+    }
+
+    function closeModal() {
+      document.getElementById('chart-modal').classList.remove('open');
+      Plotly.purge('chart-container');
+    }
+
+    async function clearAverages() {
+      if (!confirm('Clear all computed averages? This cannot be undone.')) return;
+      const btn = document.getElementById('clear-btn');
+      const status = document.getElementById('compute-status');
+      btn.disabled = true;
+      try {
+        const r = await fetch('/api/magnet/clear');
+        const d = await r.json();
+        if (d.status === 'ok') {
+          status.textContent = `✓ Cleared — ${d.deleted} rows deleted.`;
+          status.className = 'status-msg status-ok';
+          allRows = [];
+          sortedRows = [];
+          renderTable();
+          allRows1200 = [];
+          sortedRows1200 = [];
+          renderTable1200();
+        } else {
+          status.textContent = 'Error: ' + JSON.stringify(d);
+          status.className = 'status-msg status-err';
+        }
+      } catch(e) {
+        status.textContent = 'Error: ' + e.message;
+        status.className = 'status-msg status-err';
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // Close on overlay click or ESC
+    document.addEventListener('DOMContentLoaded', () => {
+      document.getElementById('chart-modal').addEventListener('click', e => {
+        if (e.target === document.getElementById('chart-modal')) closeModal();
+      });
+    });
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+    async function loadLive() {
+      const badge = document.getElementById('live-badge');
+      const body  = document.getElementById('live-body');
+      try {
+        const r = await fetch('/api/magnet/live');
+        const d = await r.json();
+        const fmtD = nd => nd ? String(nd).replace(/(\d{4})(\d{2})(\d{2})/, '$1-$2-$3') : '—';
+        const fmtT = t => { const s = String(t).padStart(4,'0'); return s.slice(0,2)+':'+s.slice(2); };
+
+        if (d.status === 'no_data') {
+          badge.textContent = 'NO LIVE DATA';
+          badge.style.background = '#6c757d';
+          body.innerHTML = `<span>${d.message}</span>` +
+            (d.in_rth ? '' : ' <em>(Currently outside RTH 09:30–16:00 ET)</em>');
+          return;
+        }
+        if (d.status === 'insufficient') {
+          badge.textContent = 'INSUFFICIENT';
+          badge.style.background = '#fd7e14';
+          body.innerHTML = `${d.snap_count} snapshot(s) found but metrics could not be computed.`;
+          return;
+        }
+
+        // status === 'ok'
+        const inRth = d.in_rth;
+        badge.textContent = inRth ? 'LIVE' : 'POST-MARKET';
+        badge.style.background = inRth ? '#28a745' : '#fd7e14';
+
+        const domCol = d.median_dominance !== null
+          ? (d.median_dominance >= 30 ? '#28a745' : d.median_dominance >= 20 ? '#fd7e14' : '#dc3545')
+          : '#6c757d';
+
+        const rankCombined = d.prov_rank_combined !== null
+          ? `<strong style="font-size:16px">#${d.prov_rank_combined}</strong> of ${d.total_hist} historical days (combined)`
+          : '—';
+        const rankRatio = d.prov_rank_ratio !== null
+          ? `#${d.prov_rank_ratio} (ratio only)`
+          : '—';
+
+        const ksBreakdown = d.key_strikes_seen ? (() => {
+          const counts = {};
+          d.key_strikes_seen.forEach(k => counts[k] = (counts[k]||0)+1);
+          return Object.entries(counts).sort((a,b)=>b[1]-a[1])
+            .map(([k,c]) => `${k}×${c}`).join(' &nbsp;|&nbsp; ');
+        })() : '';
+
+        body.innerHTML = `
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px 20px;margin-bottom:10px">
+            <div><div style="color:#6c757d;font-size:11px">Date</div><strong>${fmtD(d.ndate)}</strong> <span style="color:#6c757d">(${d.snap_count} snaps, last ${fmtT(d.current_ntime)})</span></div>
+            <div><div style="color:#6c757d;font-size:11px">Key Strike (modal)</div><strong>${d.modal_ks}</strong> <span style="color:#6c757d">(${d.modal_ks_pct}% of snaps)</span></div>
+            <div><div style="color:#6c757d;font-size:11px">Median Ratio</div><strong>${d.median_ratio}</strong> <span style="color:#6c757d">dev ${d.ratio_dev}</span></div>
+            <div><div style="color:#6c757d;font-size:11px">Dominance %</div><strong style="color:${domCol}">${d.median_dominance !== null ? d.median_dominance+'%' : '—'}</strong></div>
+            <div><div style="color:#6c757d;font-size:11px">Provisional Rank</div>${rankCombined}</div>
+            <div><div style="color:#6c757d;font-size:11px">Ratio Rank</div>${rankRatio}</div>
+          </div>
+          ${ksBreakdown ? `<div style="font-size:11px;color:#6c757d">Key strikes seen: ${ksBreakdown}</div>` : ''}`;
+      } catch(e) {
+        document.getElementById('live-badge').textContent = 'ERROR';
+        document.getElementById('live-badge').style.background = '#dc3545';
+        document.getElementById('live-body').textContent = 'Error: ' + e.message;
+      }
+    }
+
+    // Auto-refresh live card every 60 seconds
+    loadLive();
+    setInterval(loadLive, 60000);
+
+    // ---- Table 2: 12:00 Screen ----
+    let allRows1200 = [];
+    let sortedRows1200 = [];
+
+    async function loadRows1200() {
+      try {
+        const r = await fetch('/api/magnet/rows-1200');
+        if (!r.ok) {
+          document.getElementById('t2-tbody').innerHTML =
+            `<tr><td colspan="9" style="text-align:center;color:#dc3545">HTTP ${r.status} — restart server.</td></tr>`;
+          return;
+        }
+        const d = await r.json();
+        allRows1200 = d.rows || [];
+        console.log('loadRows1200: got', allRows1200.length, 'rows');
+        applySort1200(document.getElementById('t2-sort').value);
+      } catch(e) {
+        console.error('loadRows1200 error:', e);
+        document.getElementById('t2-tbody').innerHTML =
+          `<tr><td colspan="9" style="text-align:center;color:#dc3545">Error: ${e.message}</td></tr>`;
+      }
+    }
+
+    function t2SliderChange() {
+      const domV = document.getElementById('t2-dom').value;
+      const balV = document.getElementById('t2-bal').value;
+      document.getElementById('t2-dom-val').textContent = domV;
+      document.getElementById('t2-bal-val').textContent = balV;
+      applySort1200(document.getElementById('t2-sort').value);
+    }
+
+    function applySort1200(col) {
+      const minDom = parseFloat(document.getElementById('t2-dom').value) || 0;
+      const minBal = parseFloat(document.getElementById('t2-bal').value) || 0;
+      let rows = allRows1200.filter(r =>
+        (r.snap_1200_dominance || 0) >= minDom &&
+        (r.snap_1200_balance   || 0) >= minBal
+      );
+      if (col === 'dominance')       rows.sort((a,b) => (b.snap_1200_dominance||0) - (a.snap_1200_dominance||0));
+      else if (col === 'balance')    rows.sort((a,b) => (b.snap_1200_balance||0)   - (a.snap_1200_balance||0));
+      else if (col === 'ndate_desc') rows.sort((a,b) => b.ndate - a.ndate);
+      else if (col === 'ndate_asc')  rows.sort((a,b) => a.ndate - b.ndate);
+      sortedRows1200 = rows;
+      renderTable1200();
+    }
+
+    function renderTable1200() {
+      const tbody = document.getElementById('t2-tbody');
+      document.getElementById('t2-row-count').textContent = sortedRows1200.length + ' days';
+      if (!sortedRows1200.length) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center;padding:20px;color:#6c757d">No qualifying days — Clear &amp; Recompute to populate.</td></tr>';
+        return;
+      }
+      const fmtGex = v => {
+        if (v == null) return '—';
+        const b = v / 1e9;
+        return (b >= 0 ? '+' : '') + b.toFixed(2) + 'B';
+      };
+      const fmtDom = v => {
+        if (v == null) return '—';
+        const col = v >= 30 ? '#198754' : v >= 20 ? '#fd7e14' : '#6c757d';
+        return `<span style="font-weight:600;color:${col}">${v.toFixed(1)}%</span>`;
+      };
+      const fmtBal = v => {
+        if (v == null) return '—';
+        const col = v >= 90 ? '#198754' : v >= 80 ? '#20c997' : '#6c757d';
+        return `<span style="font-weight:600;color:${col}">${v.toFixed(1)}%</span>`;
+      };
+      tbody.innerHTML = sortedRows1200.map((row, i) => `
+        <tr>
+          <td>${rankBadge(i + 1)}</td>
+          <td>${fmtDate(row.ndate)}</td>
+          <td><strong>${row.snap_1200_ks ?? '—'}</strong></td>
+          <td>${fmtDom(row.snap_1200_dominance)}</td>
+          <td>${fmtBal(row.snap_1200_balance)}</td>
+          <td style="font-size:12px;color:#198754">${fmtGex(row.snap_1200_call_gex)}</td>
+          <td style="font-size:12px;color:#dc3545">${fmtGex(row.snap_1200_put_gex)}</td>
+          <td style="color:#6c757d">${row.snap_count ?? '—'}</td>
+          <td><button class="btn-show" onclick="openChartByDate1200(${row.ndate})">Show Data</button></td>
+        </tr>`).join('');
+    }
+
+    function openChartByDate1200(ndate) {
+      const row = allRows1200.find(r => r.ndate === ndate);
+      if (!row) return;
+      openChart(ndate, row.snap_1200_ks, row.ks_sequence || []);
+    }
+
+    // Load any existing data on page open
+    loadRows();
+    loadRows1200();
+  </script>
+
+  <!-- Chart Modal -->
+  <div class="modal-overlay" id="chart-modal">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="modal-title">SPX Chart</h3>
+        <button class="modal-close" onclick="closeModal()">&#x2715;</button>
+      </div>
+      <div class="modal-body">
+        <div class="modal-meta" id="modal-meta"></div>
+        <div id="chart-container"></div>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
