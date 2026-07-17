@@ -744,6 +744,14 @@ CREATE TABLE wall_performance_history (
 ### `/spx` - SPX Page
 **Purpose:** SPX data visualization
 
+### `/magnet` - Magnet Days Page
+**Purpose:** View historical magnet/pinning days and 12:00 ET dominance screen  
+**Features:**
+- **Magnet Score Table:** Days where one key strike dominated the full RTH session (`qualified = 1`), sorted by `magnet_score` descending.
+- **12:00 Screen:** Days where the 12:00 ET snapshot showed a dominant balanced strike (`snap_1200_ks IS NOT NULL`), sorted by `snap_1200_dominance` descending.
+- **Controls:** `Compute Averages` (calls `/api/magnet/compute` and refreshes both tables), `Clear Averages` (calls `/api/magnet/clear` and empties both tables), sort/filter inputs per table.
+**API endpoints:** `/api/magnet/compute`, `/api/magnet/clear`, `/api/magnet/rows`, `/api/magnet/rows-1200`, `/api/magnet/live`
+
 ---
 
 ## 5. Key Architectural Decisions
@@ -909,6 +917,11 @@ optionalpha-monitor/
 ---
 
 ## 11. Version History
+
+**2026-07-17:**
+- Fixed Magnet Days tab frontend: `clearAverages()` now clears both tables (`allRows1200`/`sortedRows1200`) and `computeAverages()` reloads both `/api/magnet/rows` and `/api/magnet/rows-1200`.
+- Added standalone analysis scripts and reports: `bocca_gap_analysis.py` / `analysis_bocca_gap.md` and `analysis_orb60.md`.
+- Documented `NEG_GAMMA` trade signal rationale source in `gex_viewer.py` setup branch.
 
 **2026-07-15:**
 - Audited and updated database schema documentation to match current `gex.db`.
