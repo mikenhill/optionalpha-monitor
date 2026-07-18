@@ -1,5 +1,37 @@
 # Session Notes
 
+## Markdown files reference
+
+All markdown files in this project are indexed in `@G:\My Drive\Colab Notebooks\optionalpha-monitor\MASTER_MD_INDEX.md`.
+
+## 2026-07-18
+
+### Active Work
+Update legacy machine-learning notebooks to use OptionAlpha SPX/GEX data and current library versions.
+
+### Changes Made
+
+1. **Created standalone `.py` adaptations of the ML notebooks**
+   - All scripts live under `machine_learning_python\CODE\*_optionalpha.py` and read from `gex.db` (`spx_ohlc_5min` and `gex_strike_window`).
+   - Verified end-to-end runs for data preprocessing, HMM regimes, HMM-in-practice, and XGBoost feature selection/binary classification.
+   - Key finding: GEX attributes rank below volatility and moving-average features for direction prediction, confirming GEX is more useful for volatility/regime than directional price forecasting.
+
+2. **Added `ML_Scripts_User_Guide.md`**
+   - Location: `@G:\My Drive\Colab Notebooks\machine_learning_python\ML_Scripts_User_Guide.md`
+   - Contains run instructions, package list, script walk-through, result interpretation, and application recommendations for the GEX viewer.
+
+3. **Created `MASTER_MD_INDEX.md`**
+   - Location: `@G:\My Drive\Colab Notebooks\optionalpha-monitor\MASTER_MD_INDEX.md`
+   - Master index listing every markdown file in the project with its purpose, including design docs, session logs, bot analyses, auto-generated daily reports, and the ML scripts guide.
+
+### Server Status
+- Flask app not running on port 5050 during this session (no live data updates were performed).
+
+### Pending Items
+- Verify K-Means, PCA, deep-learning, and PPO scripts end-to-end when the database is not busy.
+- Decide whether to integrate any of the ML signals into the GEX viewer (e.g., `volatility_regime`, `ml_features` table, or feature-importance endpoint).
+- Integrate the best ML model/signal into the GEX viewer as a research endpoint, kept separate from the main app logic.
+
 ## 2026-07-17
 
 ### Active Work
